@@ -275,7 +275,7 @@ function UsersContent() {
       // (메인 auth는 HR 관리자로 유지되므로 Firestore 권한 정상)
       await createUser(cred.user.uid, {
         email: user.email, name: user.name, role: user.role,
-        organizationId: user.organizationId, position: user.position,
+        organizationId: user.organizationId, position: user.position ?? '',
         isHrAdmin: user.isHrAdmin,
         isActive: true,
       });
