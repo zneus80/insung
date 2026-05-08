@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Plus, Pencil, UserX, Download, Upload, AlertCircle, Trash2, Mail, Copy, Check, UserCheck } from 'lucide-react';
+import { Plus, Pencil, UserX, Download, Upload, AlertCircle, Trash2, Mail, Copy, Check, UserCheck, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import type { User, Organization, UserRole } from '@/types';
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -290,6 +290,24 @@ function UsersContent() {
     }
   }
 
+  async function handleResetPassword(user: User) {
+    if (!confirm(`${user.name}님의 비밀번호를 초기화하시겠습니까?\n초기 비밀번호: 1q2w3e4r!`)) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.id }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      toast.success(`${user.name}님의 비밀번호가 초기화되었습니다. (1q2w3e4r!)`);
+    } catch (e: any) {
+      toast.error(`비밀번호 초기화 실패: ${e?.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -424,9 +442,14 @@ function UsersContent() {
                           </button>
                         </>
                       ) : (
-                        <button onClick={() => toggleActive(user)} className="p-1.5 rounded hover:bg-gray-100" title="비활성화">
-                          <UserX className="h-3.5 w-3.5 text-orange-400" />
-                        </button>
+                        <>
+                          <button onClick={() => handleResetPassword(user)} className="p-1.5 rounded hover:bg-gray-100" title="비밀번호 초기화 (1q2w3e4r!)">
+                            <KeyRound className="h-3.5 w-3.5 text-purple-400" />
+                          </button>
+                          <button onClick={() => toggleActive(user)} className="p-1.5 rounded hover:bg-gray-100" title="비활성화">
+                            <UserX className="h-3.5 w-3.5 text-orange-400" />
+                          </button>
+                        </>
                       )}
                       <button onClick={() => setDeleteTarget(user)} className="p-1.5 rounded hover:bg-gray-100" title="삭제">
                         <Trash2 className="h-3.5 w-3.5 text-red-400" />
