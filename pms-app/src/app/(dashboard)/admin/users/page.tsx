@@ -240,7 +240,7 @@ function UsersContent() {
           email: form.email, name: form.name, role: form.role,
           organizationId: form.organizationId || '',
           position: form.position || undefined,
-          isHrAdmin: form.isHrAdmin || undefined,
+          isHrAdmin: form.isHrAdmin,
           isActive: false,
         });
         toast.success('사용자가 등록되었습니다. 초대 또는 직접 등록 버튼으로 계정을 활성화하세요.');
