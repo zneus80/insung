@@ -62,8 +62,9 @@ export async function getUser(uid: string): Promise<User | null> {
 }
 
 export async function createUser(uid: string, data: Omit<User, 'id' | 'createdAt' | 'updatedAt'>) {
+  const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
   await setDoc(doc(db, COLLECTIONS.USERS, uid), {
-    ...data,
+    ...clean,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
