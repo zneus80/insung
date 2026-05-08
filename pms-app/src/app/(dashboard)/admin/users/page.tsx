@@ -117,8 +117,8 @@ function UsersContent() {
       email: user.email,
       name: user.name,
       role: user.role,
-      organizationId: user.organizationId || undefined,
-      position: user.position || undefined,
+      organizationId: user.organizationId || '',
+      position: user.position || '',
       createdBy: userProfile.id,
     });
     const link = `${window.location.origin}/invite/${token}`;
@@ -182,13 +182,13 @@ function UsersContent() {
         try {
           if (existingEmails.has(email)) {
             const existing = users.find(u => u.email.toLowerCase() === email)!;
-            await updateUser(existing.id, { name, role, organizationId, position: position || undefined });
+            await updateUser(existing.id, { name, role, organizationId, position: position || '' });
           } else {
             // 사용자 정보만 저장 (초대는 별도로 진행)
             await createUser(crypto.randomUUID(), {
               email, name, role,
               organizationId: organizationId || '',
-              position: position || undefined,
+              position: position || '',
               isActive: false,
             });
             existingEmails.add(email);
@@ -239,7 +239,7 @@ function UsersContent() {
         await createUser(crypto.randomUUID(), {
           email: form.email, name: form.name, role: form.role,
           organizationId: form.organizationId || '',
-          position: form.position || undefined,
+          position: form.position || '',
           isHrAdmin: form.isHrAdmin,
           isActive: false,
         });
@@ -276,7 +276,7 @@ function UsersContent() {
       await createUser(cred.user.uid, {
         email: user.email, name: user.name, role: user.role,
         organizationId: user.organizationId, position: user.position,
-        isHrAdmin: user.isHrAdmin || undefined,
+        isHrAdmin: user.isHrAdmin,
         isActive: true,
       });
       if (user.id !== cred.user.uid) await deleteUser(user.id);

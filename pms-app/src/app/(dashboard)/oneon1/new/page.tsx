@@ -41,7 +41,7 @@ export default function NewOneOnOnePage() {
         leaderId: isLead ? userProfile.id : counterpartId,
         memberId: isLead ? counterpartId : userProfile.id,
         organizationId: userProfile.organizationId,
-        title: title.trim() || undefined,
+        title: title.trim() || '',
       });
       toast.success('1on1 대화가 시작되었습니다.');
       router.push(`/oneon1/${id}`);
