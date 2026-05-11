@@ -14,6 +14,7 @@ import {
   Star,
   Flag,
   LogOut,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -37,9 +38,15 @@ const navItems: NavItem[] = [
   },
   // ── 팀원 / 팀장 전용 ────────────────────────────
   {
-    label: '내 목표',
+    label: '목표관리',
     href: '/goals',
     icon: <Target className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+  },
+  {
+    label: 'CDP',
+    href: '/cdp',
+    icon: <BookOpen className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
   },
   // ── 진행현황 (팀원/팀장) ──────────────────────
