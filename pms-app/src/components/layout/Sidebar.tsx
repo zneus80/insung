@@ -14,6 +14,7 @@ import {
   Star,
   Flag,
   LogOut,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -63,6 +64,13 @@ const navItems: NavItem[] = [
     href: '/approvals',
     icon: <CheckSquare className="h-5 w-5" />,
     roles: ['TEAM_LEAD', 'EXECUTIVE'],
+  },
+  // ── 평가 (연말 인사평가) ───────────────────────
+  {
+    label: '평가',
+    href: '/performance',
+    icon: <FileText className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
   },
   // ── 평가 관리 ──────────────────────────────────
   {

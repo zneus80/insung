@@ -29,6 +29,11 @@ export default function LoginPage() {
   const [testLoading, setTestLoading] = useState<string | null>(null);
 
   useEffect(() => {
+    // 목업 모드: 로그인 없이 바로 대시보드
+    if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
+      router.replace('/dashboard');
+      return;
+    }
     if (!loading && firebaseUser) {
       router.replace('/dashboard');
     }

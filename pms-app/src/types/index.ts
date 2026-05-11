@@ -65,6 +65,7 @@ export interface Goal {
   description: string;          // 세부추진내용
   dueDate: Date;                // 추진기한
   weight: number;               // 가중치 (%)
+  category?: 'TASK' | 'GENERAL'; // 과제업무 | 일반업무 (swpark 브랜치에서 추가 예정)
 
   status: GoalStatus;
   progress: number;             // 진행률 0~100
@@ -290,6 +291,31 @@ export interface DivisionGradeQuota {
   confirmedBy?: string;         // HR_ADMIN userId
   confirmedAt?: Date;
   updatedBy: string;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 연말 인사평가 (평가 카테고리)
+// ─────────────────────────────────────────────
+
+// 과제업무별 세부요약
+export interface TaskSummaryEntry {
+  goalId: string;
+  goalTitle: string;
+  summary: string; // 본인이 작성하는 세부요약
+}
+
+export type YearEndEvalStatus = 'DRAFT' | 'SUBMITTED';
+
+export interface YearEndEval {
+  id: string;               // `${userId}_${year}`
+  userId: string;
+  organizationId: string;
+  cycleYear: number;
+  taskSummaries: TaskSummaryEntry[]; // 과제업무 세부요약 목록
+  status: YearEndEvalStatus;
+  submittedAt?: Date;
+  createdAt: Date;
   updatedAt: Date;
 }
 

@@ -20,7 +20,7 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -41,6 +41,7 @@ export const COLLECTIONS = {
   ORG_GRADE_HISTORIES: 'orgGradeHistories',
   DIVISION_GRADE_QUOTAS: 'divisionGradeQuotas',
   SELF_EVALUATIONS: 'selfEvaluations',
+  YEAR_END_EVALS: 'yearEndEvals',
 } as const;
 
 // ─── Timestamp 변환 유틸 ──────────────────────
@@ -754,4 +755,37 @@ export async function getAllDivisionGradeQuotas(cycleYear: number): Promise<Divi
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
     confirmedAt: fromTimestamp(d.data().confirmedAt),
   } as DivisionGradeQuota));
+}
+
+// ─── 연말 인사평가 (YearEndEval) ──────────────
+function yearEndEvalDocId(userId: string, year: number) {
+  return `${userId}_${year}`;
+}
+
+export async function getYearEndEval(userId: string, year: number): Promise<YearEndEval | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.YEAR_END_EVALS, yearEndEvalDocId(userId, year)));
+  if (!snap.exists()) return null;
+  const d = snap.data();
+  return {
+    ...d,
+    id: snap.id,
+    submittedAt: fromTimestamp(d.submittedAt),
+    createdAt: fromTimestamp(d.createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
+  } as YearEndEval;
+}
+
+export async function upsertYearEndEval(
+  userId: string,
+  year: number,
+  data: Omit<YearEndEval, 'id' | 'createdAt' | 'updatedAt'>
+) {
+  const id = yearEndEvalDocId(userId, year);
+  const ref = doc(db, COLLECTIONS.YEAR_END_EVALS, id);
+  const existing = await getDoc(ref);
+  if (existing.exists()) {
+    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
+  } else {
+    await setDoc(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  }
 }
