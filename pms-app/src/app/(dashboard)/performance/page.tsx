@@ -11,6 +11,54 @@ import { toast } from 'sonner';
 import { Send, Save, CheckCircle2, ClipboardList, ListChecks } from 'lucide-react';
 import type { Goal, YearEndEval, TaskSummaryEntry } from '@/types';
 
+const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
+
+// 목업 모드용 샘플 데이터
+const MOCK_GOALS: Goal[] = [
+  {
+    id: 'mock-task-1', userId: 'mock-member-001', organizationId: 'mock-org-001',
+    cycleYear: new Date().getFullYear(), category: 'TASK',
+    title: '신규 고객사 영업 프로세스 개선', description: '영업 프로세스 표준화 및 CRM 도입',
+    dueDate: new Date(), weight: 30, status: 'COMPLETED', progress: 100,
+    createdAt: new Date(), updatedAt: new Date(),
+  },
+  {
+    id: 'mock-task-2', userId: 'mock-member-001', organizationId: 'mock-org-001',
+    cycleYear: new Date().getFullYear(), category: 'TASK',
+    title: '팀 역량 강화 교육 프로그램 운영', description: '분기별 사내 교육 3회 이상 진행',
+    dueDate: new Date(), weight: 20, status: 'IN_PROGRESS', progress: 60,
+    createdAt: new Date(), updatedAt: new Date(),
+  },
+  {
+    id: 'mock-task-3', userId: 'mock-member-001', organizationId: 'mock-org-001',
+    cycleYear: new Date().getFullYear(), category: 'TASK',
+    title: '원가 절감 프로젝트', description: '구매 비용 5% 절감 달성',
+    dueDate: new Date(), weight: 20, status: 'ABANDONED', progress: 30,
+    createdAt: new Date(), updatedAt: new Date(),
+  },
+  {
+    id: 'mock-general-1', userId: 'mock-member-001', organizationId: 'mock-org-001',
+    cycleYear: new Date().getFullYear(), category: 'GENERAL',
+    title: '주간 업무보고서 작성 및 제출', description: '매주 금요일 업무보고서 제출',
+    dueDate: new Date(), weight: 15, status: 'COMPLETED', progress: 100,
+    createdAt: new Date(), updatedAt: new Date(),
+  },
+  {
+    id: 'mock-general-2', userId: 'mock-member-001', organizationId: 'mock-org-001',
+    cycleYear: new Date().getFullYear(), category: 'GENERAL',
+    title: '부서 회의 준비 및 진행', description: '월간 부서 회의 안건 정리 및 진행',
+    dueDate: new Date(), weight: 15, status: 'COMPLETED', progress: 100,
+    createdAt: new Date(), updatedAt: new Date(),
+  },
+  {
+    id: 'mock-general-3', userId: 'mock-member-001', organizationId: 'mock-org-001',
+    cycleYear: new Date().getFullYear(), category: 'GENERAL',
+    title: '고객 문의 대응', description: '고객 문의 24시간 내 응답',
+    dueDate: new Date(), weight: 0, status: 'REJECTED', progress: 0,
+    createdAt: new Date(), updatedAt: new Date(),
+  },
+];
+
 // 목표 상태 한글 표시
 const STATUS_LABEL: Partial<Record<string, string>> = {
   COMPLETED:      '완료',
@@ -54,14 +102,21 @@ function PerformanceContent() {
     if (!userProfile) return;
     setLoading(true);
     try {
-      const [goals, record] = await Promise.all([
-        getGoalsByUser(userProfile.id, year),
-        getYearEndEval(userProfile.id, year),
-      ]);
+      let goals: Goal[] = [];
+      let record: YearEndEval | null = null;
+
+      if (IS_MOCK) {
+        // 목업 모드: 샘플 데이터 사용
+        goals = MOCK_GOALS;
+      } else {
+        [goals, record] = await Promise.all([
+          getGoalsByUser(userProfile.id, year),
+          getYearEndEval(userProfile.id, year),
+        ]);
+      }
 
       // swpark 브랜치에서 category 필드 추가 예정
-      // category 없을 경우 임시로 전체를 과제업무로 분류 (swpark 병합 후 정상 동작)
-      const taskList = goals.filter(g => g.category === 'TASK' || (!g.category));
+      const taskList = goals.filter(g => g.category === 'TASK' || !g.category);
       const generalList = goals.filter(g => g.category === 'GENERAL');
 
       setTaskGoals(taskList);
@@ -93,17 +148,34 @@ function PerformanceContent() {
         summary: summaries[g.id] ?? '',
       }));
 
-      await upsertYearEndEval(userProfile.id, year, {
-        userId: userProfile.id,
-        organizationId: userProfile.organizationId,
-        cycleYear: year,
-        taskSummaries,
-        status: submit ? 'SUBMITTED' : 'DRAFT',
-        ...(submit ? { submittedAt: new Date() } : {}),
-      });
+      if (!IS_MOCK) {
+        await upsertYearEndEval(userProfile.id, year, {
+          userId: userProfile.id,
+          organizationId: userProfile.organizationId,
+          cycleYear: year,
+          taskSummaries,
+          status: submit ? 'SUBMITTED' : 'DRAFT',
+          ...(submit ? { submittedAt: new Date() } : {}),
+        });
+      }
+
+      // 목업 모드: 로컬 상태만 업데이트
+      if (submit) {
+        setEvalRecord({
+          id: `${userProfile.id}_${year}`,
+          userId: userProfile.id,
+          organizationId: userProfile.organizationId,
+          cycleYear: year,
+          taskSummaries,
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
 
       toast.success(submit ? '제출 완료되었습니다.' : '임시저장 되었습니다.');
-      await load();
+      if (!IS_MOCK) await load();
     } catch {
       toast.error('저장에 실패했습니다.');
     } finally {
