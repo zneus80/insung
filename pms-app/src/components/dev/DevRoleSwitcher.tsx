@@ -13,13 +13,12 @@ const ROLE_ACCOUNTS = [
 ];
 
 const PASSWORD = 'Insung@1234!';
-const IS_DEV = process.env.NODE_ENV === 'development';
 
 export default function DevRoleSwitcher() {
   const { userProfile } = useAuth();
   const [switching, setSwitching] = useState<string | null>(null);
 
-  if (!IS_DEV) return null;
+  if (!userProfile) return null;
 
   async function handleSwitch(email: string) {
     if (userProfile?.email === email) return;
