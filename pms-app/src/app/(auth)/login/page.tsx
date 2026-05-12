@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { signInWithGoogle, signInWithTestAccount, isEmulator } from '@/lib/auth';
+import { signInWithGoogle, signInWithTestAccount } from '@/lib/auth';
 import { getUser } from '@/lib/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -11,11 +11,12 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
 const TEST_ACCOUNTS = [
-  { label: 'HR관리자',   email: 'sslee@insungind.co.kr',  password: 'Insung@1234!' },
-  { label: '최고관리자', email: 'sslee1@insungind.co.kr', password: 'Insung@1234!' },
-  { label: '임원',       email: 'sslee4@insungind.co.kr', password: 'Insung@1234!' },
-  { label: '팀장',       email: 'sslee3@insungind.co.kr', password: 'Insung@1234!' },
-  { label: '팀원',       email: 'sslee2@insungind.co.kr', password: 'Insung@1234!' },
+  { label: 'HR관리자',   email: 'sslee@insungind.co.kr',          password: 'Insung@1234!' },
+  { label: '최고관리자', email: 'sslee1@insungind.co.kr',         password: 'Insung@1234!' },
+  { label: '임원',       email: 'sslee4@insungind.co.kr',         password: 'Insung@1234!' },
+  { label: '팀장',       email: 'sslee3@insungind.co.kr',         password: 'Insung@1234!' },
+  { label: '팀원',       email: 'sslee2@insungind.co.kr',         password: 'Insung@1234!' },
+  { label: '인사팀(nhlee)', email: 'namhoon.lee@insungind.co.kr', password: 'Insung@1234!' },
 ];
 
 export default function LoginPage() {
@@ -28,6 +29,11 @@ export default function LoginPage() {
   const [testLoading, setTestLoading] = useState<string | null>(null);
 
   useEffect(() => {
+    // 목업 모드: 로그인 없이 바로 대시보드
+    if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
+      router.replace('/dashboard');
+      return;
+    }
     if (!loading && firebaseUser) {
       router.replace('/dashboard');
     }
@@ -163,39 +169,36 @@ export default function LoginPage() {
           Google 계정으로 로그인
         </Button>
 
-        {/* 에뮬레이터 전용: 빠른 로그인 */}
-        {isEmulator && (
-          <div className="border-t border-dashed border-gray-200 pt-4">
-            <p className="mb-3 text-center text-xs font-medium text-orange-500">
-              🧪 개발 환경 — 빠른 로그인
-            </p>
-            <div className="space-y-1.5">
-              {TEST_ACCOUNTS.map((account) => (
-                <button
-                  key={account.email}
-                  onClick={async () => {
-                    setTestLoading(account.email);
-                    try {
-                      await signInWithTestAccount(account.email, account.password);
-                      router.replace('/dashboard');
-                    } catch {
-                      toast.error(`로그인 실패: ${account.label}`);
-                    } finally {
-                      setTestLoading(null);
-                    }
-                  }}
-                  disabled={testLoading !== null || emailLoading}
-                  className="w-full rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-left text-xs hover:bg-orange-100 disabled:opacity-50 transition-colors"
-                >
-                  <span className="font-semibold text-orange-700">{account.label}</span>
-                  <span className="ml-2 text-orange-400">{account.email}</span>
-                  {testLoading === account.email && ' 로그인 중...'}
-                </button>
-              ))}
-            </div>
-            <p className="mt-2 text-center text-[10px] text-gray-400">공통 비밀번호: Insung@1234!</p>
+        {/* 빠른 로그인 (계정 전환용) */}
+        <div className="border-t border-dashed border-gray-200 pt-4">
+          <p className="mb-3 text-center text-xs font-medium text-blue-500">
+            빠른 로그인
+          </p>
+          <div className="space-y-1.5">
+            {TEST_ACCOUNTS.map((account) => (
+              <button
+                key={account.email}
+                onClick={async () => {
+                  setTestLoading(account.email);
+                  try {
+                    await signInWithTestAccount(account.email, account.password);
+                    router.replace('/dashboard');
+                  } catch {
+                    toast.error(`로그인 실패: ${account.label}`);
+                  } finally {
+                    setTestLoading(null);
+                  }
+                }}
+                disabled={testLoading !== null || emailLoading}
+                className="w-full rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-left text-xs hover:bg-blue-100 disabled:opacity-50 transition-colors"
+              >
+                <span className="font-semibold text-blue-700">{account.label}</span>
+                <span className="ml-2 text-blue-400">{account.email}</span>
+                {testLoading === account.email && <span className="ml-1 text-blue-500">로그인 중...</span>}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

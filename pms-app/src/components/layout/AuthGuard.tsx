@@ -23,14 +23,19 @@ function canAccess(
   return roleOk || hrOk;
 }
 
+const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
+
 export default function AuthGuard({ children, allowedRoles, requireHrAdmin }: AuthGuardProps) {
   const { firebaseUser, userProfile, loading } = useAuth();
   const router = useRouter();
 
+  // 목업 모드: userProfile이 있으면 인증된 것으로 처리
+  const isAuthenticated = IS_MOCK ? !!userProfile : !!firebaseUser;
+
   useEffect(() => {
     if (loading) return;
 
-    if (!firebaseUser) {
+    if (!isAuthenticated) {
       router.replace('/login');
       return;
     }
@@ -38,7 +43,7 @@ export default function AuthGuard({ children, allowedRoles, requireHrAdmin }: Au
     if ((allowedRoles || requireHrAdmin) && userProfile && !canAccess(userProfile, allowedRoles, requireHrAdmin)) {
       router.replace('/dashboard');
     }
-  }, [firebaseUser, userProfile, loading, allowedRoles, requireHrAdmin, router]);
+  }, [isAuthenticated, userProfile, loading, allowedRoles, requireHrAdmin, router]);
 
   if (loading) {
     return (
@@ -48,7 +53,7 @@ export default function AuthGuard({ children, allowedRoles, requireHrAdmin }: Au
     );
   }
 
-  if (!firebaseUser) return null;
+  if (!isAuthenticated) return null;
 
   if ((allowedRoles || requireHrAdmin) && userProfile && !canAccess(userProfile, allowedRoles, requireHrAdmin)) {
     return null;
