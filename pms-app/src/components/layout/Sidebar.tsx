@@ -14,6 +14,9 @@ import {
   Star,
   Flag,
   LogOut,
+  BookOpen,
+  FileText,
+  MessageSquareHeart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -40,6 +43,24 @@ const navItems: NavItem[] = [
     label: '내 목표',
     href: '/goals',
     icon: <Target className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+  },
+  {
+    label: 'CDP',
+    href: '/cdp',
+    icon: <BookOpen className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+  },
+  {
+    label: '평가',
+    href: '/performance',
+    icon: <FileText className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+  },
+  {
+    label: '육성면담서',
+    href: '/mentoring',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
   },
   // ── 진행현황 (팀원/팀장) ──────────────────────
