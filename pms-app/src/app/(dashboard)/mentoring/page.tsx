@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
   Save, Send, CheckCircle2, User, Briefcase, GraduationCap,
-  TrendingUp, MapPin, BookOpen, MessageSquare, ChevronRight,
+  TrendingUp, MapPin, BookOpen, MessageSquare, ChevronRight, RefreshCw,
 } from 'lucide-react';
 import type { MentoringForm, JobRequestType } from '@/types';
 
@@ -28,6 +28,17 @@ const EMPTY_FORM: Omit<MentoringForm, 'id' | 'userId' | 'organizationId' | 'cycl
   desiredLocation1: '', desiredLocation2: '', locationChangeReason: '',
   languageType: '', languagePurpose: '', additionalEducation: '',
   selfOpinion: '', interviewerOpinion: '',
+};
+
+// 연도가 바뀌어도 이어받을 필드 목록
+const CARRY_OVER_FIELDS = ['lastSchoolMajor', 'familyInfo', 'commute', 'currentPosition', 'promotionDate'] as const;
+
+const MOCK_PREV_FORM = {
+  lastSchoolMajor: '한국대학교 / 경영학과',
+  familyInfo: '배우자, 자녀 1명',
+  commute: '서울 마포구 (편도 45분)',
+  currentPosition: '대리 / 영업1팀',
+  promotionDate: '2023-03-01',
 };
 
 const JOB_REQUEST_OPTIONS: { value: JobRequestType; label: string }[] = [
@@ -53,6 +64,7 @@ function MentoringContent() {
   const [status, setStatus] = useState<MentoringForm['status']>('DRAFT');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [carriedOver, setCarriedOver] = useState(false); // 이전 데이터 불러왔는지 여부
 
   const set = (field: string, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
@@ -61,12 +73,30 @@ function MentoringContent() {
     if (!userProfile) return;
     setLoading(true);
     try {
-      if (!IS_MOCK) {
+      if (IS_MOCK) {
+        // 목업: 이전 폼 데이터 자동 세팅
+        setForm(prev => ({ ...prev, ...MOCK_PREV_FORM }));
+        setCarriedOver(true);
+      } else {
+        // 현재 연도 폼 먼저 조회
         const record = await getMentoringForm(userProfile.id, year);
         if (record) {
           const { id, userId, organizationId, cycleYear, createdAt, updatedAt, status: s, submittedAt, ...rest } = record;
           setForm(rest);
           setStatus(s);
+        } else {
+          // 현재 연도 폼 없으면 작년 폼에서 고정 필드 불러오기
+          const prevRecord = await getMentoringForm(userProfile.id, year - 1);
+          if (prevRecord) {
+            const patch: Partial<typeof EMPTY_FORM> = {};
+            CARRY_OVER_FIELDS.forEach(f => {
+              if (prevRecord[f]) patch[f] = prevRecord[f];
+            });
+            if (Object.keys(patch).length > 0) {
+              setForm(prev => ({ ...prev, ...patch }));
+              setCarriedOver(true);
+            }
+          }
         }
       }
     } finally {
@@ -134,6 +164,14 @@ function MentoringContent() {
               </span>
             )}
           </div>
+
+          {/* 이전 데이터 불러오기 안내 */}
+          {carriedOver && !isSubmitted && (
+            <div className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-2.5 text-xs text-blue-700">
+              <RefreshCw className="h-3.5 w-3.5 shrink-0" />
+              최종학교/전공, 가족사항, 거주지, 현 직위, 승진일을 이전 저장 데이터로 자동 불러왔습니다. 내용을 확인하고 수정하세요.
+            </div>
+          )}
 
           {/* ── 섹션 1: 기본 정보 ── */}
           <SectionCard icon={<User className="h-4 w-4" />} title="기본 정보" color="blue">
@@ -314,23 +352,12 @@ function MentoringContent() {
 
           {/* ── 섹션 7: II. 종합의견 ── */}
           <SectionCard icon={<MessageSquare className="h-4 w-4" />} title="II. 종합의견" color="gray">
-            <div className="space-y-4">
-              <Field label="작성자 종합의견"
-                hint="CDP, 5S와 6E 작성 내용들을 종합한 1년간의 자기평가와 함께 회사에 대한 요청사항 등을 자유롭게 기술하세요.">
-                <Textarea placeholder="본인의 1년간 성과와 성장에 대한 자기평가, 회사에 대한 요청사항 등을 자유롭게 작성하세요."
-                  value={form.selfOpinion} disabled={isSubmitted} rows={6}
-                  className="resize-none" onChange={e => set('selfOpinion', e.target.value)} />
-              </Field>
-              <div className="border-t border-dashed border-gray-200 pt-4">
-                <Field label="면담자 종합의견"
-                  hint="직원의 담당 직무에 대한 적정성, 업적에 대한 평가, 경력개발 계획 등을 고려하여 종합의견을 기술하세요."
-                  labelExtra={<span className="text-xs text-gray-400">(면담자 작성)</span>}>
-                  <Textarea placeholder="면담자의 종합 의견을 작성하세요."
-                    value={form.interviewerOpinion} rows={6}
-                    className="resize-none bg-gray-50" onChange={e => set('interviewerOpinion', e.target.value)} />
-                </Field>
-              </div>
-            </div>
+            <Field label="작성자 종합의견"
+              hint="CDP, 5S와 6E 작성 내용들을 종합한 1년간의 자기평가와 함께 회사에 대한 요청사항 등을 자유롭게 기술하세요.">
+              <Textarea placeholder="본인의 1년간 성과와 성장에 대한 자기평가, 회사에 대한 요청사항 등을 자유롭게 작성하세요."
+                value={form.selfOpinion} disabled={isSubmitted} rows={6}
+                className="resize-none" onChange={e => set('selfOpinion', e.target.value)} />
+            </Field>
           </SectionCard>
 
           {/* ── 버튼 영역 ── */}
