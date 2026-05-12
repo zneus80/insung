@@ -42,15 +42,22 @@ export interface User {
 // 목표 상태
 // ─────────────────────────────────────────────
 export type GoalStatus =
-  | 'DRAFT'             // 초안 (팀원 작성 중)
-  | 'PENDING_APPROVAL'  // 승인 요청 (팀원→팀장, 팀장→임원)
-  | 'LEAD_APPROVED'     // 팀장 1차 승인 완료 (임원 최종 승인 대기) — 팀원 목표만
-  | 'APPROVED'          // 최종 승인됨 (확정)
-  | 'REJECTED'          // 반려
-  | 'IN_PROGRESS'       // 진행 중
-  | 'COMPLETED'         // 완료 요청
-  | 'PENDING_ABANDON'   // 포기 요청
-  | 'ABANDONED';        // 포기됨
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'LEAD_APPROVED'
+  | 'APPROVED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'PENDING_MODIFY'
+  | 'PENDING_ABANDON'
+  | 'REJECTED'
+  | 'ABANDONED';
+
+export type GoalType = 'TASK' | 'GENERAL';
+export type TaskCategory = 'TEAM_LINKED' | 'PERSONAL';
+export type GeneralType = 'MAJOR' | 'OTHER';
+export type Importance = 'HIGH' | 'MEDIUM' | 'LOW';
+export type PromotionStatus = 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
 // ─────────────────────────────────────────────
 // 목표
@@ -59,19 +66,32 @@ export interface Goal {
   id: string;
   userId: string;
   organizationId: string;
-  cycleYear: number;            // 평가 연도 (e.g. 2026)
+  cycleYear: number;
 
-  title: string;                // 목표명
-  description: string;          // 세부추진내용
-  dueDate: Date;                // 추진기한
-  weight: number;               // 가중치 (%)
-
+  // 공통
+  goalType: GoalType;
+  title: string;
+  description: string;
+  dueDate: Date;
   status: GoalStatus;
-  progress: number;             // 진행률 0~100
+  progress: number;   // 0~100
 
-  leadApprovedBy?: string;      // 팀장 1차 승인자 (팀원 목표 전용)
+  // 과제업무(TASK) 전용
+  taskCategory?: TaskCategory;
+  linkedOrgGoalId?: string;
+  linkedOrgGoalTitle?: string;
+  weight?: number;             // 가중치 %, 팀원 합산 80% 이내
+
+  // 일반업무(GENERAL) 전용
+  generalType?: GeneralType;
+  importance?: Importance;      // 기타업무(OTHER)만
+  requestPromotion?: boolean;   // 주요업무(MAJOR) → 과제업무 반영요청
+  promotionStatus?: PromotionStatus;
+
+  // 승인 정보
+  leadApprovedBy?: string;
   leadApprovedAt?: Date;
-  approvedBy?: string;          // 최종 승인자 (임원 또는 팀장→임원 구조)
+  approvedBy?: string;
   approvedAt?: Date;
   rejectedReason?: string;
 
@@ -305,4 +325,21 @@ export interface EvaluationCycle {
   evalEndDate: Date;      // 평가 마감
   isActive: boolean;
   createdAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// CDP (Career Development Plan)
+// ─────────────────────────────────────────────
+export interface CDP {
+  id: string;            // `${userId}_${cycleYear}`
+  userId: string;
+  organizationId: string;
+  cycleYear: number;
+  direction: string;          // 직무 방향
+  educationPlan: string;      // 교육 희망
+  educationRecord: string;    // 교육 실적
+  selfEval: string;           // 자기평가
+  concern: string;            // 애로사항
+  createdAt: Date;
+  updatedAt: Date;
 }
