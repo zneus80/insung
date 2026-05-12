@@ -51,6 +51,18 @@ const navItems: NavItem[] = [
     icon: <BookOpen className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
   },
+  {
+    label: '평가',
+    href: '/performance',
+    icon: <FileText className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+  },
+  {
+    label: '육성면담서',
+    href: '/mentoring',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+  },
   // ── 진행현황 (팀원/팀장) ──────────────────────
   {
     label: '진행 현황',
