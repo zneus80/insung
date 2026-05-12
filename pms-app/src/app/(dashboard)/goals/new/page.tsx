@@ -61,6 +61,7 @@ export default function NewGoalPage() {
         userId: userProfile.id,
         organizationId: userProfile.organizationId,
         cycleYear: year,
+        goalType: 'TASK',
         title: values.title,
         description: values.description,
         dueDate: new Date(values.dueDate),

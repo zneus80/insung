@@ -30,6 +30,26 @@ import type { Goal, GoalHistory, ProgressUpdate, User } from '@/types';
 import { fromTimestamp } from '@/lib/firestore';
 import { Timestamp } from 'firebase/firestore';
 
+const GOAL_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
+  'TASK': { label: '과제업무', cls: 'bg-blue-100 text-blue-700' },
+  'MAJOR': { label: '주요업무', cls: 'bg-green-100 text-green-700' },
+  'OTHER': { label: '기타업무', cls: 'bg-gray-100 text-gray-600' },
+};
+
+function getGoalTypeBadge(goal: Goal) {
+  if (goal.goalType === 'TASK') return GOAL_TYPE_BADGE['TASK'];
+  if (goal.goalType === 'GENERAL') {
+    return goal.generalType === 'MAJOR' ? GOAL_TYPE_BADGE['MAJOR'] : GOAL_TYPE_BADGE['OTHER'];
+  }
+  return null;
+}
+
+const IMPORTANCE_LABEL: Record<string, string> = {
+  HIGH: '높음',
+  MEDIUM: '보통',
+  LOW: '낮음',
+};
+
 export default function GoalDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { userProfile } = useAuth();
@@ -157,55 +177,45 @@ export default function GoalDetailPage() {
     if (!goal || !userProfile || !goalOwner) return;
     setActionLoading(true);
     try {
-      const ownerRole = goalOwner.role;
-      let newStatus: Goal['status'] = goal.status;
       let updateData: Parameters<typeof updateGoal>[1] = {};
+      let newStatus: Goal['status'] = goal.status;
       let successMsg = '';
-      let historyComment = '';
-
-      // HR_ADMIN은 MEMBER와 동일한 승인 흐름
-      const ownerIsMemberLike = ownerRole === 'MEMBER';
 
       if (isLead) {
-        if (goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) {
+        if (goal.goalType === 'TASK' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) {
+          // 과제업무 팀장 1차 승인 → 임원 대기
           newStatus = 'LEAD_APPROVED';
           updateData = { status: 'LEAD_APPROVED', leadApprovedBy: userProfile.id, leadApprovedAt: new Date() };
-          successMsg = '1차 승인했습니다. 임원의 최종 승인을 기다립니다.';
-          historyComment = '팀장 1차 승인';
+          successMsg = '과제업무 1차 승인. 임원의 최종 승인을 기다립니다.';
+        } else if (goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) {
+          // 주요업무 팀장 최종 승인
+          newStatus = 'APPROVED';
+          updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
+          successMsg = '주요업무 승인 완료.';
         } else if (goal.status === 'COMPLETED' && !goal.leadApprovedBy && ownerIsMemberLike) {
           updateData = { leadApprovedBy: userProfile.id, leadApprovedAt: new Date() };
-          successMsg = '완료를 1차 확인했습니다. 임원의 최종 확인을 기다립니다.';
-          historyComment = '팀장 완료 1차 확인';
-        } else if (goal.status === 'PENDING_ABANDON') {
+          successMsg = '완료 1차 확인. 임원 최종 확인 대기 중.';
+        } else if (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike) {
           newStatus = 'ABANDONED';
           updateData = { status: 'ABANDONED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '포기를 승인했습니다.';
-          historyComment = '포기 승인';
+          successMsg = '포기 승인.';
         }
       } else if (isExec) {
         if (goal.status === 'LEAD_APPROVED') {
           newStatus = 'APPROVED';
           updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '최종 승인했습니다.';
-          historyComment = '임원 최종 승인';
+          successMsg = '최종 승인 완료.';
         } else if (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') {
           newStatus = 'APPROVED';
           updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '목표를 승인했습니다.';
-          historyComment = '임원 승인';
-        } else if (goal.status === 'COMPLETED' && goal.leadApprovedBy && ownerIsMemberLike) {
+          successMsg = '승인 완료.';
+        } else if (goal.status === 'COMPLETED') {
           updateData = { approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '완료를 최종 확인했습니다.';
-          historyComment = '임원 완료 최종 확인';
-        } else if (goal.status === 'COMPLETED' && ownerRole === 'TEAM_LEAD') {
-          updateData = { approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '완료를 확인했습니다.';
-          historyComment = '임원 완료 확인';
-        } else if (goal.status === 'PENDING_ABANDON' && ownerRole === 'TEAM_LEAD') {
+          successMsg = '완료 최종 확인.';
+        } else if (goal.status === 'PENDING_ABANDON') {
           newStatus = 'ABANDONED';
           updateData = { status: 'ABANDONED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '포기를 승인했습니다.';
-          historyComment = '포기 승인';
+          successMsg = '포기 승인.';
         }
       }
 
@@ -215,7 +225,7 @@ export default function GoalDetailPage() {
         goalId: id, changedBy: userProfile.id,
         changeType: 'APPROVED',
         previousStatus: goal.status, newStatus,
-        comment: historyComment,
+        comment: successMsg,
       });
       toast.success(successMsg);
       await load();
@@ -278,16 +288,27 @@ export default function GoalDetailPage() {
   const canUpdateProgress = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
 
   const canLeadApprove = isLead && (
-    (goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) ||
+    // TASK: 팀원의 1차 승인
+    (goal.goalType === 'TASK' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) ||
+    // MAJOR: 팀원의 팀장 최종 승인
+    (goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) ||
+    // 완료 확인 (TASK, MAJOR 모두)
     (goal.status === 'COMPLETED' && !goal.leadApprovedBy && ownerIsMemberLike) ||
+    // 포기 승인
     (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike)
   );
 
   const canExecApprove = isExec && (
-    goal.status === 'LEAD_APPROVED' ||
-    (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') ||
+    // TASK: 임원 최종 승인 (팀원 목표)
+    (goal.goalType === 'TASK' && goal.status === 'LEAD_APPROVED') ||
+    // TASK: 팀장의 과제업무 승인
+    (goal.goalType === 'TASK' && goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') ||
+    // MAJOR: 팀장의 주요업무 승인
+    (goal.goalType === 'GENERAL' && goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') ||
+    // 완료 최종 확인
     (goal.status === 'COMPLETED' && !!goal.leadApprovedBy && ownerIsMemberLike) ||
     (goal.status === 'COMPLETED' && ownerRole === 'TEAM_LEAD') ||
+    // 포기 승인
     (goal.status === 'PENDING_ABANDON' && ownerRole === 'TEAM_LEAD')
   );
 
@@ -298,7 +319,8 @@ export default function GoalDetailPage() {
 
   function getApproveLabel() {
     if (isLead) {
-      if (goal!.status === 'PENDING_APPROVAL') return '1차 승인';
+      if (goal!.goalType === 'TASK' && goal!.status === 'PENDING_APPROVAL') return '1차 승인';
+      if (goal!.goalType === 'GENERAL' && goal!.status === 'PENDING_APPROVAL') return '주요업무 승인';
       if (goal!.status === 'COMPLETED') return '완료 1차 확인';
       if (goal!.status === 'PENDING_ABANDON') return '포기 승인';
     }
@@ -321,6 +343,8 @@ export default function GoalDetailPage() {
             : null)
     : null;
 
+  const goalTypeBadge = getGoalTypeBadge(goal);
+
   return (
     <div className="flex flex-col h-full">
       <Header title="목표 상세" />
@@ -336,7 +360,19 @@ export default function GoalDetailPage() {
 
           <div className="rounded-xl border bg-white p-6 space-y-4">
             <div className="flex items-start justify-between gap-3">
-              <h2 className="text-xl font-bold text-gray-900">{goal.title}</h2>
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                {goalTypeBadge && (
+                  <span className={`shrink-0 text-xs font-medium rounded-full px-2.5 py-0.5 ${goalTypeBadge.cls}`}>
+                    {goalTypeBadge.label}
+                  </span>
+                )}
+                <h2 className="text-xl font-bold text-gray-900">{goal.title}</h2>
+                {goal.requestPromotion && (
+                  <span className="shrink-0 text-xs font-medium rounded-full px-2.5 py-0.5 bg-amber-50 text-amber-700">
+                    과제 반영 요청 중
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-2 shrink-0">
                 <GoalStatusBadge status={goal.status} />
                 {completionStep && (
@@ -354,10 +390,22 @@ export default function GoalDetailPage() {
                 <Calendar className="h-4 w-4" />
                 추진기한: {format(goal.dueDate, 'yyyy년 MM월 dd일', { locale: ko })}
               </span>
-              <span className="flex items-center gap-1.5">
-                <Weight className="h-4 w-4" />
-                가중치: {goal.weight}%
-              </span>
+              {goal.goalType === 'TASK' && (
+                <span className="flex items-center gap-1.5">
+                  <Weight className="h-4 w-4" />
+                  가중치: {goal.weight}%
+                </span>
+              )}
+              {goal.goalType === 'GENERAL' && goal.generalType === 'OTHER' && goal.importance && (
+                <span className="flex items-center gap-1.5">
+                  중요도: {IMPORTANCE_LABEL[goal.importance] ?? goal.importance}
+                </span>
+              )}
+              {goal.taskCategory === 'TEAM_LINKED' && (
+                <span className="flex items-center gap-1.5 text-blue-600">
+                  연동 목표
+                </span>
+              )}
             </div>
 
             {goal.status === 'REJECTED' && goal.rejectedReason && (
@@ -403,8 +451,11 @@ export default function GoalDetailPage() {
             {canApprove && (
               <div className="space-y-3 pt-2 border-t">
                 <div className="flex items-center gap-2">
-                  {isLead && goal.status === 'PENDING_APPROVAL' && (
+                  {isLead && goal.status === 'PENDING_APPROVAL' && goal.goalType === 'TASK' && (
                     <span className="text-xs text-indigo-600 bg-indigo-50 rounded px-2 py-1">팀장 1차 승인 단계</span>
+                  )}
+                  {isLead && goal.status === 'PENDING_APPROVAL' && goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR' && (
+                    <span className="text-xs text-green-600 bg-green-50 rounded px-2 py-1">주요업무 팀장 최종 승인</span>
                   )}
                   {isExec && goal.status === 'LEAD_APPROVED' && (
                     <span className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">임원 최종 승인 단계</span>

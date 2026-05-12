@@ -20,7 +20,7 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, CDP } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -41,6 +41,7 @@ export const COLLECTIONS = {
   ORG_GRADE_HISTORIES: 'orgGradeHistories',
   DIVISION_GRADE_QUOTAS: 'divisionGradeQuotas',
   SELF_EVALUATIONS: 'selfEvaluations',
+  CDPS: 'cdps',
 } as const;
 
 // ─── Timestamp 변환 유틸 ──────────────────────
@@ -166,6 +167,7 @@ export async function getGoalsByUser(userId: string, year?: number): Promise<Goa
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
     approvedAt: fromTimestamp(d.data().approvedAt),
+    leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
   } as Goal));
   return goals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
@@ -181,6 +183,7 @@ export async function getAllGoalsByYear(year: number): Promise<Goal[]> {
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
     approvedAt: fromTimestamp(d.data().approvedAt),
+    leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
   } as Goal));
   return goals.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
@@ -196,6 +199,7 @@ export async function getGoalsByOrganization(orgId: string, year?: number): Prom
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
     approvedAt: fromTimestamp(d.data().approvedAt),
+    leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
   } as Goal));
   return goals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
@@ -755,4 +759,55 @@ export async function getAllDivisionGradeQuotas(cycleYear: number): Promise<Divi
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
     confirmedAt: fromTimestamp(d.data().confirmedAt),
   } as DivisionGradeQuota));
+}
+
+// ─── CDP ──────────────────────────────────────
+export async function getCDP(userId: string, year: number): Promise<CDP | null> {
+  const id = `${userId}_${year}`;
+  const snap = await getDoc(doc(db, COLLECTIONS.CDPS, id));
+  if (!snap.exists()) return null;
+  const d = snap.data();
+  return {
+    ...d,
+    id: snap.id,
+    createdAt: fromTimestamp(d.createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
+  } as CDP;
+}
+
+export async function saveCDP(userId: string, orgId: string, year: number, data: Partial<Omit<CDP, 'id' | 'userId' | 'organizationId' | 'cycleYear' | 'createdAt' | 'updatedAt'>>): Promise<void> {
+  const id = `${userId}_${year}`;
+  const ref = doc(db, COLLECTIONS.CDPS, id);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
+  } else {
+    await setDoc(ref, {
+      userId,
+      organizationId: orgId,
+      cycleYear: year,
+      direction: '',
+      educationPlan: '',
+      educationRecord: '',
+      selfEval: '',
+      concern: '',
+      ...data,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+export async function getCDPsByOrganization(orgId: string, year: number): Promise<CDP[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.CDPS),
+    where('organizationId', '==', orgId),
+    where('cycleYear', '==', year)
+  ));
+  return snap.docs.map(d => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
+  } as CDP));
 }
