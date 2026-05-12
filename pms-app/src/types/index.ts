@@ -66,7 +66,7 @@ export interface Goal {
   id: string;
   userId: string;
   organizationId: string;
-  cycleYear: number;
+  cycleYear: number;            // 평가 연도 (e.g. 2026)
 
   // 공통
   goalType: GoalType;
@@ -310,6 +310,89 @@ export interface DivisionGradeQuota {
   confirmedBy?: string;         // HR_ADMIN userId
   confirmedAt?: Date;
   updatedBy: string;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 육성면담서 (CDP 자기신고서)
+// ─────────────────────────────────────────────
+
+export type JobRequestType = 'EXPAND' | 'REDUCE' | 'CHANGE' | 'RELOCATE' | 'SATISFIED';
+export type MentoringFormStatus = 'DRAFT' | 'SUBMITTED';
+
+export interface MentoringForm {
+  id: string;               // `${userId}_${year}`
+  userId: string;
+  organizationId: string;
+  cycleYear: number;
+
+  // 기본 정보
+  interviewDate: string;    // 면담일 (YYYY-MM-DD)
+  interviewerName: string;  // 면담자 이름
+
+  // CDP 자기신고서 - 기본
+  lastSchoolMajor: string;  // 최종학교/전공
+  familyInfo: string;       // 가족사항
+  commute: string;          // 거주지 (출퇴근시간)
+  importantEvent: string;   // 개인적으로 중요했던 Event
+
+  // 직무 정보
+  currentPosition: string;  // 직위/직책
+  mainDuties: string;       // 주요담당업무
+  promotionDate: string;    // 현 직위 승진일
+  certifications: string;   // 직무관련 보유자격증
+  achievements: string;     // 주요 업적
+
+  // 경력개발 계획
+  careerPlan: string;       // 희망 Position 및 경력개발 방향
+
+  // 직무 요청사항
+  jobRequest: JobRequestType;
+  jobRequestReason: string;         // ①② 이유
+  desiredJob1: string;              // 희망 직무 1순위
+  desiredJob2: string;              // 희망 직무 2순위
+  jobChangeReason: string;          // 직무 변경 희망 이유
+  desiredLocation1: string;         // 희망 근무지 1순위
+  desiredLocation2: string;         // 희망 근무지 2순위
+  locationChangeReason: string;     // 근무지 변경 희망 이유
+
+  // 교육지원 요청
+  languageType: string;             // 어학 종류
+  languagePurpose: string;          // 교육 목적
+  additionalEducation: string;      // 기타 희망 교육
+
+  // 종합의견
+  selfOpinion: string;              // 작성자 종합의견
+  interviewerOpinion: string;       // 면담자 종합의견
+
+  status: MentoringFormStatus;
+  submittedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 연말 인사평가 (평가 카테고리)
+// ─────────────────────────────────────────────
+
+// 과제업무별 세부요약
+export interface TaskSummaryEntry {
+  goalId: string;
+  goalTitle: string;
+  summary: string; // 본인이 작성하는 세부요약
+}
+
+export type YearEndEvalStatus = 'DRAFT' | 'SUBMITTED';
+
+export interface YearEndEval {
+  id: string;               // `${userId}_${year}`
+  userId: string;
+  organizationId: string;
+  cycleYear: number;
+  taskSummaries: TaskSummaryEntry[]; // 과제업무 세부요약 목록
+  status: YearEndEvalStatus;
+  submittedAt?: Date;
+  createdAt: Date;
   updatedAt: Date;
 }
 

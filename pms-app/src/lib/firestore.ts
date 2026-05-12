@@ -20,7 +20,7 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, CDP } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, CDP, YearEndEval, MentoringForm } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -42,6 +42,8 @@ export const COLLECTIONS = {
   DIVISION_GRADE_QUOTAS: 'divisionGradeQuotas',
   SELF_EVALUATIONS: 'selfEvaluations',
   CDPS: 'cdps',
+  YEAR_END_EVALS: 'yearEndEvals',
+  MENTORING_FORMS: 'mentoringForms',
 } as const;
 
 // ─── Timestamp 변환 유틸 ──────────────────────
@@ -810,4 +812,70 @@ export async function getCDPsByOrganization(orgId: string, year: number): Promis
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
   } as CDP));
+}
+
+// ─── 연말 인사평가 (YearEndEval) ──────────────
+function yearEndEvalDocId(userId: string, year: number) {
+  return `${userId}_${year}`;
+}
+
+export async function getYearEndEval(userId: string, year: number): Promise<YearEndEval | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.YEAR_END_EVALS, yearEndEvalDocId(userId, year)));
+  if (!snap.exists()) return null;
+  const d = snap.data();
+  return {
+    ...d,
+    id: snap.id,
+    submittedAt: fromTimestamp(d.submittedAt),
+    createdAt: fromTimestamp(d.createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
+  } as YearEndEval;
+}
+
+export async function upsertYearEndEval(
+  userId: string,
+  year: number,
+  data: Omit<YearEndEval, 'id' | 'createdAt' | 'updatedAt'>
+) {
+  const id = yearEndEvalDocId(userId, year);
+  const ref = doc(db, COLLECTIONS.YEAR_END_EVALS, id);
+  const existing = await getDoc(ref);
+  if (existing.exists()) {
+    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
+  } else {
+    await setDoc(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  }
+}
+
+// ─── 육성면담서 ────────────────────────────────
+function mentoringDocId(userId: string, year: number) {
+  return `${userId}_${year}`;
+}
+
+export async function getMentoringForm(userId: string, year: number): Promise<MentoringForm | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.MENTORING_FORMS, mentoringDocId(userId, year)));
+  if (!snap.exists()) return null;
+  const d = snap.data();
+  return {
+    ...d,
+    id: snap.id,
+    submittedAt: fromTimestamp(d.submittedAt),
+    createdAt: fromTimestamp(d.createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
+  } as MentoringForm;
+}
+
+export async function upsertMentoringForm(
+  userId: string,
+  year: number,
+  data: Omit<MentoringForm, 'id' | 'createdAt' | 'updatedAt'>
+) {
+  const id = mentoringDocId(userId, year);
+  const ref = doc(db, COLLECTIONS.MENTORING_FORMS, id);
+  const existing = await getDoc(ref);
+  if (existing.exists()) {
+    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
+  } else {
+    await setDoc(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  }
 }
