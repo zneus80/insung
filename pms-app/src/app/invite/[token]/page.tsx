@@ -50,7 +50,7 @@ export default function InvitePage() {
         name: invitation.name,
         role: invitation.role,
         organizationId: invitation.organizationId ?? '',
-        position: invitation.position,
+        position: invitation.position ?? '',
         isActive: true,
       });
       if (invitation.userId && invitation.userId !== cred.user.uid) {

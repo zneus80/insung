@@ -72,7 +72,7 @@ function MileageContent() {
         userId: editing.id,
         organizationId: editing.organizationId,
         points: parsed,
-        memo: memo.trim() || undefined,
+        memo: memo.trim() || '',
         updatedBy: userProfile.id,
       });
       toast.success(`${editing.name}님의 마일리지가 저장되었습니다.`);

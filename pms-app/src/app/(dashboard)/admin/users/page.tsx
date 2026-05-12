@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Plus, Pencil, UserX, Download, Upload, AlertCircle, Trash2, Mail, Copy, Check, UserCheck } from 'lucide-react';
+import { Plus, Pencil, UserX, Download, Upload, AlertCircle, Trash2, Mail, Copy, Check, UserCheck, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import type { User, Organization, UserRole } from '@/types';
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -117,8 +117,8 @@ function UsersContent() {
       email: user.email,
       name: user.name,
       role: user.role,
-      organizationId: user.organizationId || undefined,
-      position: user.position || undefined,
+      organizationId: user.organizationId || '',
+      position: user.position || '',
       createdBy: userProfile.id,
     });
     const link = `${window.location.origin}/invite/${token}`;
@@ -182,13 +182,13 @@ function UsersContent() {
         try {
           if (existingEmails.has(email)) {
             const existing = users.find(u => u.email.toLowerCase() === email)!;
-            await updateUser(existing.id, { name, role, organizationId, position: position || undefined });
+            await updateUser(existing.id, { name, role, organizationId, position: position || '' });
           } else {
             // 사용자 정보만 저장 (초대는 별도로 진행)
             await createUser(crypto.randomUUID(), {
               email, name, role,
               organizationId: organizationId || '',
-              position: position || undefined,
+              position: position || '',
               isActive: false,
             });
             existingEmails.add(email);
@@ -239,8 +239,8 @@ function UsersContent() {
         await createUser(crypto.randomUUID(), {
           email: form.email, name: form.name, role: form.role,
           organizationId: form.organizationId || '',
-          position: form.position || undefined,
-          isHrAdmin: form.isHrAdmin || undefined,
+          position: form.position || '',
+          isHrAdmin: form.isHrAdmin,
           isActive: false,
         });
         toast.success('사용자가 등록되었습니다. 초대 또는 직접 등록 버튼으로 계정을 활성화하세요.');
@@ -275,8 +275,8 @@ function UsersContent() {
       // (메인 auth는 HR 관리자로 유지되므로 Firestore 권한 정상)
       await createUser(cred.user.uid, {
         email: user.email, name: user.name, role: user.role,
-        organizationId: user.organizationId, position: user.position,
-        isHrAdmin: user.isHrAdmin || undefined,
+        organizationId: user.organizationId, position: user.position ?? '',
+        isHrAdmin: user.isHrAdmin,
         isActive: true,
       });
       if (user.id !== cred.user.uid) await deleteUser(user.id);
@@ -286,6 +286,24 @@ function UsersContent() {
       toast.error(`직접 등록 실패: ${e?.code ?? e?.message}`);
     } finally {
       await deleteApp(secondaryApp);
+      setSaving(false);
+    }
+  }
+
+  async function handleResetPassword(user: User) {
+    if (!confirm(`${user.name}님의 비밀번호를 초기화하시겠습니까?\n초기 비밀번호: 1q2w3e4r!`)) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.id }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      toast.success(`${user.name}님의 비밀번호가 초기화되었습니다. (1q2w3e4r!)`);
+    } catch (e: any) {
+      toast.error(`비밀번호 초기화 실패: ${e?.message}`);
+    } finally {
       setSaving(false);
     }
   }
@@ -424,9 +442,14 @@ function UsersContent() {
                           </button>
                         </>
                       ) : (
-                        <button onClick={() => toggleActive(user)} className="p-1.5 rounded hover:bg-gray-100" title="비활성화">
-                          <UserX className="h-3.5 w-3.5 text-orange-400" />
-                        </button>
+                        <>
+                          <button onClick={() => handleResetPassword(user)} className="p-1.5 rounded hover:bg-gray-100" title="비밀번호 초기화 (1q2w3e4r!)">
+                            <KeyRound className="h-3.5 w-3.5 text-purple-400" />
+                          </button>
+                          <button onClick={() => toggleActive(user)} className="p-1.5 rounded hover:bg-gray-100" title="비활성화">
+                            <UserX className="h-3.5 w-3.5 text-orange-400" />
+                          </button>
+                        </>
                       )}
                       <button onClick={() => setDeleteTarget(user)} className="p-1.5 rounded hover:bg-gray-100" title="삭제">
                         <Trash2 className="h-3.5 w-3.5 text-red-400" />
