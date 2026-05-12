@@ -69,8 +69,10 @@ export default function TaskGoalForm({
       const payload = {
         goalType: 'TASK' as const,
         taskCategory: category,
-        linkedOrgGoalId: category === 'TEAM_LINKED' ? divisionGoal?.id : undefined,
-        linkedOrgGoalTitle: category === 'TEAM_LINKED' ? divisionGoal?.content?.slice(0, 40) : undefined,
+        ...(category === 'TEAM_LINKED' && divisionGoal ? {
+          linkedOrgGoalId: divisionGoal.id,
+          linkedOrgGoalTitle: divisionGoal.content?.slice(0, 40),
+        } : {}),
         title: title.trim(),
         description: description.trim(),
         dueDate: new Date(dueDate),

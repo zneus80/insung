@@ -76,7 +76,7 @@ export default function GeneralGoalForm({ open, onClose, onSave, editGoal }: Gen
         description: description.trim(),
         dueDate: dueDate ? new Date(dueDate) : new Date(),
         progress: 0,
-        importance: isOther ? importance : undefined,
+        ...(isOther ? { importance } : {}),
         requestPromotion: !isOther ? requestPromotion : false,
         promotionStatus: (!isOther && requestPromotion) ? 'PENDING' as const : 'NONE' as const,
       };
