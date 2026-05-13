@@ -14,7 +14,6 @@ import {
   Star,
   Flag,
   LogOut,
-  BookOpen,
   FileText,
   MessageSquareHeart,
 } from 'lucide-react';
@@ -43,12 +42,6 @@ const navItems: NavItem[] = [
     label: '목표관리',
     href: '/goals',
     icon: <Target className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-  },
-  {
-    label: 'CDP',
-    href: '/cdp',
-    icon: <BookOpen className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
   },
   // ── 자기 평가 (팀원·팀장) ─────────────────────

@@ -20,7 +20,7 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, CDP, YearEndEval, MentoringForm } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -41,7 +41,6 @@ export const COLLECTIONS = {
   ORG_GRADE_HISTORIES: 'orgGradeHistories',
   DIVISION_GRADE_QUOTAS: 'divisionGradeQuotas',
   SELF_EVALUATIONS: 'selfEvaluations',
-  CDPS: 'cdps',
   YEAR_END_EVALS: 'yearEndEvals',
   MENTORING_FORMS: 'mentoringForms',
 } as const;
@@ -763,56 +762,6 @@ export async function getAllDivisionGradeQuotas(cycleYear: number): Promise<Divi
   } as DivisionGradeQuota));
 }
 
-// ─── CDP ──────────────────────────────────────
-export async function getCDP(userId: string, year: number): Promise<CDP | null> {
-  const id = `${userId}_${year}`;
-  const snap = await getDoc(doc(db, COLLECTIONS.CDPS, id));
-  if (!snap.exists()) return null;
-  const d = snap.data();
-  return {
-    ...d,
-    id: snap.id,
-    createdAt: fromTimestamp(d.createdAt) ?? new Date(),
-    updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
-  } as CDP;
-}
-
-export async function saveCDP(userId: string, orgId: string, year: number, data: Partial<Omit<CDP, 'id' | 'userId' | 'organizationId' | 'cycleYear' | 'createdAt' | 'updatedAt'>>): Promise<void> {
-  const id = `${userId}_${year}`;
-  const ref = doc(db, COLLECTIONS.CDPS, id);
-  const snap = await getDoc(ref);
-  if (snap.exists()) {
-    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
-  } else {
-    await setDoc(ref, {
-      userId,
-      organizationId: orgId,
-      cycleYear: year,
-      direction: '',
-      educationPlan: '',
-      educationRecord: '',
-      selfEval: '',
-      concern: '',
-      ...data,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  }
-}
-
-export async function getCDPsByOrganization(orgId: string, year: number): Promise<CDP[]> {
-  const snap = await getDocs(query(
-    collection(db, COLLECTIONS.CDPS),
-    where('organizationId', '==', orgId),
-    where('cycleYear', '==', year)
-  ));
-  return snap.docs.map(d => ({
-    ...d.data(),
-    id: d.id,
-    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
-    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-  } as CDP));
-}
 
 // ─── 연말 인사평가 (YearEndEval) ──────────────
 function yearEndEvalDocId(userId: string, year: number) {

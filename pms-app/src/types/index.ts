@@ -410,19 +410,3 @@ export interface EvaluationCycle {
   createdAt: Date;
 }
 
-// ─────────────────────────────────────────────
-// CDP (Career Development Plan)
-// ─────────────────────────────────────────────
-export interface CDP {
-  id: string;            // `${userId}_${cycleYear}`
-  userId: string;
-  organizationId: string;
-  cycleYear: number;
-  direction: string;          // 직무 방향
-  educationPlan: string;      // 교육 희망
-  educationRecord: string;    // 교육 실적
-  selfEval: string;           // 자기평가
-  concern: string;            // 애로사항
-  createdAt: Date;
-  updatedAt: Date;
-}
