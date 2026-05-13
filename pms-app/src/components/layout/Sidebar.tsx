@@ -51,10 +51,25 @@ const navItems: NavItem[] = [
     icon: <BookOpen className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
   },
+  // ── 자기 평가 (팀원·팀장) ─────────────────────
   {
-    label: '평가',
+    label: '자기 평가',
     href: '/performance',
     icon: <FileText className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+  },
+  // ── 팀원 평가 (팀장 전용) ─────────────────────
+  {
+    label: '팀원 평가',
+    href: '/evaluation',
+    icon: <BarChart3 className="h-5 w-5" />,
+    roles: ['TEAM_LEAD'],
+  },
+  // ── 평가결과 확인 (팀원·팀장 — HR 공개 후) ────
+  {
+    label: '평가결과 확인',
+    href: '/evaluation/result',
+    icon: <CheckSquare className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
   },
   {
@@ -69,7 +84,7 @@ const navItems: NavItem[] = [
     href: '/progress',
     icon: <TrendingUp className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
-    requireHrAdmin: true,  // HR관리자도 진행현황 접근
+    requireHrAdmin: true,
   },
   // ── 1on1 (팀원·팀장·임원) ──────────────────────
   {
@@ -85,36 +100,35 @@ const navItems: NavItem[] = [
     icon: <CheckSquare className="h-5 w-5" />,
     roles: ['TEAM_LEAD', 'EXECUTIVE'],
   },
-  // ── 평가 (연말 인사평가) ───────────────────────
+  // ── 평가등급 확정 (임원) ───────────────────────
   {
-    label: '평가',
-    href: '/performance',
-    icon: <FileText className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-  },
-  // ── 육성면담서 ────────────────────────────────
-  {
-    label: '육성면담서',
-    href: '/mentoring',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-  },
-  // ── 평가 관리 ──────────────────────────────────
-  {
-    label: '평가 관리',
+    label: '평가등급 확정',
     href: '/evaluation',
     icon: <BarChart3 className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
+    roles: ['EXECUTIVE'],
   },
   // ── CEO / HR관리자 공통 ────────────────────────
   {
-    label: '조직평가 관리',
+    label: '조직평가인원관리',
     href: '/evaluation/org',
     icon: <BarChart3 className="h-5 w-5" />,
     roles: ['CEO'],
     requireHrAdmin: true,
   },
   // ── HR관리자 전용 ──────────────────────────────
+  {
+    label: '평가기간 관리',
+    href: '/admin/evaluation-period',
+    icon: <Flag className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '평가이력 관리',
+    href: '/admin/evaluation-history',
+    icon: <BarChart3 className="h-5 w-5" />,
+    roles: ['CEO'],
+    requireHrAdmin: true,
+  },
   {
     label: '사용자 관리',
     href: '/admin/users',
