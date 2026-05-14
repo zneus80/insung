@@ -54,9 +54,9 @@ const navItems: NavItem[] = [
     roles: ['MEMBER', 'TEAM_LEAD'],
   },
   {
-    label: '승인 대기함',
-    href: '/approvals',
-    icon: <CheckSquare className="h-5 w-5" />,
+    label: '육성면담서',
+    href: '/mentoring',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
   },
   {
@@ -69,12 +69,6 @@ const navItems: NavItem[] = [
     label: '1on1',
     href: '/oneon1',
     icon: <Users className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-  },
-  {
-    label: '육성면담서',
-    href: '/mentoring',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
 
@@ -92,6 +86,12 @@ const navItems: NavItem[] = [
     roles: ['TEAM_LEAD'],
   },
   {
+    label: '승인 대기함',
+    href: '/approvals',
+    icon: <CheckSquare className="h-5 w-5" />,
+    roles: ['TEAM_LEAD', 'EXECUTIVE'],
+  },
+  {
     label: '팀원 평가',
     href: '/evaluation',
     icon: <BarChart3 className="h-5 w-5" />,
@@ -100,14 +100,8 @@ const navItems: NavItem[] = [
 
   // ── 임원 전용 ────────────────────────────────
   {
-    label: '팀장 업무 진행사항',
-    href: '/progress/leads',
-    icon: <TrendingUp className="h-5 w-5" />,
-    roles: ['EXECUTIVE'],
-  },
-  {
-    label: '팀원 업무 진행사항',
-    href: '/progress/members',
+    label: '진행현황',
+    href: '/progress',
     icon: <TrendingUp className="h-5 w-5" />,
     roles: ['EXECUTIVE'],
   },
@@ -118,7 +112,7 @@ const navItems: NavItem[] = [
     roles: ['EXECUTIVE'],
   },
 
-  // ── CEO 전용 ─────────────────────────────────
+  // ── 최고관리자 전용 ───────────────────────────
   {
     label: '진행현황',
     href: '/progress',
@@ -132,44 +126,7 @@ const navItems: NavItem[] = [
     roles: ['CEO'],
   },
 
-  // ── CEO·HR관리자 공통 ─────────────────────────
-  {
-    label: '사용자 관리',
-    href: '/admin/users',
-    icon: <Users className="h-5 w-5" />,
-    roles: ['CEO'],
-    requireHrAdmin: true,
-  },
-  {
-    label: '조직 관리',
-    href: '/admin/organizations',
-    icon: <Building2 className="h-5 w-5" />,
-    roles: ['CEO'],
-    requireHrAdmin: true,
-  },
-  {
-    label: '연간 목표 관리',
-    href: '/admin/annual-goals',
-    icon: <Flag className="h-5 w-5" />,
-    roles: ['CEO'],
-    requireHrAdmin: true,
-  },
-  {
-    label: '마일리지 관리',
-    href: '/admin/mileage',
-    icon: <Star className="h-5 w-5" />,
-    roles: ['CEO'],
-    requireHrAdmin: true,
-  },
-  {
-    label: '시스템 설정',
-    href: '/admin/settings',
-    icon: <Settings className="h-5 w-5" />,
-    roles: ['CEO'],
-    requireHrAdmin: true,
-  },
-
-  // ── HR관리자 전용 ──────────────────────────────
+  // ── HR관리자 전용 (역할 무관, isHrAdmin=true 이면 표시) ──
   {
     label: '조직평가인원관리',
     href: '/evaluation/org',
@@ -186,7 +143,36 @@ const navItems: NavItem[] = [
     label: '평가이력 관리',
     href: '/admin/evaluation-history',
     icon: <BarChart3 className="h-5 w-5" />,
-    roles: ['CEO'],
+    requireHrAdmin: true,
+  },
+  {
+    label: '사용자 관리',
+    href: '/admin/users',
+    icon: <Users className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '조직 관리',
+    href: '/admin/organizations',
+    icon: <Building2 className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '연간 목표 관리',
+    href: '/admin/annual-goals',
+    icon: <Flag className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '마일리지 관리',
+    href: '/admin/mileage',
+    icon: <Star className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '시스템 설정',
+    href: '/admin/settings',
+    icon: <Settings className="h-5 w-5" />,
     requireHrAdmin: true,
   },
 ];
