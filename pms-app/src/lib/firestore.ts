@@ -828,3 +828,11 @@ export async function upsertMentoringForm(
     await setDoc(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   }
 }
+
+export async function getMentoringFormsByUsers(userIds: string[], year: number): Promise<MentoringForm[]> {
+  if (userIds.length === 0) return [];
+  const results = await Promise.all(
+    userIds.map(uid => getMentoringForm(uid, year))
+  );
+  return results.filter((f): f is MentoringForm => f !== null);
+}

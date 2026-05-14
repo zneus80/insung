@@ -67,6 +67,7 @@ export default function ProgressPage() {
   const [treeNodes, setTreeNodes] = useState<ReturnType<typeof buildTree>>([]);
 
   const isTreeRole = userProfile?.role === 'TEAM_LEAD';
+  const isCeoOrHrAdmin = userProfile?.role === 'CEO' || !!userProfile?.isHrAdmin;
   const isHrAdmin = !!userProfile?.isHrAdmin;
 
   useEffect(() => {
@@ -95,7 +96,7 @@ export default function ProgressPage() {
           }
           const scopeOrgs = allOrgs.filter(o => scopeOrgIds.includes(o.id));
           setTreeNodes(buildTree(null, scopeOrgs, usersByOrg, goalsByUser));
-        } else if (isHrAdmin) {
+        } else if (isHrAdmin || role === 'CEO') {
           // HR 관리자: 전체 조직 트리 + 본인 목표 모두 로드
           const [allUsers, allOrgs, allGoals, ownGoals] = await Promise.all([
             getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
@@ -136,13 +137,13 @@ export default function ProgressPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-4xl space-y-4">
           <p className="text-sm text-gray-500">
-            {year}년 {(isTreeRole || isHrAdmin) ? '조직' : '내'} 목표 진행 현황
+            {year}년 {(isTreeRole || isHrAdmin || isCeoOrHrAdmin) ? '조직' : '내'} 목표 진행 현황
           </p>
           {loading ? (
             <div className="space-y-3">
               {[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100" />)}
             </div>
-          ) : (isTreeRole || isHrAdmin) ? (
+          ) : (isTreeRole || isHrAdmin || isCeoOrHrAdmin) ? (
             <>
               {/* HR 관리자: 본인 목표 별도 표시 */}
               {isHrAdmin && myGoals.length > 0 && (

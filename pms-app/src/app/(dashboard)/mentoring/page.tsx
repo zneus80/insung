@@ -51,7 +51,7 @@ const JOB_REQUEST_OPTIONS: { value: JobRequestType; label: string }[] = [
 
 export default function MentoringPage() {
   return (
-    <AuthGuard allowedRoles={['MEMBER', 'TEAM_LEAD']}>
+    <AuthGuard allowedRoles={['MEMBER', 'TEAM_LEAD', 'EXECUTIVE']}>
       <MentoringContent />
     </AuthGuard>
   );

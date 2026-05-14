@@ -8,6 +8,7 @@ import {
   getGoalsByOrganization,
   getSelfEvaluation,
   getSelfEvaluationsByUsers,
+  getMentoringFormsByUsers,
   upsertSelfEvaluation,
   getIndividualEvaluation,
   upsertIndividualEvaluation,
@@ -23,7 +24,7 @@ import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import type {
   EvaluationCycle, Goal, SelfEvaluation, IndividualEvaluation,
-  EvaluationGrade, User, Organization, DivisionGradeQuota,
+  EvaluationGrade, User, Organization, DivisionGradeQuota, MentoringForm,
 } from '@/types';
 
 const GRADES: EvaluationGrade[] = ['A', 'B', 'C', 'D', 'E'];
@@ -352,6 +353,7 @@ function TeamLeadEvalView() {
   const [opinions, setOpinions]       = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState<string | null>(null);
+  const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
 
   async function load() {
     if (!userProfile) return;
@@ -373,6 +375,11 @@ function TeamLeadEvalView() {
       const seMap: Record<string, SelfEvaluation> = {};
       seList.forEach(se => { seMap[se.userId] = se; });
       setSelfEvals(seMap);
+
+      const mfList = await getMentoringFormsByUsers(active.map(m => m.id), year);
+      const mfMap: Record<string, MentoringForm> = {};
+      mfList.forEach(mf => { mfMap[mf.userId] = mf; });
+      setMentoringForms(mfMap);
 
       const ieMap: Record<string, IndividualEvaluation> = {};
       evalList.forEach(ie => { ieMap[ie.userId] = ie; });
@@ -523,6 +530,40 @@ function TeamLeadEvalView() {
                       </div>
                     )}
 
+                    {/* 육성면담서 요약 */}
+                    {mentoringForms[member.id] && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 mb-2">육성면담서 (팀원 작성)</p>
+                        <div className="rounded-lg border bg-gray-50 p-4 space-y-2 text-sm text-gray-600">
+                          {mentoringForms[member.id].careerPlan && (
+                            <div>
+                              <span className="text-xs font-semibold text-gray-500">경력개발 방향: </span>
+                              {mentoringForms[member.id].careerPlan}
+                            </div>
+                          )}
+                          {mentoringForms[member.id].selfOpinion && (
+                            <div>
+                              <span className="text-xs font-semibold text-gray-500">본인 종합의견: </span>
+                              {mentoringForms[member.id].selfOpinion}
+                            </div>
+                          )}
+                          {mentoringForms[member.id].jobRequest !== 'SATISFIED' && (
+                            <div>
+                              <span className="text-xs font-semibold text-gray-500">직무 요청: </span>
+                              {{
+                                EXPAND: '직무 확대',
+                                REDUCE: '직무 축소',
+                                CHANGE: '직무 변경',
+                                RELOCATE: '근무지 이동',
+                                SATISFIED: '만족',
+                              }[mentoringForms[member.id].jobRequest]}
+                              {mentoringForms[member.id].jobRequestReason && ` — ${mentoringForms[member.id].jobRequestReason}`}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* 등급 의견 입력 */}
                     <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 space-y-3">
                       <p className="text-xs font-semibold text-blue-700">팀장 등급 의견</p>
@@ -608,7 +649,7 @@ function ExecutiveEvalView() {
       setAllOrgs(orgs);
 
       const descIds = getDescendantOrgIds(userProfile.organizationId, orgs);
-      const active = allUsers.filter(u => u.role === 'MEMBER' && u.isActive && descIds.includes(u.organizationId));
+      const active = allUsers.filter(u => (u.role === 'MEMBER' || u.role === 'TEAM_LEAD') && u.isActive && descIds.includes(u.organizationId));
       setMembers(active);
 
       const evalResults = await Promise.all(
@@ -742,7 +783,9 @@ function ExecutiveEvalView() {
                       <div className="flex items-center gap-3">
                         <div>
                           <p className="font-medium text-gray-900">{member.name}</p>
-                          <p className="text-xs text-gray-400">{member.position}</p>
+                          <p className="text-xs text-gray-400">
+                            {member.role === 'TEAM_LEAD' ? '팀장' : '팀원'} {member.position && `· ${member.position}`}
+                          </p>
                         </div>
                         {ie?.leadGrade && (
                           <span className={`text-xs rounded-full px-2.5 py-0.5 font-medium ${GRADE_COLOR[ie.leadGrade]}`}>
