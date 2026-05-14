@@ -159,5 +159,31 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
+
+    // 평가 기간 설정 (HR관리자·CEO가 설정, 전체가 읽기)
+    match /evaluationPeriods/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isHrAdmin() || isCeo();
+    }
+
+    // 연말 인사평가 (docId = userId_year)
+    match /yearEndEvals/{docId} {
+      allow read: if isAuthenticated() && (
+        docId.matches('^' + request.auth.uid + '_.*') ||
+        isLead() || isExec() || isCeo() || isHrAdmin()
+      );
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // 육성면담서 (docId = userId_year)
+    match /mentoringForms/{docId} {
+      allow read: if isAuthenticated() && (
+        docId.matches('^' + request.auth.uid + '_.*') ||
+        isLead() || isExec() || isCeo() || isHrAdmin()
+      );
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
   }
 }
