@@ -1,19 +1,11 @@
 'use client';
 
+import { useRef, useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { LogOut, User } from 'lucide-react';
-import { toast } from 'sonner';
 
 interface HeaderProps {
   title?: string;
@@ -22,11 +14,24 @@ interface HeaderProps {
 export default function Header({ title }: HeaderProps) {
   const { userProfile, firebaseUser } = useAuth();
   const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // 외부 클릭 시 닫기
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   async function handleSignOut() {
+    setOpen(false);
     await signOut();
     router.replace('/login');
-    toast.success('로그아웃 되었습니다.');
   }
 
   const initials = userProfile?.name
@@ -34,43 +39,66 @@ export default function Header({ title }: HeaderProps) {
     : firebaseUser?.email?.slice(0, 2).toUpperCase() ?? 'U';
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6">
+    <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6 shrink-0">
       <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg p-1.5 hover:bg-gray-100">
+      {/* 사용자 드롭다운 */}
+      <div className="relative" ref={ref}>
+        <button
+          onClick={() => setOpen(prev => !prev)}
+          className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100 transition-colors"
+        >
           <Avatar className="h-8 w-8">
             <AvatarImage src={userProfile?.photoURL ?? firebaseUser?.photoURL ?? ''} />
             <AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-medium">
               {initials}
             </AvatarFallback>
           </Avatar>
-          <div className="text-left">
-            <p className="text-sm font-medium text-gray-900">
+          <div className="text-left hidden sm:block">
+            <p className="text-sm font-medium text-gray-900 leading-tight">
               {userProfile?.name ?? firebaseUser?.displayName ?? '사용자'}
             </p>
-            <p className="text-xs text-gray-500">{userProfile?.position}</p>
+            {userProfile?.position && (
+              <p className="text-xs text-gray-500 leading-tight">{userProfile.position}</p>
+            )}
           </div>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuLabel className="text-xs text-gray-500">
-            {firebaseUser?.email}
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="gap-2 cursor-pointer">
-            <User className="h-4 w-4" />
-            내 프로필
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={handleSignOut}
-            className="gap-2 cursor-pointer text-red-600 focus:text-red-600"
-          >
-            <LogOut className="h-4 w-4" />
-            로그아웃
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </button>
+
+        {/* 드롭다운 메뉴 */}
+        {open && (
+          <div className="absolute right-0 top-full mt-1 w-52 rounded-xl border border-gray-200 bg-white shadow-lg z-50 py-1">
+            {/* 이메일 */}
+            <div className="px-4 py-2.5 border-b border-gray-100">
+              <p className="text-xs font-medium text-gray-900">
+                {userProfile?.name ?? '사용자'}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5 truncate">
+                {firebaseUser?.email}
+              </p>
+            </div>
+
+            {/* 내 프로필 (비활성) */}
+            <button
+              disabled
+              className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-400 cursor-not-allowed"
+            >
+              <User className="h-4 w-4" />
+              내 프로필
+            </button>
+
+            <div className="border-t border-gray-100 my-1" />
+
+            {/* 로그아웃 */}
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+              로그아웃
+            </button>
+          </div>
+        )}
+      </div>
     </header>
   );
 }
