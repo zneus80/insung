@@ -188,9 +188,12 @@ export default function Sidebar() {
   }
 
   const visibleItems = navItems.filter(item => {
-    const roleOk = !item.roles || (!!userProfile && item.roles.includes(userProfile.role));
-    const hrOk = !!item.requireHrAdmin && !!userProfile?.isHrAdmin;
+    // 역할·HR 제한이 모두 없으면 전체 표시
     if (!item.roles && !item.requireHrAdmin) return true;
+    // 역할 조건: roles 배열이 있을 때만 체크
+    const roleOk = !!item.roles && !!userProfile && item.roles.includes(userProfile.role);
+    // HR 관리자 조건
+    const hrOk = !!item.requireHrAdmin && !!userProfile?.isHrAdmin;
     return roleOk || hrOk;
   });
 
