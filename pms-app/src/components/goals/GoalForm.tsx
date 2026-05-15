@@ -8,16 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import type { Goal } from '@/types';
 
 const goalSchema = z.object({
   title: z.string().min(2, '목표명을 2자 이상 입력하세요').max(100),
   description: z.string().min(5, '세부추진내용을 5자 이상 입력하세요'),
   dueDate: z.string().min(1, '추진기한을 선택하세요'),
-  weight: z
-    .number({ error: '숫자를 입력하세요' })
-    .min(1, '최소 1%')
-    .max(100, '최대 100%'),
 });
 
 export type GoalFormValues = z.infer<typeof goalSchema>;
@@ -42,16 +37,13 @@ export default function GoalForm({
     formState: { errors },
   } = useForm<GoalFormValues>({
     resolver: zodResolver(goalSchema),
-    defaultValues: {
-      weight: 20,
-      ...defaultValues,
-    },
+    defaultValues,
   });
 
   // defaultValues가 비동기로 로드되는 경우(edit 모드) 폼 값 동기화
   useEffect(() => {
     if (defaultValues && Object.keys(defaultValues).length > 0) {
-      reset({ weight: 20, ...defaultValues });
+      reset(defaultValues);
     }
   }, [JSON.stringify(defaultValues)]);
 
@@ -88,34 +80,15 @@ export default function GoalForm({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        {/* 추진기한 */}
-        <div className="space-y-1.5">
-          <Label htmlFor="dueDate">
-            추진기한 <span className="text-red-500">*</span>
-          </Label>
-          <Input id="dueDate" type="date" {...register('dueDate')} />
-          {errors.dueDate && (
-            <p className="text-xs text-red-500">{errors.dueDate.message}</p>
-          )}
-        </div>
-
-        {/* 가중치 */}
-        <div className="space-y-1.5">
-          <Label htmlFor="weight">
-            가중치 (%) <span className="text-red-500">*</span>
-          </Label>
-          <Input
-            id="weight"
-            type="number"
-            min={1}
-            max={100}
-            {...register('weight', { valueAsNumber: true })}
-          />
-          {errors.weight && (
-            <p className="text-xs text-red-500">{errors.weight.message}</p>
-          )}
-        </div>
+      {/* 추진기한 */}
+      <div className="space-y-1.5">
+        <Label htmlFor="dueDate">
+          추진기한 <span className="text-red-500">*</span>
+        </Label>
+        <Input id="dueDate" type="date" {...register('dueDate')} />
+        {errors.dueDate && (
+          <p className="text-xs text-red-500">{errors.dueDate.message}</p>
+        )}
       </div>
 
       <Button type="submit" disabled={isLoading} className="w-full">

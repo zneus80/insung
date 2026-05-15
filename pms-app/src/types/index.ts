@@ -53,12 +53,6 @@ export type GoalStatus =
   | 'REJECTED'
   | 'ABANDONED';
 
-export type GoalType = 'TASK' | 'GENERAL';
-export type TaskCategory = 'TEAM_LINKED' | 'PERSONAL';
-export type GeneralType = 'MAJOR' | 'OTHER';
-export type Importance = 'HIGH' | 'MEDIUM' | 'LOW';
-export type PromotionStatus = 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
-
 // ─────────────────────────────────────────────
 // 목표
 // ─────────────────────────────────────────────
@@ -69,24 +63,11 @@ export interface Goal {
   cycleYear: number;            // 평가 연도 (e.g. 2026)
 
   // 공통
-  goalType: GoalType;
   title: string;
   description: string;
   dueDate: Date;
   status: GoalStatus;
   progress: number;   // 0~100
-
-  // 과제업무(TASK) 전용
-  taskCategory?: TaskCategory;
-  linkedOrgGoalId?: string;
-  linkedOrgGoalTitle?: string;
-  weight?: number;             // 가중치 %, 팀원 합산 80% 이내
-
-  // 일반업무(GENERAL) 전용
-  generalType?: GeneralType;
-  importance?: Importance;      // 기타업무(OTHER)만
-  requestPromotion?: boolean;   // 주요업무(MAJOR) → 과제업무 반영요청
-  promotionStatus?: PromotionStatus;
 
   // 승인 정보
   leadApprovedBy?: string;
@@ -94,6 +75,12 @@ export interface Goal {
   approvedBy?: string;
   approvedAt?: Date;
   rejectedReason?: string;
+
+  // 완료 확인 정보
+  completionLeadApprovedBy?: string;
+  completionLeadApprovedAt?: Date;
+  completionApprovedBy?: string;
+  completionApprovedAt?: Date;
 
   createdAt: Date;
   updatedAt: Date;

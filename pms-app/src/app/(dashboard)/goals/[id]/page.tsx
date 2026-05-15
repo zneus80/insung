@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { ArrowLeft, Calendar, Weight, Send, XCircle, CheckCircle2, Flag, CheckCheck } from 'lucide-react';
+import { ArrowLeft, Calendar, Send, XCircle, CheckCircle2, Flag } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   updateGoal,
@@ -20,7 +20,6 @@ import { doc, getDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Header from '@/components/layout/Header';
@@ -29,26 +28,6 @@ import { toast } from 'sonner';
 import type { Goal, GoalHistory, ProgressUpdate, User } from '@/types';
 import { fromTimestamp } from '@/lib/firestore';
 import { Timestamp } from 'firebase/firestore';
-
-const GOAL_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
-  'TASK': { label: '과제업무', cls: 'bg-blue-100 text-blue-700' },
-  'MAJOR': { label: '주요업무', cls: 'bg-green-100 text-green-700' },
-  'OTHER': { label: '기타업무', cls: 'bg-gray-100 text-gray-600' },
-};
-
-function getGoalTypeBadge(goal: Goal) {
-  if (goal.goalType === 'TASK') return GOAL_TYPE_BADGE['TASK'];
-  if (goal.goalType === 'GENERAL') {
-    return goal.generalType === 'MAJOR' ? GOAL_TYPE_BADGE['MAJOR'] : GOAL_TYPE_BADGE['OTHER'];
-  }
-  return null;
-}
-
-const IMPORTANCE_LABEL: Record<string, string> = {
-  HIGH: '높음',
-  MEDIUM: '보통',
-  LOW: '낮음',
-};
 
 export default function GoalDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -80,6 +59,8 @@ export default function GoalDetailPage() {
         updatedAt: fromTimestamp(data.updatedAt as Timestamp) ?? new Date(),
         approvedAt: fromTimestamp(data.approvedAt as Timestamp),
         leadApprovedAt: fromTimestamp(data.leadApprovedAt as Timestamp),
+        completionLeadApprovedAt: fromTimestamp(data.completionLeadApprovedAt as Timestamp),
+        completionApprovedAt: fromTimestamp(data.completionApprovedAt as Timestamp),
       } as Goal;
 
       const [owner, h, u] = await Promise.all([
@@ -117,7 +98,7 @@ export default function GoalDetailPage() {
         previousStatus: goal.status, newStatus: 'PENDING_APPROVAL',
         comment: '승인 요청',
       });
-      toast.success('팀장에게 승인 요청을 보냈습니다.');
+      toast.success('승인 요청을 보냈습니다.');
       await load();
     } finally { setActionLoading(false); }
   }
@@ -133,7 +114,7 @@ export default function GoalDetailPage() {
         previousStatus: goal.status, newStatus: 'COMPLETED',
         comment: '완료 요청',
       });
-      toast.success('팀장에게 완료 확인 요청을 보냈습니다.');
+      toast.success('완료 확인 요청을 보냈습니다.');
       await load();
     } finally { setActionLoading(false); }
   }
@@ -149,7 +130,7 @@ export default function GoalDetailPage() {
         previousStatus: goal.status, newStatus: 'PENDING_ABANDON',
         comment: '포기 요청',
       });
-      toast.success('팀장에게 포기 요청을 보냈습니다.');
+      toast.success('포기 요청을 보냈습니다.');
       await load();
     } finally { setActionLoading(false); }
   }
@@ -182,18 +163,14 @@ export default function GoalDetailPage() {
       let successMsg = '';
 
       if (isLead) {
-        if (goal.goalType === 'TASK' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) {
-          // 과제업무 팀장 1차 승인 → 임원 대기
+        if (goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) {
+          // 팀원 목표 → 팀장 1차 승인 → 임원 대기
           newStatus = 'LEAD_APPROVED';
           updateData = { status: 'LEAD_APPROVED', leadApprovedBy: userProfile.id, leadApprovedAt: new Date() };
-          successMsg = '과제업무 1차 승인. 임원의 최종 승인을 기다립니다.';
-        } else if (goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) {
-          // 주요업무 팀장 최종 승인
-          newStatus = 'APPROVED';
-          updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '주요업무 승인 완료.';
-        } else if (goal.status === 'COMPLETED' && !goal.leadApprovedBy && ownerIsMemberLike) {
-          updateData = { leadApprovedBy: userProfile.id, leadApprovedAt: new Date() };
+          successMsg = '1차 승인 완료. 임원의 최종 승인을 기다립니다.';
+        } else if (goal.status === 'COMPLETED' && !goal.completionLeadApprovedBy && ownerIsMemberLike) {
+          // 팀원 완료 1차 확인
+          updateData = { completionLeadApprovedBy: userProfile.id, completionLeadApprovedAt: new Date() };
           successMsg = '완료 1차 확인. 임원 최종 확인 대기 중.';
         } else if (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike) {
           newStatus = 'ABANDONED';
@@ -201,18 +178,25 @@ export default function GoalDetailPage() {
           successMsg = '포기 승인.';
         }
       } else if (isExec) {
-        if (goal.status === 'LEAD_APPROVED') {
+        if (goal.status === 'LEAD_APPROVED' && ownerIsMemberLike) {
+          // 팀원 목표 최종 승인
           newStatus = 'APPROVED';
           updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
           successMsg = '최종 승인 완료.';
         } else if (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') {
+          // 팀장 목표 임원 승인
           newStatus = 'APPROVED';
           updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
           successMsg = '승인 완료.';
-        } else if (goal.status === 'COMPLETED') {
-          updateData = { approvedBy: userProfile.id, approvedAt: new Date() };
+        } else if (goal.status === 'COMPLETED' && !!goal.completionLeadApprovedBy && !goal.completionApprovedBy && ownerIsMemberLike) {
+          // 팀원 완료 최종 확인
+          updateData = { completionApprovedBy: userProfile.id, completionApprovedAt: new Date() };
           successMsg = '완료 최종 확인.';
-        } else if (goal.status === 'PENDING_ABANDON') {
+        } else if (goal.status === 'COMPLETED' && !goal.completionApprovedBy && ownerRole === 'TEAM_LEAD') {
+          // 팀장 완료 확인
+          updateData = { completionApprovedBy: userProfile.id, completionApprovedAt: new Date() };
+          successMsg = '완료 확인.';
+        } else if (goal.status === 'PENDING_ABANDON' && ownerRole === 'TEAM_LEAD') {
           newStatus = 'ABANDONED';
           updateData = { status: 'ABANDONED', approvedBy: userProfile.id, approvedAt: new Date() };
           successMsg = '포기 승인.';
@@ -288,26 +272,23 @@ export default function GoalDetailPage() {
   const canUpdateProgress = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
 
   const canLeadApprove = isLead && (
-    // TASK: 팀원의 1차 승인
-    (goal.goalType === 'TASK' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) ||
-    // MAJOR: 팀원의 팀장 최종 승인
-    (goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) ||
-    // 완료 확인 (TASK, MAJOR 모두)
-    (goal.status === 'COMPLETED' && !goal.leadApprovedBy && ownerIsMemberLike) ||
-    // 포기 승인
+    // 팀원 목표 1차 승인
+    (ownerIsMemberLike && goal.status === 'PENDING_APPROVAL') ||
+    // 팀원 완료 1차 확인
+    (ownerIsMemberLike && goal.status === 'COMPLETED' && !goal.completionLeadApprovedBy) ||
+    // 팀원 포기 승인
     (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike)
   );
 
   const canExecApprove = isExec && (
-    // TASK: 임원 최종 승인 (팀원 목표)
-    (goal.goalType === 'TASK' && goal.status === 'LEAD_APPROVED') ||
-    // TASK: 팀장의 과제업무 승인
-    (goal.goalType === 'TASK' && goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') ||
-    // MAJOR: 팀장의 주요업무 승인
-    (goal.goalType === 'GENERAL' && goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') ||
-    // 완료 최종 확인
-    (goal.status === 'COMPLETED' && !!goal.leadApprovedBy && ownerIsMemberLike) ||
-    (goal.status === 'COMPLETED' && ownerRole === 'TEAM_LEAD') ||
+    // 팀원 목표 최종 승인
+    (ownerIsMemberLike && goal.status === 'LEAD_APPROVED') ||
+    // 팀장 목표 승인
+    (ownerRole === 'TEAM_LEAD' && goal.status === 'PENDING_APPROVAL') ||
+    // 팀원 완료 최종 확인
+    (ownerIsMemberLike && goal.status === 'COMPLETED' && !!goal.completionLeadApprovedBy && !goal.completionApprovedBy) ||
+    // 팀장 완료 확인
+    (ownerRole === 'TEAM_LEAD' && goal.status === 'COMPLETED' && !goal.completionApprovedBy) ||
     // 포기 승인
     (goal.status === 'PENDING_ABANDON' && ownerRole === 'TEAM_LEAD')
   );
@@ -319,8 +300,7 @@ export default function GoalDetailPage() {
 
   function getApproveLabel() {
     if (isLead) {
-      if (goal!.goalType === 'TASK' && goal!.status === 'PENDING_APPROVAL') return '1차 승인';
-      if (goal!.goalType === 'GENERAL' && goal!.status === 'PENDING_APPROVAL') return '주요업무 승인';
+      if (goal!.status === 'PENDING_APPROVAL') return '목표 승인';
       if (goal!.status === 'COMPLETED') return '완료 1차 확인';
       if (goal!.status === 'PENDING_ABANDON') return '포기 승인';
     }
@@ -334,16 +314,17 @@ export default function GoalDetailPage() {
   }
 
   const completionStep = goal.status === 'COMPLETED'
-    ? (!goal.leadApprovedBy && ownerIsMemberLike
+    ? (!goal.completionLeadApprovedBy && ownerIsMemberLike
         ? '팀장 1차 확인 대기'
-        : goal.leadApprovedBy && !goal.approvedBy && ownerIsMemberLike
+        : goal.completionLeadApprovedBy && !goal.completionApprovedBy && ownerIsMemberLike
           ? '임원 최종 확인 대기'
-          : ownerRole === 'TEAM_LEAD' && !goal.approvedBy
+          : ownerRole === 'TEAM_LEAD' && !goal.completionApprovedBy
             ? '임원 확인 대기'
             : null)
     : null;
 
-  const goalTypeBadge = getGoalTypeBadge(goal);
+  // canEdit is declared above but used as a guard elsewhere; suppress unused warning
+  void canEdit;
 
   return (
     <div className="flex flex-col h-full">
@@ -361,17 +342,7 @@ export default function GoalDetailPage() {
           <div className="rounded-xl border bg-white p-6 space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2 flex-wrap min-w-0">
-                {goalTypeBadge && (
-                  <span className={`shrink-0 text-xs font-medium rounded-full px-2.5 py-0.5 ${goalTypeBadge.cls}`}>
-                    {goalTypeBadge.label}
-                  </span>
-                )}
                 <h2 className="text-xl font-bold text-gray-900">{goal.title}</h2>
-                {goal.requestPromotion && (
-                  <span className="shrink-0 text-xs font-medium rounded-full px-2.5 py-0.5 bg-amber-50 text-amber-700">
-                    과제 반영 요청 중
-                  </span>
-                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <GoalStatusBadge status={goal.status} />
@@ -390,22 +361,6 @@ export default function GoalDetailPage() {
                 <Calendar className="h-4 w-4" />
                 추진기한: {format(goal.dueDate, 'yyyy년 MM월 dd일', { locale: ko })}
               </span>
-              {goal.goalType === 'TASK' && (
-                <span className="flex items-center gap-1.5">
-                  <Weight className="h-4 w-4" />
-                  가중치: {goal.weight}%
-                </span>
-              )}
-              {goal.goalType === 'GENERAL' && goal.generalType === 'OTHER' && goal.importance && (
-                <span className="flex items-center gap-1.5">
-                  중요도: {IMPORTANCE_LABEL[goal.importance] ?? goal.importance}
-                </span>
-              )}
-              {goal.taskCategory === 'TEAM_LINKED' && (
-                <span className="flex items-center gap-1.5 text-blue-600">
-                  연동 목표
-                </span>
-              )}
             </div>
 
             {goal.status === 'REJECTED' && goal.rejectedReason && (
@@ -451,11 +406,8 @@ export default function GoalDetailPage() {
             {canApprove && (
               <div className="space-y-3 pt-2 border-t">
                 <div className="flex items-center gap-2">
-                  {isLead && goal.status === 'PENDING_APPROVAL' && goal.goalType === 'TASK' && (
-                    <span className="text-xs text-indigo-600 bg-indigo-50 rounded px-2 py-1">팀장 1차 승인 단계</span>
-                  )}
-                  {isLead && goal.status === 'PENDING_APPROVAL' && goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR' && (
-                    <span className="text-xs text-green-600 bg-green-50 rounded px-2 py-1">주요업무 팀장 최종 승인</span>
+                  {isLead && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike && (
+                    <span className="text-xs text-indigo-600 bg-indigo-50 rounded px-2 py-1">목표 승인</span>
                   )}
                   {isExec && goal.status === 'LEAD_APPROVED' && (
                     <span className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">임원 최종 승인 단계</span>

@@ -8,7 +8,7 @@ import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Send, Save, CheckCircle2, ClipboardList, ListChecks } from 'lucide-react';
+import { Send, Save, CheckCircle2, ClipboardList } from 'lucide-react';
 import type { Goal, YearEndEval, TaskSummaryEntry } from '@/types';
 
 const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
@@ -17,44 +17,44 @@ const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
 const MOCK_GOALS: Goal[] = [
   {
     id: 'mock-task-1', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'TASK',
+    cycleYear: new Date().getFullYear(),
     title: '신규 고객사 영업 프로세스 개선', description: '영업 프로세스 표준화 및 CRM 도입',
-    dueDate: new Date(), weight: 30, status: 'COMPLETED', progress: 100,
+    dueDate: new Date(), status: 'COMPLETED', progress: 100,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
     id: 'mock-task-2', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'TASK',
+    cycleYear: new Date().getFullYear(),
     title: '팀 역량 강화 교육 프로그램 운영', description: '분기별 사내 교육 3회 이상 진행',
-    dueDate: new Date(), weight: 20, status: 'IN_PROGRESS', progress: 60,
+    dueDate: new Date(), status: 'IN_PROGRESS', progress: 60,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
     id: 'mock-task-3', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'TASK',
+    cycleYear: new Date().getFullYear(),
     title: '원가 절감 프로젝트', description: '구매 비용 5% 절감 달성',
-    dueDate: new Date(), weight: 20, status: 'ABANDONED', progress: 30,
+    dueDate: new Date(), status: 'ABANDONED', progress: 30,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
-    id: 'mock-general-1', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'GENERAL',
+    id: 'mock-goal-1', userId: 'mock-member-001', organizationId: 'mock-org-001',
+    cycleYear: new Date().getFullYear(),
     title: '주간 업무보고서 작성 및 제출', description: '매주 금요일 업무보고서 제출',
-    dueDate: new Date(), weight: 15, status: 'COMPLETED', progress: 100,
+    dueDate: new Date(), status: 'COMPLETED', progress: 100,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
-    id: 'mock-general-2', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'GENERAL',
+    id: 'mock-goal-2', userId: 'mock-member-001', organizationId: 'mock-org-001',
+    cycleYear: new Date().getFullYear(),
     title: '부서 회의 준비 및 진행', description: '월간 부서 회의 안건 정리 및 진행',
-    dueDate: new Date(), weight: 15, status: 'COMPLETED', progress: 100,
+    dueDate: new Date(), status: 'COMPLETED', progress: 100,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
-    id: 'mock-general-3', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'GENERAL',
+    id: 'mock-goal-3', userId: 'mock-member-001', organizationId: 'mock-org-001',
+    cycleYear: new Date().getFullYear(),
     title: '고객 문의 대응', description: '고객 문의 24시간 내 응답',
-    dueDate: new Date(), weight: 0, status: 'REJECTED', progress: 0,
+    dueDate: new Date(), status: 'REJECTED', progress: 0,
     createdAt: new Date(), updatedAt: new Date(),
   },
 ];
@@ -91,8 +91,7 @@ function PerformanceContent() {
   const { userProfile } = useAuth();
   const year = new Date().getFullYear();
 
-  const [taskGoals, setTaskGoals] = useState<Goal[]>([]);    // 과제업무
-  const [generalGoals, setGeneralGoals] = useState<Goal[]>([]); // 일반업무
+  const [allGoals, setAllGoals] = useState<Goal[]>([]);
   const [summaries, setSummaries] = useState<Record<string, string>>({}); // goalId → 세부요약
   const [evalRecord, setEvalRecord] = useState<YearEndEval | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,12 +114,7 @@ function PerformanceContent() {
         ]);
       }
 
-      // swpark 브랜치에서 category 필드 추가 예정
-      const taskList = goals.filter(g => g.category === 'TASK' || !g.category);
-      const generalList = goals.filter(g => g.category === 'GENERAL');
-
-      setTaskGoals(taskList);
-      setGeneralGoals(generalList);
+      setAllGoals(goals);
       setEvalRecord(record);
 
       // 저장된 세부요약 불러오기
@@ -142,7 +136,7 @@ function PerformanceContent() {
     if (!userProfile) return;
     setSaving(true);
     try {
-      const taskSummaries: TaskSummaryEntry[] = taskGoals.map(g => ({
+      const taskSummaries: TaskSummaryEntry[] = allGoals.map(g => ({
         goalId: g.id,
         goalTitle: g.title,
         summary: summaries[g.id] ?? '',
@@ -218,21 +212,21 @@ function PerformanceContent() {
             </div>
           </div>
 
-          {/* ── Section 1: 과제업무 ── */}
+          {/* ── 목표 목록 ── */}
           <section className="space-y-3">
             <div className="flex items-center gap-2">
               <ClipboardList className="h-4 w-4 text-blue-600" />
-              <h2 className="text-sm font-semibold text-gray-800">과제업무</h2>
-              <span className="text-xs text-gray-400">{taskGoals.length}건</span>
+              <h2 className="text-sm font-semibold text-gray-800">목표</h2>
+              <span className="text-xs text-gray-400">{allGoals.length}건</span>
             </div>
 
-            {taskGoals.length === 0 ? (
+            {allGoals.length === 0 ? (
               <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">
-                등록된 과제업무가 없습니다.
+                등록된 목표가 없습니다.
               </div>
             ) : (
               <div className="space-y-3">
-                {taskGoals.map(goal => (
+                {allGoals.map(goal => (
                   <div key={goal.id} className="rounded-xl border border-blue-100 bg-white overflow-hidden">
                     {/* 목표 정보 */}
                     <div className="px-4 py-3 bg-blue-50 flex items-start justify-between gap-3">
@@ -257,42 +251,11 @@ function PerformanceContent() {
                         <Textarea
                           value={summaries[goal.id] ?? ''}
                           onChange={e => setSummaries(prev => ({ ...prev, [goal.id]: e.target.value }))}
-                          placeholder="이 과제에 대한 세부 성과를 작성해주세요."
+                          placeholder="이 목표에 대한 세부 성과를 작성해주세요."
                           className="resize-none text-sm min-h-[80px]"
                         />
                       )}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* ── Section 2: 일반업무 ── */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <ListChecks className="h-4 w-4 text-green-600" />
-              <h2 className="text-sm font-semibold text-gray-800">일반업무</h2>
-              <span className="text-xs text-gray-400">{generalGoals.length}건</span>
-            </div>
-
-            {generalGoals.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">
-                등록된 일반업무가 없습니다.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {generalGoals.map(goal => (
-                  <div key={goal.id} className="rounded-xl border border-green-100 bg-white px-4 py-3 flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{goal.title}</p>
-                      {goal.description && (
-                        <p className="mt-0.5 text-xs text-gray-500 line-clamp-2">{goal.description}</p>
-                      )}
-                    </div>
-                    <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLOR[goal.status] ?? 'bg-gray-100 text-gray-500'}`}>
-                      {STATUS_LABEL[goal.status] ?? goal.status}
-                    </span>
                   </div>
                 ))}
               </div>
