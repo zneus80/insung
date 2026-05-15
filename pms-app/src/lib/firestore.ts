@@ -14,13 +14,14 @@ import {
   query,
   where,
   orderBy,
+  onSnapshot,
   serverTimestamp,
   Timestamp,
   QueryConstraint,
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, CDP, YearEndEval, MentoringForm } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, CDP, YearEndEval, MentoringForm, AppNotification } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -44,6 +45,7 @@ export const COLLECTIONS = {
   CDPS: 'cdps',
   YEAR_END_EVALS: 'yearEndEvals',
   MENTORING_FORMS: 'mentoringForms',
+  NOTIFICATIONS: 'notifications',
 } as const;
 
 // ─── Timestamp 변환 유틸 ──────────────────────
@@ -157,6 +159,10 @@ export async function updateGoal(id: string, data: Partial<Goal>) {
   await updateDoc(doc(db, COLLECTIONS.GOALS, id), updateData);
 }
 
+export async function deleteGoal(id: string) {
+  await deleteDoc(doc(db, COLLECTIONS.GOALS, id));
+}
+
 export async function getGoalsByUser(userId: string, year?: number): Promise<Goal[]> {
   const constraints: QueryConstraint[] = [where('userId', '==', userId)];
   if (year) constraints.push(where('cycleYear', '==', year));
@@ -206,6 +212,28 @@ export async function getGoalsByOrganization(orgId: string, year?: number): Prom
   return goals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
+// 여러 조직의 목표 조회 (임원/CEO용) — 10개 초과 시 배치 처리
+export async function getGoalsByOrganizations(orgIds: string[], year?: number): Promise<Goal[]> {
+  if (orgIds.length === 0) return [];
+  const CHUNK = 10;
+  const results: Goal[] = [];
+  for (let i = 0; i < orgIds.length; i += CHUNK) {
+    const chunk = orgIds.slice(i, i + CHUNK);
+    const constraints: QueryConstraint[] = [where('organizationId', 'in', chunk)];
+    if (year) constraints.push(where('cycleYear', '==', year));
+    const snap = await getDocs(query(collection(db, COLLECTIONS.GOALS), ...constraints));
+    results.push(...snap.docs.map(d => ({
+      ...d.data(), id: d.id,
+      dueDate: fromTimestamp(d.data().dueDate) ?? new Date(),
+      createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+      updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
+      approvedAt: fromTimestamp(d.data().approvedAt),
+      leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
+    } as Goal)));
+  }
+  return results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
 // 팀장: 승인 대기 목표 조회
 export async function getPendingGoalsByOrganization(orgId: string): Promise<Goal[]> {
   return getPendingGoalsByOrganizations([orgId]);
@@ -235,7 +263,7 @@ export async function getPendingGoalsByOrganizations(orgIds: string[]): Promise<
     const snap = await getDocs(query(
       collection(db, COLLECTIONS.GOALS),
       where('organizationId', 'in', chunk),
-      where('status', 'in', ['PENDING_APPROVAL', 'LEAD_APPROVED', 'PENDING_ABANDON', 'COMPLETED']),
+      where('status', 'in', ['PENDING_APPROVAL', 'LEAD_APPROVED', 'PENDING_ABANDON', 'PENDING_COMPLETION']),
     ));
     results.push(...snap.docs.map(d => {
       const data = d.data();
@@ -275,10 +303,16 @@ export async function getGoalHistories(goalId: string): Promise<GoalHistory[]> {
 
 // ─── 진행상황 ──────────────────────────────────
 export async function addProgressUpdate(data: Omit<ProgressUpdate, 'id' | 'createdAt'>) {
-  const ref = await addDoc(collection(db, COLLECTIONS.PROGRESS_UPDATES), {
-    ...data,
+  const payload: Record<string, unknown> = {
+    goalId: data.goalId,
+    userId: data.userId,
+    comment: data.comment,
+    type: data.type ?? 'PROGRESS',
     createdAt: serverTimestamp(),
-  });
+  };
+  if (data.progress !== undefined) payload.progress = data.progress;
+  if (data.userInfo) payload.userInfo = data.userInfo;
+  const ref = await addDoc(collection(db, COLLECTIONS.PROGRESS_UPDATES), payload);
   return ref.id;
 }
 
@@ -293,6 +327,14 @@ export async function getProgressUpdates(goalId: string): Promise<ProgressUpdate
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
   } as ProgressUpdate));
   return items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+export async function updateProgressUpdate(id: string, comment: string) {
+  await updateDoc(doc(db, COLLECTIONS.PROGRESS_UPDATES, id), { comment });
+}
+
+export async function deleteProgressUpdate(id: string) {
+  await deleteDoc(doc(db, COLLECTIONS.PROGRESS_UPDATES, id));
 }
 
 // ─── 자기평가 (SelfEvaluation) ────────────────
@@ -878,4 +920,69 @@ export async function upsertMentoringForm(
   } else {
     await setDoc(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   }
+}
+
+// ─── 알림 ─────────────────────────────────────
+export async function createNotification(data: Omit<AppNotification, 'id' | 'createdAt'>) {
+  await addDoc(collection(db, COLLECTIONS.NOTIFICATIONS), {
+    ...data,
+    createdAt: serverTimestamp(),
+  });
+}
+
+// 실시간 알림 리스너 (unsubscribe 함수 반환)
+export function subscribeNotifications(
+  userId: string,
+  callback: (notifications: AppNotification[]) => void
+): () => void {
+  const q = query(
+    collection(db, COLLECTIONS.NOTIFICATIONS),
+    where('userId', '==', userId),
+  );
+  const unsubscribe = onSnapshot(
+    q,
+    snap => {
+      const list = snap.docs
+        .map(d => ({
+          ...d.data(),
+          id: d.id,
+          createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+        } as AppNotification))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, 30);
+      callback(list);
+    },
+    error => {
+      console.error('[Notification] onSnapshot 오류:', error.code, error.message);
+    }
+  );
+  return unsubscribe;
+}
+
+export async function getNotifications(userId: string): Promise<AppNotification[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.NOTIFICATIONS),
+    where('userId', '==', userId),
+  ));
+  return snap.docs
+    .map(d => ({
+      ...d.data(),
+      id: d.id,
+      createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+    } as AppNotification))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, 30);
+}
+
+export async function markNotificationRead(id: string) {
+  await updateDoc(doc(db, COLLECTIONS.NOTIFICATIONS, id), { read: true });
+}
+
+export async function markAllNotificationsRead(userId: string) {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.NOTIFICATIONS),
+    where('userId', '==', userId),
+    where('read', '==', false),
+  ));
+  await Promise.all(snap.docs.map(d => updateDoc(d.ref, { read: true })));
 }

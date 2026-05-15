@@ -37,15 +37,17 @@ const GRADE_COLOR: Record<EvaluationGrade, string> = {
 };
 
 const GOAL_STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  DRAFT:            { label: '초안',       color: 'bg-gray-100 text-gray-500' },
-  PENDING_APPROVAL: { label: '승인 요청',  color: 'bg-yellow-100 text-yellow-700' },
-  LEAD_APPROVED:    { label: '1차 승인',   color: 'bg-blue-100 text-blue-600' },
-  APPROVED:         { label: '승인됨',     color: 'bg-blue-100 text-blue-700' },
-  REJECTED:         { label: '반려',       color: 'bg-red-100 text-red-600' },
-  IN_PROGRESS:      { label: '진행 중',    color: 'bg-indigo-100 text-indigo-700' },
-  COMPLETED:        { label: '완료',       color: 'bg-green-100 text-green-700' },
-  PENDING_ABANDON:  { label: '포기 요청',  color: 'bg-orange-100 text-orange-600' },
-  ABANDONED:        { label: '포기됨',     color: 'bg-gray-100 text-gray-400' },
+  DRAFT:              { label: '초안',       color: 'bg-gray-100 text-gray-500' },
+  PENDING_APPROVAL:   { label: '승인 요청',  color: 'bg-yellow-100 text-yellow-700' },
+  LEAD_APPROVED:      { label: '1차 승인',   color: 'bg-blue-100 text-blue-600' },
+  APPROVED:           { label: '승인됨',     color: 'bg-blue-100 text-blue-700' },
+  REJECTED:           { label: '반려',       color: 'bg-red-100 text-red-600' },
+  IN_PROGRESS:        { label: '진행 중',    color: 'bg-indigo-100 text-indigo-700' },
+  PENDING_COMPLETION: { label: '완료 요청',  color: 'bg-purple-100 text-purple-700' },
+  COMPLETED:          { label: '완료',       color: 'bg-green-100 text-green-700' },
+  PENDING_MODIFY:     { label: '수정 요청',  color: 'bg-orange-100 text-orange-600' },
+  PENDING_ABANDON:    { label: '포기 요청',  color: 'bg-red-100 text-red-500' },
+  ABANDONED:          { label: '포기됨',     color: 'bg-gray-100 text-gray-400' },
 };
 
 function getDescendantOrgIds(orgId: string, orgs: Organization[]): string[] {
@@ -229,19 +231,17 @@ function MemberEvalView() {
           </div>
         )}
 
-        {/* 평가 기간 아님 */}
-        {!isInEvalPeriod && !isSubmitted && (
-          <div className="rounded-xl border border-dashed p-10 text-center space-y-2">
-            <Clock className="h-8 w-8 mx-auto text-gray-300" />
-            <p className="text-gray-500 font-medium">아직 평가 기간이 아닙니다.</p>
-            {cycle && (
-              <p className="text-sm text-gray-400">
-                {cycle.evalStartDate.toLocaleDateString('ko-KR')}부터 성과를 입력할 수 있습니다.
+        {/* 평가 기간 안내 배너 (기간 아닐 때 + 미제출) */}
+        {!isInEvalPeriod && !isSubmitted && cycle && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3.5 flex items-center gap-3">
+            <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-amber-700">아직 평가 제출 기간이 아닙니다.</p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                {cycle.evalStartDate.toLocaleDateString('ko-KR')} ~ {cycle.evalEndDate.toLocaleDateString('ko-KR')} 기간에 제출 가능합니다.
+                완료 목표 성과는 미리 작성하고 임시저장 할 수 있습니다.
               </p>
-            )}
-            {!cycle && (
-              <p className="text-sm text-gray-400">HR 관리자에게 평가 사이클 설정을 요청해주세요.</p>
-            )}
+            </div>
           </div>
         )}
 
@@ -271,12 +271,12 @@ function MemberEvalView() {
           </div>
         )}
 
-        {/* 평가 입력 폼 */}
-        {(isInEvalPeriod || !cycle) && !isSubmitted && (
+        {/* 평가 입력 폼 — 완료 목표는 기간과 무관하게 항상 표시 */}
+        {!isSubmitted && (
           <div className="space-y-4">
             <div>
               <h3 className="font-semibold text-gray-900">완료된 업무 성과 입력</h3>
-              <p className="text-xs text-gray-500 mt-0.5">완료된 목표별로 잘된 점과 아쉬운 점을 입력하고 팀장에게 제출하세요.</p>
+              <p className="text-xs text-gray-500 mt-0.5">완료된 목표별로 잘된 점과 아쉬운 점을 작성하세요.</p>
             </div>
 
             {loading ? <LoadingSpinner /> : completedGoals.length === 0 ? (
@@ -295,7 +295,7 @@ function MemberEvalView() {
                         기한: {goal.dueDate.toLocaleDateString('ko-KR')} · 진행률: {goal.progress}%
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">완료</span>
+                    <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">완료됨</span>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -325,8 +325,14 @@ function MemberEvalView() {
 
             {!loading && completedGoals.length > 0 && (
               <div className="flex justify-end gap-3 pt-2">
+                {/* 임시 저장은 항상 가능 */}
                 <Button variant="outline" onClick={handleSave} disabled={saving}>임시 저장</Button>
-                <Button onClick={handleSubmit} disabled={saving}>
+                {/* 제출은 평가 기간에만 활성화 */}
+                <Button
+                  onClick={handleSubmit}
+                  disabled={saving || !isInEvalPeriod}
+                  title={!isInEvalPeriod ? '평가 기간에만 제출할 수 있습니다' : undefined}
+                >
                   {saving ? '제출 중...' : '팀장에게 제출'}
                 </Button>
               </div>

@@ -88,7 +88,7 @@ function ApprovalsContent() {
   });
 
   const completionGoals = goals.filter(g => {
-    if (g.status !== 'COMPLETED') return false;
+    if (g.status !== 'PENDING_COMPLETION') return false;
     const ownerRole = users[g.userId]?.role;
     if (isLead) {
       // 팀장: 팀원의 완료 1차 확인 (completionLeadApprovedBy 없는 것)
@@ -106,8 +106,15 @@ function ApprovalsContent() {
   const abandonGoals = goals.filter(g => {
     if (g.status !== 'PENDING_ABANDON') return false;
     const ownerRole = users[g.userId]?.role;
-    if (isLead) return ownerRole === 'MEMBER';
-    if (isExec) return ownerRole === 'TEAM_LEAD';
+    if (isLead) {
+      // 팀장: 팀원 포기 요청 중 아직 1차 승인 안 한 것
+      return ownerRole === 'MEMBER' && !g.abandonLeadApprovedBy;
+    }
+    if (isExec) {
+      // 임원: 팀원(팀장 1차 승인 완료) + 팀장(직접 승인)
+      return (ownerRole === 'MEMBER' && !!g.abandonLeadApprovedBy) ||
+        ownerRole === 'TEAM_LEAD';
+    }
     return true;
   });
 

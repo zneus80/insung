@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "emulator": "firebase emulators:start --project demo-pms",
+    "emulator": "firebase emulators:start --project demo-pms --import ./emulator-data --export-on-exit ./emulator-data",
     "seed": "node scripts/seed.mjs",
     "dev:local": "concurrently \"npm run emulator\" \"npm run dev\""
   },

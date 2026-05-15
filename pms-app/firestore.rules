@@ -47,6 +47,9 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid ||
         isLead() || isExec() || isCeo() || isHrAdmin()
       );
+      allow delete: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        (resource.data.status == 'DRAFT' || resource.data.status == 'REJECTED' || resource.data.status == 'ABANDONED');
     }
 
     // 목표 이력 (읽기 전용)
@@ -60,6 +63,8 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid;
     }
 
     // 1on1
@@ -148,6 +153,16 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isHrAdmin() || isCeo();
       allow update: if true; // 초대 수락 시 usedAt 업데이트
+    }
+
+    // 알림
+    match /notifications/{id} {
+      // 단건 읽기: 본인 알림만
+      allow get: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // 목록 쿼리: 인증된 사용자 허용 (클라이언트에서 userId 필터 필수)
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
     // CDP (docId = userId_year)

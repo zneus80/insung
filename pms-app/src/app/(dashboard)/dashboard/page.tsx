@@ -232,10 +232,19 @@ function ExecDashboard() {
           ]);
           setCompanyGoal(cGoal);
 
-          // 임원: 자신이 책임진 조직 산하만 / CEO: 전체
+          // 임원: 자신의 소속 조직 + 하위 조직 전체 / CEO: 전체
           const scopeOrgIds = userProfile!.role === 'EXECUTIVE'
-            ? allOrgs.filter(o => o.leaderId === userProfile!.id)
-                .flatMap(o => findDescendantIds(o.id, allOrgs))
+            ? (() => {
+                // 1) 소속 org 기준 하위 전체 (organizationId → descendants)
+                const byOrg = userProfile!.organizationId
+                  ? findDescendantIds(userProfile!.organizationId, allOrgs)
+                  : [];
+                // 2) leaderId 기준 하위 전체 (org 관리자로 지정된 경우)
+                const byLead = allOrgs
+                  .filter(o => o.leaderId === userProfile!.id)
+                  .flatMap(o => findDescendantIds(o.id, allOrgs));
+                return [...new Set([...byOrg, ...byLead])];
+              })()
             : allOrgs.map(o => o.id);
 
           const scopeUsers = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
@@ -252,7 +261,16 @@ function ExecDashboard() {
             goalsByUser[g.userId].push(g);
           }
           const scopeOrgs = allOrgs.filter(o => scopeOrgIds.includes(o.id));
-          setTreeNodes(buildTree(null, scopeOrgs, usersByOrg, goalsByUser));
+
+          // CEO: 최상위(null)부터 트리 빌드
+          // EXECUTIVE: 소속 조직(예: 제조부문)의 parentId를 루트로 지정
+          //   → buildTree(null, ...) 은 parentId=null인 최상위 org만 탐색하므로
+          //     DIVISION(parentId=회사ID)은 잡히지 않음. 부모 ID를 기준점으로 변경.
+          const treeRootParentId = userProfile!.role === 'EXECUTIVE'
+            ? (allOrgs.find(o => o.id === userProfile!.organizationId)?.parentId ?? null)
+            : null;
+
+          setTreeNodes(buildTree(treeRootParentId, scopeOrgs, usersByOrg, goalsByUser));
       } catch (e: any) {
         console.error('임원 대시보드 로드 실패:', e);
       } finally { setLoading(false); }

@@ -47,7 +47,8 @@ export type GoalStatus =
   | 'LEAD_APPROVED'
   | 'APPROVED'
   | 'IN_PROGRESS'
-  | 'COMPLETED'
+  | 'PENDING_COMPLETION'  // 완료 확인 요청 중
+  | 'COMPLETED'           // 최종 완료 확인됨
   | 'PENDING_MODIFY'
   | 'PENDING_ABANDON'
   | 'REJECTED'
@@ -82,6 +83,10 @@ export interface Goal {
   completionApprovedBy?: string;
   completionApprovedAt?: Date;
 
+  // 포기 승인 정보 (팀원의 경우 2단계)
+  abandonLeadApprovedBy?: string;
+  abandonLeadApprovedAt?: Date;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -107,8 +112,16 @@ export interface ProgressUpdate {
   id: string;
   goalId: string;
   userId: string;
-  progress: number;   // 0~100
+  progress?: number;   // 0~100, 코멘트 전용일 경우 undefined
   comment: string;
+  type?: 'PROGRESS' | 'COMMENT';  // 생략 시 PROGRESS로 취급
+  // 작성자 정보 스냅샷 (소속/팀/이름/직급)
+  userInfo?: {
+    name: string;
+    position?: string;
+    teamName?: string;      // 직속 팀/부문 이름
+    divisionName?: string;  // 상위 부문 이름 (있을 경우)
+  };
   createdAt: Date;
 }
 
@@ -394,6 +407,33 @@ export interface EvaluationCycle {
   evalStartDate: Date;    // 평가 시작
   evalEndDate: Date;      // 평가 마감
   isActive: boolean;
+  createdAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 알림
+// ─────────────────────────────────────────────
+export type NotificationType =
+  | 'GOAL_APPROVED'        // 목표 최종 승인
+  | 'GOAL_LEAD_APPROVED'   // 목표 1차 승인
+  | 'GOAL_REJECTED'        // 목표 반려
+  | 'ABANDON_APPROVED'     // 포기 최종 승인
+  | 'ABANDON_LEAD_APPROVED'// 포기 1차 승인
+  | 'ABANDON_REJECTED'     // 포기 반려
+  | 'COMPLETION_APPROVED'  // 완료 확인
+  | 'COMPLETION_REJECTED'  // 완료 반려
+  | 'GOAL_SUBMITTED'       // 승인 요청 접수 (팀장/임원 수신)
+  | 'COMPLETION_REQUESTED' // 완료 요청 접수 (팀장/임원 수신)
+  | 'ABANDON_REQUESTED';   // 포기 요청 접수 (팀장/임원 수신)
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  goalId: string;
+  goalTitle: string;
+  type: NotificationType;
+  message: string;
+  read: boolean;
   createdAt: Date;
 }
 
