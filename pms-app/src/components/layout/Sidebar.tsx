@@ -20,6 +20,7 @@ import {
   Trophy,
   CalendarClock,
   HardDrive,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -57,6 +58,12 @@ const navItems: NavItem[] = [
   },
 
   // ── 팀원·팀장 공통 ─────────────────────────
+  {
+    label: '업무관리',
+    href: '/tasks',
+    icon: <ClipboardList className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
+  },
   {
     label: '자기평가',
     href: '/evaluation',

@@ -150,8 +150,35 @@ service cloud.firestore {
       allow update: if true; // 초대 수락 시 usedAt 업데이트
     }
 
-    // CDP (docId = userId_year)
-    match /cdps/{docId} {
+    // 알림
+    match /notifications/{id} {
+      allow get: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // 주간 업무 (docId = userId_year_Wnn)
+    match /weeklyTasks/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid
+        ||
+        (
+          request.resource.data.userId        == resource.data.userId        &&
+          request.resource.data.organizationId == resource.data.organizationId &&
+          request.resource.data.year          == resource.data.year          &&
+          request.resource.data.weekNumber    == resource.data.weekNumber    &&
+          request.resource.data.items         == resource.data.items         &&
+          request.resource.data.summary       == resource.data.summary
+        )
+      );
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // 연말 평가 (docId = userId_year)
+    match /yearEndEvals/{docId} {
       allow read: if isAuthenticated() && (
         docId.matches('^' + request.auth.uid + '_.*') ||
         isLead() || isExec() || isCeo() || isHrAdmin()
@@ -164,16 +191,6 @@ service cloud.firestore {
     match /evaluationPeriods/{docId} {
       allow read: if isAuthenticated();
       allow write: if isHrAdmin() || isCeo();
-    }
-
-    // 연말 인사평가 (docId = userId_year)
-    match /yearEndEvals/{docId} {
-      allow read: if isAuthenticated() && (
-        docId.matches('^' + request.auth.uid + '_.*') ||
-        isLead() || isExec() || isCeo() || isHrAdmin()
-      );
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
     // 육성면담서 (docId = userId_year)

@@ -71,7 +71,7 @@ export interface Goal {
   cycleYear: number;            // 평가 연도 (e.g. 2026)
 
   // 공통
-  goalType: GoalType;
+  goalType?: GoalType;
   title: string;
   description: string;
   dueDate: Date;
@@ -319,7 +319,7 @@ export interface DivisionGradeQuota {
 }
 
 // ─────────────────────────────────────────────
-// 육성면담서 (CDP 자기신고서)
+// 육성면담서
 // ─────────────────────────────────────────────
 
 export type JobRequestType = 'EXPAND' | 'REDUCE' | 'CHANGE' | 'RELOCATE' | 'SATISFIED';
@@ -335,7 +335,7 @@ export interface MentoringForm {
   interviewDate: string;    // 면담일 (YYYY-MM-DD)
   interviewerName: string;  // 면담자 이름
 
-  // CDP 자기신고서 - 기본
+  // 자기신고서 - 기본
   lastSchoolMajor: string;  // 최종학교/전공
   familyInfo: string;       // 가족사항
   commute: string;          // 거주지 (출퇴근시간)
@@ -443,3 +443,61 @@ export interface EvaluationCycle {
   createdAt: Date;
 }
 
+
+// ─────────────────────────────────────────────
+// 알림
+// ─────────────────────────────────────────────
+export type NotificationType =
+  | 'GOAL_APPROVED' | 'GOAL_LEAD_APPROVED' | 'GOAL_REJECTED'
+  | 'ABANDON_APPROVED' | 'ABANDON_LEAD_APPROVED' | 'ABANDON_REJECTED'
+  | 'COMPLETION_APPROVED' | 'COMPLETION_REJECTED'
+  | 'GOAL_SUBMITTED' | 'COMPLETION_REQUESTED' | 'ABANDON_REQUESTED';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  goalId: string;
+  goalTitle: string;
+  type: NotificationType;
+  message: string;
+  read: boolean;
+  createdAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 업무관리 (주간 실적 보고)
+// ─────────────────────────────────────────────
+export type WeeklyTaskStatus   = 'PLANNED' | 'IN_PROGRESS' | 'DONE';
+export type WeeklyTaskCategory = 'CORE' | 'GENERAL' | 'MEETING' | 'TRAINING' | 'OTHER';
+
+export interface WeeklyTaskItem {
+  id: string;                  // crypto.randomUUID()
+  category: WeeklyTaskCategory;
+  title: string;               // 업무명
+  content: string;             // 업무 상세 내용
+  result: string;              // 실적 / 결과 (PLANNED 상태에서는 미사용)
+  achievement: number;         // 달성률 0~100
+  status: WeeklyTaskStatus;
+}
+
+export interface LeadCommentEntry {
+  id: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  createdAt: Date;
+}
+
+export interface WeeklyTask {
+  id: string;                  // `${userId}_${year}_W${weekNumber}`
+  userId: string;
+  organizationId: string;
+  year: number;
+  weekNumber: number;
+  weekStart: Date;
+  weekEnd: Date;
+  items: WeeklyTaskItem[];
+  summary: string;             // 이번 주 종합 의견
+  leadComments: LeadCommentEntry[];  // 팀장 Comment (누적 스레드)
+  updatedAt: Date;
+}

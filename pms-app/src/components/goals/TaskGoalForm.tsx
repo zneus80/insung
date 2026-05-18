@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { createGoal, updateGoal, addGoalHistory } from '@/lib/firestore';
+import { createGoal, updateGoal, getOrganizations, createNotification } from '@/lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,90 +10,138 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import type { Goal, AnnualGoal, TaskCategory } from '@/types';
+import { X } from 'lucide-react';
+import type { Goal } from '@/types';
 
 interface TaskGoalFormProps {
   open: boolean;
   onClose: () => void;
   onSave: () => void;
   editGoal?: Goal;
-  divisionGoal: AnnualGoal | null;
-  currentTaskWeight: number; // 현재 사용 중인 총 가중치
 }
 
 export default function TaskGoalForm({
-  open, onClose, onSave, editGoal, divisionGoal, currentTaskWeight,
+  open, onClose, onSave, editGoal,
 }: TaskGoalFormProps) {
   const { userProfile } = useAuth();
-  const [category, setCategory] = useState<TaskCategory>('PERSONAL');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
-  const [weight, setWeight] = useState(10);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  // 폼이 열릴 때의 status를 스냅샷 — 부모 prop 재렌더로 인한 status 변경 방지
+  const openedStatusRef = useRef<Goal['status'] | null>(null);
+
   const isEdit = !!editGoal;
-  // 수정 시 현재 목표의 가중치는 제외하고 잔여 계산
-  const usedWithoutThis = isEdit ? currentTaskWeight - (editGoal.weight ?? 0) : currentTaskWeight;
-  const remaining = 80 - usedWithoutThis;
+  const isDraftEdit = isEdit && ['DRAFT', 'REJECTED'].includes(editGoal.status);
+  const isApprovedEdit = isEdit && !['DRAFT', 'REJECTED'].includes(editGoal.status);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // 폼이 닫힐 때 스냅샷 초기화
+      openedStatusRef.current = null;
+      setError('');
+      return;
+    }
     if (editGoal) {
-      setCategory(editGoal.taskCategory ?? 'PERSONAL');
+      // 폼이 처음 열릴 때만 status 스냅샷 (이후 prop 변경은 무시)
+      if (openedStatusRef.current === null) {
+        openedStatusRef.current = editGoal.status;
+      }
       setTitle(editGoal.title);
       setDescription(editGoal.description);
       setDueDate(editGoal.dueDate.toISOString().split('T')[0]);
-      setWeight(editGoal.weight ?? 10);
     } else {
-      setCategory('PERSONAL');
+      openedStatusRef.current = null;
       setTitle('');
       setDescription('');
       setDueDate('');
-      setWeight(Math.min(10, remaining));
     }
     setError('');
   }, [open, editGoal]);
 
+  // 승인 요청 시 팀장/임원에게 알림 발송
+  async function sendApprovalNotification(goalId: string, goalTitle: string) {
+    try {
+      const orgs = await getOrganizations();
+      const myOrg = orgs.find(o => o.id === userProfile!.organizationId);
+      const parentOrg = myOrg?.parentId ? orgs.find(o => o.id === myOrg.parentId) : undefined;
+      const leadId = myOrg?.leaderId ?? null;
+      const execId = parentOrg?.leaderId ?? null;
+
+      const notifBase = {
+        goalId,
+        goalTitle,
+        type: 'GOAL_SUBMITTED' as const,
+        message: `${userProfile!.name}님이 '${goalTitle}' 목표 승인을 요청했습니다.`,
+        read: false,
+      };
+
+      if (userProfile!.role === 'TEAM_LEAD') {
+        // 팀장 목표 → 임원에게
+        if (execId && execId !== userProfile!.id) {
+          await createNotification({ userId: execId, ...notifBase });
+        }
+      } else {
+        // 팀원 목표 → 팀장에게
+        if (leadId && leadId !== userProfile!.id) {
+          await createNotification({ userId: leadId, ...notifBase });
+        }
+      }
+    } catch {
+      // 알림 발송 실패는 조용히 처리 (목표 상신 자체는 성공)
+    }
+  }
+
   async function handleSubmit(isDraft: boolean) {
     if (!userProfile) return;
-    if (!title.trim()) { setError('업무명을 입력하세요.'); return; }
-    if (!description.trim()) { setError('세부내용을 입력하세요.'); return; }
-    if (!dueDate) { setError('추진기한을 선택하세요.'); return; }
-    if (weight < 1) { setError('가중치는 1% 이상이어야 합니다.'); return; }
-    if (weight > remaining && !isEdit) { setError(`가중치 초과: 잔여 ${remaining}%`); return; }
+    if (!title.trim()) { setError('목표명을 입력하세요.'); return; }
+    if (!isDraft) {
+      if (!description.trim()) { setError('세부내용을 입력하세요.'); return; }
+      if (!dueDate) { setError('추진기한을 선택하세요.'); return; }
+    }
 
     setSubmitting(true);
     try {
       const payload = {
-        goalType: 'TASK' as const,
-        taskCategory: category,
-        ...(category === 'TEAM_LINKED' && divisionGoal ? {
-          linkedOrgGoalId: divisionGoal.id,
-          linkedOrgGoalTitle: divisionGoal.content?.slice(0, 40),
-        } : {}),
         title: title.trim(),
         description: description.trim(),
-        dueDate: new Date(dueDate),
-        weight,
+        dueDate: dueDate ? new Date(dueDate) : new Date(),
         progress: 0,
       };
 
-      if (isEdit) {
+      // 폼이 열릴 때 스냅샷한 status 기준으로 판단 (prop 재렌더 영향 차단)
+      const capturedStatus = openedStatusRef.current ?? editGoal?.status ?? 'DRAFT';
+      const isApprovedGoal = isEdit && !['DRAFT', 'REJECTED'].includes(capturedStatus);
+
+      if (isEdit && !isApprovedGoal) {
+        // DRAFT 목표 수정 → 상신
         await updateGoal(editGoal.id, {
           ...payload,
-          status: isDraft ? 'DRAFT' : editGoal.status === 'DRAFT' ? 'PENDING_APPROVAL' : editGoal.status,
+          status: isDraft ? 'DRAFT' : 'PENDING_APPROVAL',
+        });
+        if (!isDraft) {
+          await sendApprovalNotification(editGoal.id, payload.title);
+        }
+      } else if (isApprovedGoal && !isDraft) {
+        // 승인된 목표 → 수정 상신: 기존 목표를 PENDING_MODIFY 상태로 업데이트
+        await updateGoal(editGoal.id, {
+          ...payload,
+          status: 'PENDING_MODIFY',
         });
       } else {
-        const status = isDraft ? 'DRAFT' : 'PENDING_APPROVAL';
-        await createGoal({
+        // 신규 목표 또는 승인된 목표의 임시저장(새 DRAFT 생성)
+        const newGoalId = await createGoal({
           ...payload,
-          status,
+          status: isDraft ? 'DRAFT' : 'PENDING_APPROVAL',
           userId: userProfile.id,
           organizationId: userProfile.organizationId,
           cycleYear: new Date().getFullYear(),
         });
+        if (!isDraft) {
+          await sendApprovalNotification(newGoalId, payload.title);
+        }
       }
       onSave();
       onClose();
@@ -104,84 +152,100 @@ export default function TaskGoalForm({
     }
   }
 
+  async function handleDelete() {
+    if (!editGoal || editGoal.status !== 'DRAFT') return;
+    if (!confirm('임시저장된 목표를 휴지통으로 이동하시겠습니까?')) return;
+    setSubmitting(true);
+    try {
+      await updateGoal(editGoal.id, { status: 'ABANDONED' });
+      onSave();
+      onClose();
+    } catch (e) {
+      setError('삭제 중 오류가 발생했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function triggerShake() {
+    // React state 없이 직접 DOM 조작 → 리렌더 없음, 깜빡임 없음
+    const el = document.querySelector('[data-slot="dialog-content"]') as HTMLElement | null;
+    if (!el) return;
+    el.classList.remove('animate-shake');
+    void el.offsetWidth; // reflow 강제 → 애니메이션 재시작 보장
+    el.classList.add('animate-shake');
+    const handleEnd = () => {
+      el.classList.remove('animate-shake');
+      el.removeEventListener('animationend', handleEnd);
+    };
+    el.addEventListener('animationend', handleEnd);
+  }
+
+  // Escape 키로 닫힘 방지 + 흔들기
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.stopPropagation(); triggerShake(); }
+    }
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [open]);
+
   return (
-    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={open} onOpenChange={() => {}}>
+      <DialogContent
+        className="max-w-3xl"
+      >
         <DialogHeader>
-          <DialogTitle>{isEdit ? '과제업무 수정' : '과제업무 추가'}</DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle>
+              {isEdit ? '목표 수정' : '목표 추가'}
+            </DialogTitle>
+            <button
+              onClick={onClose}
+              className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {/* 카테고리 */}
+          {/* 목표명 */}
           <div className="space-y-1.5">
-            <Label>카테고리</Label>
-            <div className="flex gap-2">
-              {([['TEAM_LINKED', '팀/부문 목표 연동'], ['PERSONAL', '개인 목표']] as [TaskCategory, string][]).map(([val, label]) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setCategory(val)}
-                  className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
-                    category === val ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 연동 목표 표시 */}
-          {category === 'TEAM_LINKED' && (
-            <div className="rounded-lg bg-blue-50 p-3 text-xs text-blue-700">
-              <p className="font-medium mb-1">연동 부문 목표</p>
-              {divisionGoal ? (
-                <p>{divisionGoal.content}</p>
-              ) : (
-                <p className="text-blue-400">등록된 부문 목표가 없습니다.</p>
-              )}
-            </div>
-          )}
-
-          {/* 업무명 */}
-          <div className="space-y-1.5">
-            <Label>업무명 <span className="text-red-500">*</span></Label>
+            <Label>목표명 <span className="text-red-500">*</span></Label>
             <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 신제품 라인 생산성 10% 향상" />
           </div>
 
           {/* 세부내용 */}
           <div className="space-y-1.5">
             <Label>세부내용 <span className="text-red-500">*</span></Label>
-            <Textarea rows={3} value={description} onChange={e => setDescription(e.target.value)} placeholder="구체적인 실행 계획을 입력하세요" />
+            <Textarea rows={10} value={description} onChange={e => setDescription(e.target.value)} placeholder="구체적인 실행 계획을 입력하세요" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {/* 추진기한 */}
-            <div className="space-y-1.5">
-              <Label>추진기한 <span className="text-red-500">*</span></Label>
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
-            </div>
-
-            {/* 가중치 */}
-            <div className="space-y-1.5">
-              <Label>가중치 (%) <span className="text-red-500">*</span></Label>
-              <Input
-                type="number" min={1} max={remaining}
-                value={weight}
-                onChange={e => setWeight(Number(e.target.value))}
-              />
-              <p className="text-xs text-gray-400">잔여: {remaining}%</p>
-            </div>
+          {/* 추진기한 */}
+          <div className="space-y-1.5">
+            <Label>추진기한 <span className="text-red-500">*</span></Label>
+            <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </div>
 
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
 
         <DialogFooter className="gap-2">
+          {/* DRAFT 삭제 버튼 — 왼쪽 정렬 */}
+          {isDraftEdit && (
+            <Button
+              variant="outline" onClick={handleDelete} disabled={submitting}
+              className="mr-auto text-red-500 border-red-300 hover:bg-red-50 hover:text-red-600"
+            >
+              삭제
+            </Button>
+          )}
           <Button variant="outline" onClick={onClose} disabled={submitting}>취소</Button>
           <Button variant="outline" onClick={() => handleSubmit(true)} disabled={submitting}>임시저장</Button>
           <Button onClick={() => handleSubmit(false)} disabled={submitting}>
-            {isEdit ? '수정 상신' : '상신'}
+            {isApprovedEdit ? '수정 상신' : '상신'}
           </Button>
         </DialogFooter>
       </DialogContent>
