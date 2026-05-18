@@ -24,12 +24,18 @@ import type { Goal, OneOnOne, Mileage, User, AnnualGoal, Organization } from '@/
 
 export default function DashboardPage() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
 
-  // 임원·CEO는 조직 트리 대시보드
+  // 임원·CEO는 조직 트리 대시보드 (hooks 규칙: 별도 컴포넌트로 분리)
   if (userProfile?.role === 'EXECUTIVE' || userProfile?.role === 'CEO') {
     return <ExecDashboard />;
   }
+
+  return <MemberDashboard />;
+}
+
+function MemberDashboard() {
+  const { userProfile } = useAuth();
+  const year = new Date().getFullYear();
 
   const [goals, setGoals] = useState<Goal[]>([]);
   const [pendingCount, setPendingCount] = useState(0);

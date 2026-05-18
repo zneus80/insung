@@ -56,14 +56,6 @@ export default function MentoringFormModal({ form, memberName, leadOpinion, exec
             </div>
 
             <div className="p-6 space-y-6">
-              {/* 기본 정보 */}
-              <Section title="기본 정보">
-                <Row label="최종학교/전공"   value={form.lastSchoolMajor} />
-                <Row label="가족사항"        value={form.familyInfo} />
-                <Row label="거주지/출퇴근"   value={form.commute} />
-                <Row label="중요 Event"      value={form.importantEvent} multiline />
-              </Section>
-
               {/* 직무 정보 */}
               <Section title="직무 정보">
                 <Row label="직위/직책"       value={form.currentPosition} />
@@ -100,13 +92,6 @@ export default function MentoringFormModal({ form, memberName, leadOpinion, exec
               {/* 경력개발 방향 */}
               <Section title="경력개발 방향">
                 <Row label="희망 Position 및 경력개발 방향" value={form.careerPlan} multiline />
-              </Section>
-
-              {/* 교육 지원 요청 */}
-              <Section title="교육 지원 요청">
-                <Row label="어학 종류"       value={form.languageType} />
-                <Row label="교육 목적"       value={form.languagePurpose} multiline />
-                <Row label="기타 희망 교육"  value={form.additionalEducation} multiline />
               </Section>
 
               {/* 종합의견 */}

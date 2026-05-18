@@ -65,7 +65,7 @@ const navItems: NavItem[] = [
     label: '평가결과 확인',
     href: '/evaluation/result',
     icon: <CheckSquare className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
+    roles: ['MEMBER', 'TEAM_LEAD'],
   },
   {
     label: '1on1',

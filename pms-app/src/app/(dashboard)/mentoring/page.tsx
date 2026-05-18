@@ -11,8 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
-  Save, Send, CheckCircle2, User, Briefcase, GraduationCap,
-  TrendingUp, MapPin, BookOpen, MessageSquare, ChevronRight, RefreshCw,
+  Save, Send, CheckCircle2, Briefcase,
+  TrendingUp, MapPin, MessageSquare, RefreshCw,
 } from 'lucide-react';
 import type { MentoringForm, JobRequestType } from '@/types';
 
@@ -31,12 +31,9 @@ const EMPTY_FORM: Omit<MentoringForm, 'id' | 'userId' | 'organizationId' | 'cycl
 };
 
 // 연도가 바뀌어도 이어받을 필드 목록
-const CARRY_OVER_FIELDS = ['lastSchoolMajor', 'familyInfo', 'commute', 'currentPosition', 'promotionDate'] as const;
+const CARRY_OVER_FIELDS = ['currentPosition', 'promotionDate'] as const;
 
 const MOCK_PREV_FORM = {
-  lastSchoolMajor: '한국대학교 / 경영학과',
-  familyInfo: '배우자, 자녀 1명',
-  commute: '서울 마포구 (편도 45분)',
   currentPosition: '대리 / 영업1팀',
   promotionDate: '2023-03-01',
 };
@@ -169,56 +166,11 @@ function MentoringContent() {
           {carriedOver && !isSubmitted && (
             <div className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-2.5 text-xs text-blue-700">
               <RefreshCw className="h-3.5 w-3.5 shrink-0" />
-              최종학교/전공, 가족사항, 거주지, 현 직위, 승진일을 이전 저장 데이터로 자동 불러왔습니다. 내용을 확인하고 수정하세요.
+              현 직위, 승진일을 이전 저장 데이터로 자동 불러왔습니다. 내용을 확인하고 수정하세요.
             </div>
           )}
 
-          {/* ── 섹션 1: 기본 정보 ── */}
-          <SectionCard icon={<User className="h-4 w-4" />} title="기본 정보" color="blue">
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="면담일">
-                <Input type="date" value={form.interviewDate} disabled={isSubmitted}
-                  onChange={e => set('interviewDate', e.target.value)} />
-              </Field>
-              <Field label="면담자">
-                <Input placeholder="면담자 이름" value={form.interviewerName} disabled={isSubmitted}
-                  onChange={e => set('interviewerName', e.target.value)} />
-              </Field>
-            </div>
-          </SectionCard>
-
-          {/* ── 섹션 2: CDP 자기신고서 - 개인 기본사항 ── */}
-          <SectionCard icon={<GraduationCap className="h-4 w-4" />} title="I. CDP 자기신고서" subtitle="개인 기본사항" color="indigo">
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="최종학교 / 전공">
-                  <Input placeholder="예) 한국대학교 / 경영학과" value={form.lastSchoolMajor} disabled={isSubmitted}
-                    onChange={e => set('lastSchoolMajor', e.target.value)} />
-                </Field>
-                <Field label="가족사항">
-                  <Input placeholder="예) 배우자, 자녀 2명" value={form.familyInfo} disabled={isSubmitted}
-                    onChange={e => set('familyInfo', e.target.value)} />
-                </Field>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="거주지 (출퇴근 시간)">
-                  <Input placeholder="예) 서울 강남구 (편도 40분)" value={form.commute} disabled={isSubmitted}
-                    onChange={e => set('commute', e.target.value)} />
-                </Field>
-                <Field label="현 직위 승진일">
-                  <Input type="date" value={form.promotionDate} disabled={isSubmitted}
-                    onChange={e => set('promotionDate', e.target.value)} />
-                </Field>
-              </div>
-              <Field label="개인적으로 중요했던 Event">
-                <Textarea placeholder="올해 개인적으로 중요했던 사건이나 경험을 기술하세요."
-                  value={form.importantEvent} disabled={isSubmitted} rows={3}
-                  className="resize-none" onChange={e => set('importantEvent', e.target.value)} />
-              </Field>
-            </div>
-          </SectionCard>
-
-          {/* ── 섹션 3: 직무 정보 ── */}
+          {/* ── 섹션 1: 직무 정보 ── */}
           <SectionCard icon={<Briefcase className="h-4 w-4" />} title="직무 정보" color="violet">
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -244,7 +196,7 @@ function MentoringContent() {
             </div>
           </SectionCard>
 
-          {/* ── 섹션 4: 경력개발 계획 ── */}
+          {/* ── 경력개발 계획 ── */}
           <SectionCard icon={<TrendingUp className="h-4 w-4" />} title="경력개발 계획" color="emerald">
             <Field label="희망 Position 및 경력개발 방향"
               hint="향후 3~5년 이내의 희망 Position 및 경력개발 방향에 대하여 기술하세요.">
@@ -254,7 +206,7 @@ function MentoringContent() {
             </Field>
           </SectionCard>
 
-          {/* ── 섹션 5: 현 직무 요청사항 ── */}
+          {/* ── 현 직무 요청사항 ── */}
           <SectionCard icon={<MapPin className="h-4 w-4" />} title="현 직무에 관한 요청사항" color="orange">
             <div className="space-y-4">
               {/* 라디오 버튼 */}
@@ -325,33 +277,8 @@ function MentoringContent() {
             </div>
           </SectionCard>
 
-          {/* ── 섹션 6: 교육지원 요청 ── */}
-          <SectionCard icon={<BookOpen className="h-4 w-4" />} title="교육 지원 요청사항" color="teal">
-            <div className="space-y-4">
-              <div className="rounded-xl bg-teal-50 border border-teal-100 p-4 space-y-3">
-                <p className="text-xs font-semibold text-teal-700">어학 교육</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="어학 종류">
-                    <Input placeholder="예) 영어, 중국어" value={form.languageType} disabled={isSubmitted}
-                      onChange={e => set('languageType', e.target.value)} />
-                  </Field>
-                  <Field label="교육 목적">
-                    <Input placeholder="예) 해외영업 역량 강화" value={form.languagePurpose} disabled={isSubmitted}
-                      onChange={e => set('languagePurpose', e.target.value)} />
-                  </Field>
-                </div>
-              </div>
-              <Field label="기타 희망 교육"
-                hint="자격증 취득을 위한 교육, 꼭 필요한 전문교육 등을 기술하세요.">
-                <Textarea placeholder="예) PMP 자격증 취득 과정, 리더십 코칭 프로그램 등"
-                  value={form.additionalEducation} disabled={isSubmitted} rows={3}
-                  className="resize-none" onChange={e => set('additionalEducation', e.target.value)} />
-              </Field>
-            </div>
-          </SectionCard>
-
-          {/* ── 섹션 7: II. 종합의견 ── */}
-          <SectionCard icon={<MessageSquare className="h-4 w-4" />} title="II. 종합의견" color="gray">
+          {/* ── 종합의견 ── */}
+          <SectionCard icon={<MessageSquare className="h-4 w-4" />} title="종합의견" color="gray">
             <Field label="작성자 종합의견"
               hint="CDP, 5S와 6E 작성 내용들을 종합한 1년간의 자기평가와 함께 회사에 대한 요청사항 등을 자유롭게 기술하세요.">
               <Textarea placeholder="본인의 1년간 성과와 성장에 대한 자기평가, 회사에 대한 요청사항 등을 자유롭게 작성하세요."
