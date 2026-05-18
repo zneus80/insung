@@ -28,6 +28,7 @@ interface NavItem {
   icon: React.ReactNode;
   roles?: UserRole[];
   requireHrAdmin?: boolean;
+  exact?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -48,10 +49,11 @@ const navItems: NavItem[] = [
 
   // ── 팀원·팀장 공통 ─────────────────────────
   {
-    label: '자기 평가',
-    href: '/performance',
+    label: '자기평가',
+    href: '/evaluation',
     icon: <FileText className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
   },
   {
     label: '육성면담서',
@@ -93,23 +95,30 @@ const navItems: NavItem[] = [
   },
   {
     label: '팀원 평가',
-    href: '/evaluation',
+    href: '/evaluation/team',
     icon: <BarChart3 className="h-5 w-5" />,
     roles: ['TEAM_LEAD'],
   },
 
   // ── 임원 전용 ────────────────────────────────
   {
-    label: '진행현황',
-    href: '/progress',
+    label: '팀장 업무 진행사항',
+    href: '/progress/leads',
     icon: <TrendingUp className="h-5 w-5" />,
     roles: ['EXECUTIVE'],
   },
   {
-    label: '평가등급 확정',
+    label: '팀원 업무 진행사항',
+    href: '/progress/members',
+    icon: <TrendingUp className="h-5 w-5" />,
+    roles: ['EXECUTIVE'],
+  },
+  {
+    label: '평가등급확정',
     href: '/evaluation',
     icon: <BarChart3 className="h-5 w-5" />,
     roles: ['EXECUTIVE'],
+    exact: true,
   },
 
   // ── 최고관리자 전용 ───────────────────────────
@@ -210,8 +219,10 @@ export default function Sidebar() {
       {/* 네비게이션 */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {visibleItems.map((item) => {
-          const isActive =
-            pathname === item.href || pathname.startsWith(item.href + '/');
+          const normalizedPath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+          const isActive = item.exact
+            ? normalizedPath === item.href
+            : normalizedPath === item.href || normalizedPath.startsWith(item.href + '/');
           return (
             <Link
               key={item.label}
