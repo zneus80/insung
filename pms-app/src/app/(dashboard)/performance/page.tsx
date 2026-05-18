@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getGoalsByUser, getYearEndEval, upsertYearEndEval } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
@@ -17,42 +18,42 @@ const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
 const MOCK_GOALS: Goal[] = [
   {
     id: 'mock-task-1', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'TASK',
+    cycleYear: new Date().getFullYear(), goalType: 'TASK',
     title: '신규 고객사 영업 프로세스 개선', description: '영업 프로세스 표준화 및 CRM 도입',
     dueDate: new Date(), weight: 30, status: 'COMPLETED', progress: 100,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
     id: 'mock-task-2', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'TASK',
+    cycleYear: new Date().getFullYear(), goalType: 'TASK',
     title: '팀 역량 강화 교육 프로그램 운영', description: '분기별 사내 교육 3회 이상 진행',
     dueDate: new Date(), weight: 20, status: 'IN_PROGRESS', progress: 60,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
     id: 'mock-task-3', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'TASK',
+    cycleYear: new Date().getFullYear(), goalType: 'TASK',
     title: '원가 절감 프로젝트', description: '구매 비용 5% 절감 달성',
     dueDate: new Date(), weight: 20, status: 'ABANDONED', progress: 30,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
     id: 'mock-general-1', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'GENERAL',
+    cycleYear: new Date().getFullYear(), goalType: 'GENERAL',
     title: '주간 업무보고서 작성 및 제출', description: '매주 금요일 업무보고서 제출',
     dueDate: new Date(), weight: 15, status: 'COMPLETED', progress: 100,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
     id: 'mock-general-2', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'GENERAL',
+    cycleYear: new Date().getFullYear(), goalType: 'GENERAL',
     title: '부서 회의 준비 및 진행', description: '월간 부서 회의 안건 정리 및 진행',
     dueDate: new Date(), weight: 15, status: 'COMPLETED', progress: 100,
     createdAt: new Date(), updatedAt: new Date(),
   },
   {
     id: 'mock-general-3', userId: 'mock-member-001', organizationId: 'mock-org-001',
-    cycleYear: new Date().getFullYear(), category: 'GENERAL',
+    cycleYear: new Date().getFullYear(), goalType: 'GENERAL',
     title: '고객 문의 대응', description: '고객 문의 24시간 내 응답',
     dueDate: new Date(), weight: 0, status: 'REJECTED', progress: 0,
     createdAt: new Date(), updatedAt: new Date(),
@@ -89,7 +90,7 @@ export default function PerformancePage() {
 
 function PerformanceContent() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
 
   const [taskGoals, setTaskGoals] = useState<Goal[]>([]);    // 과제업무
   const [generalGoals, setGeneralGoals] = useState<Goal[]>([]); // 일반업무
@@ -115,9 +116,14 @@ function PerformanceContent() {
         ]);
       }
 
-      // swpark 브랜치에서 category 필드 추가 예정
-      const taskList = goals.filter(g => g.category === 'TASK' || !g.category);
-      const generalList = goals.filter(g => g.category === 'GENERAL');
+      // 완료됐거나 포기 승인된 목표만 평가 대상
+      goals = goals.filter(g =>
+        g.status === 'COMPLETED' ||
+        (g.status === 'ABANDONED' && !!g.approvedBy)
+      );
+
+      const taskList = goals.filter(g => g.goalType === 'TASK');
+      const generalList = goals.filter(g => g.goalType === 'GENERAL');
 
       setTaskGoals(taskList);
       setGeneralGoals(generalList);
@@ -228,7 +234,7 @@ function PerformanceContent() {
 
             {taskGoals.length === 0 ? (
               <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">
-                등록된 과제업무가 없습니다.
+                완료 또는 포기 승인된 목표가 없습니다.
               </div>
             ) : (
               <div className="space-y-3">

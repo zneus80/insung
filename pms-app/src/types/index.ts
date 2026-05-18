@@ -31,6 +31,8 @@ export interface User {
   role: UserRole;
   organizationId: string;   // 소속 팀/부문 ID
   position?: string;        // 직책
+  hireDate?: string;        // 입사일 (YYYY-MM-DD)
+  rank?: string;            // 직급 (예: 사원, 주임, 대리, 과장...)
   photoURL?: string;
   isActive: boolean;
   isHrAdmin?: boolean;      // HR 관리자 권한 (역할과 독립적으로 부여)
@@ -69,7 +71,7 @@ export interface Goal {
   cycleYear: number;            // 평가 연도 (e.g. 2026)
 
   // 공통
-  goalType: GoalType;
+  goalType?: GoalType;
   title: string;
   description: string;
   dueDate: Date;
@@ -148,6 +150,7 @@ export interface OneOnOneQuestion {
   answeredBy?: string;   // 답변자 userId
   answeredAt?: Date;
   createdAt: Date;
+  hiddenFor?: string[];  // 삭제(숨김) 처리한 userId 목록
 }
 
 // ─────────────────────────────────────────────
@@ -256,6 +259,8 @@ export interface Mileage {
   userId: string;
   organizationId: string;
   points: number;
+  submitTds?: number;  // 제출 TDS 점수
+  instructTds?: number; // 지시 TDS 점수
   memo?: string;       // HR관리자 메모
   updatedBy: string;   // HR관리자 userId
   updatedAt: Date;
@@ -314,7 +319,7 @@ export interface DivisionGradeQuota {
 }
 
 // ─────────────────────────────────────────────
-// 육성면담서 (CDP 자기신고서)
+// 육성면담서
 // ─────────────────────────────────────────────
 
 export type JobRequestType = 'EXPAND' | 'REDUCE' | 'CHANGE' | 'RELOCATE' | 'SATISFIED';
@@ -330,7 +335,7 @@ export interface MentoringForm {
   interviewDate: string;    // 면담일 (YYYY-MM-DD)
   interviewerName: string;  // 면담자 이름
 
-  // CDP 자기신고서 - 기본
+  // 자기신고서 - 기본
   lastSchoolMajor: string;  // 최종학교/전공
   familyInfo: string;       // 가족사항
   commute: string;          // 거주지 (출퇴근시간)
@@ -397,6 +402,34 @@ export interface YearEndEval {
 }
 
 // ─────────────────────────────────────────────
+// 공지사항
+// ─────────────────────────────────────────────
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  isPinned: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 포상 이력
+// ─────────────────────────────────────────────
+export interface Award {
+  id: string;
+  userId: string;
+  title: string;          // 포상명 (예: 우수사원상)
+  description?: string;   // 내용
+  awardDate: string;      // YYYY-MM-DD
+  grantedBy: string;      // 수여자 userId
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
 // 평가 사이클
 // ─────────────────────────────────────────────
 export interface EvaluationCycle {
@@ -410,19 +443,61 @@ export interface EvaluationCycle {
   createdAt: Date;
 }
 
+
 // ─────────────────────────────────────────────
-// CDP (Career Development Plan)
+// 알림
 // ─────────────────────────────────────────────
-export interface CDP {
-  id: string;            // `${userId}_${cycleYear}`
+export type NotificationType =
+  | 'GOAL_APPROVED' | 'GOAL_LEAD_APPROVED' | 'GOAL_REJECTED'
+  | 'ABANDON_APPROVED' | 'ABANDON_LEAD_APPROVED' | 'ABANDON_REJECTED'
+  | 'COMPLETION_APPROVED' | 'COMPLETION_REJECTED'
+  | 'GOAL_SUBMITTED' | 'COMPLETION_REQUESTED' | 'ABANDON_REQUESTED';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  goalId: string;
+  goalTitle: string;
+  type: NotificationType;
+  message: string;
+  read: boolean;
+  createdAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 업무관리 (주간 실적 보고)
+// ─────────────────────────────────────────────
+export type WeeklyTaskStatus   = 'PLANNED' | 'IN_PROGRESS' | 'DONE';
+export type WeeklyTaskCategory = 'CORE' | 'GENERAL' | 'MEETING' | 'TRAINING' | 'OTHER';
+
+export interface WeeklyTaskItem {
+  id: string;                  // crypto.randomUUID()
+  category: WeeklyTaskCategory;
+  title: string;               // 업무명
+  content: string;             // 업무 상세 내용
+  result: string;              // 실적 / 결과 (PLANNED 상태에서는 미사용)
+  achievement: number;         // 달성률 0~100
+  status: WeeklyTaskStatus;
+}
+
+export interface LeadCommentEntry {
+  id: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  createdAt: Date;
+}
+
+export interface WeeklyTask {
+  id: string;                  // `${userId}_${year}_W${weekNumber}`
   userId: string;
   organizationId: string;
-  cycleYear: number;
-  direction: string;          // 직무 방향
-  educationPlan: string;      // 교육 희망
-  educationRecord: string;    // 교육 실적
-  selfEval: string;           // 자기평가
-  concern: string;            // 애로사항
-  createdAt: Date;
+  year: number;
+  weekNumber: number;
+  weekStart: Date;
+  weekEnd: Date;
+  items: WeeklyTaskItem[];
+  summary: string;             // 이번 주 종합 의견
+  leadComments: LeadCommentEntry[];  // 팀장 Comment (누적 스레드)
   updatedAt: Date;
 }

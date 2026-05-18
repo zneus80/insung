@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { Progress } from '@/components/ui/progress';
 import GoalStatusBadge from './GoalStatusBadge';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { ChevronDown, ChevronRight, Users, Target } from 'lucide-react';
 import type { Goal, Organization, User } from '@/types';
 
@@ -71,8 +72,13 @@ function MemberGoalRow({ user, goals }: { user: User; goals: Goal[] }) {
         <span className="text-gray-300 w-4 shrink-0">
           {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </span>
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-600">
-          {user.name[0]}
+        {/* 아이콘 클릭 시 개인 프로필 모달 (10-2-3-8) */}
+        <div
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-600 hover:bg-blue-100 hover:text-blue-600 transition-colors"
+          onClick={e => e.stopPropagation()}
+          title="프로필 보기"
+        >
+          <MemberInfoModal userId={user.id} userName={user.name[0]} />
         </div>
         <span className="text-sm text-gray-800 flex-1">
           {user.name}

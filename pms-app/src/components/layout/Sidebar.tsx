@@ -14,9 +14,13 @@ import {
   Star,
   Flag,
   LogOut,
-  BookOpen,
   FileText,
   MessageSquareHeart,
+  Bell,
+  Trophy,
+  CalendarClock,
+  HardDrive,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,7 +32,8 @@ interface NavItem {
   href: string;
   icon: React.ReactNode;
   roles?: UserRole[];
-  requireHrAdmin?: boolean;  // true면 isHrAdmin 사용자도 표시
+  requireHrAdmin?: boolean;
+  exact?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -38,71 +43,133 @@ const navItems: NavItem[] = [
     href: '/dashboard',
     icon: <LayoutDashboard className="h-5 w-5" />,
   },
-  // ── 팀원 / 팀장 전용 ────────────────────────────
+  {
+    label: '공지사항',
+    href: '/announcements',
+    icon: <Bell className="h-5 w-5" />,
+  },
+
+  // ── 팀원 전용 ────────────────────────────────
   {
     label: '목표관리',
     href: '/goals',
     icon: <Target className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
+    roles: ['MEMBER'],
   },
+
+  // ── 팀원·팀장 공통 ─────────────────────────
   {
-    label: 'CDP',
-    href: '/cdp',
-    icon: <BookOpen className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-  },
-  // ── 진행현황 (팀원/팀장) ──────────────────────
-  {
-    label: '진행 현황',
-    href: '/progress',
-    icon: <TrendingUp className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-    requireHrAdmin: true,  // HR관리자도 진행현황 접근
-  },
-  // ── 1on1 (팀원·팀장·임원) ──────────────────────
-  {
-    label: '1on1',
-    href: '/oneon1',
-    icon: <Users className="h-5 w-5" />,
+    label: '업무관리',
+    href: '/tasks',
+    icon: <ClipboardList className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
-  // ── 승인 대기함 (팀장·임원) ────────────────────
   {
-    label: '승인 대기함',
-    href: '/approvals',
-    icon: <CheckSquare className="h-5 w-5" />,
-    roles: ['TEAM_LEAD', 'EXECUTIVE'],
-  },
-  // ── 평가 (연말 인사평가) ───────────────────────
-  {
-    label: '평가',
-    href: '/performance',
+    label: '자기평가',
+    href: '/evaluation',
     icon: <FileText className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
   },
-  // ── 육성면담서 ────────────────────────────────
   {
     label: '육성면담서',
     href: '/mentoring',
     icon: <MessageSquareHeart className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
   },
-  // ── 평가 관리 ──────────────────────────────────
   {
-    label: '평가 관리',
-    href: '/evaluation',
-    icon: <BarChart3 className="h-5 w-5" />,
+    label: '평가결과 확인',
+    href: '/evaluation/result',
+    icon: <CheckSquare className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+  },
+  {
+    label: '1on1',
+    href: '/oneon1',
+    icon: <Users className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
-  // ── CEO / HR관리자 공통 ────────────────────────
+
+  // ── 팀장 전용 ────────────────────────────────
   {
-    label: '조직평가 관리',
+    label: '내 목표 진행현황',
+    href: '/goals',
+    icon: <Target className="h-5 w-5" />,
+    roles: ['TEAM_LEAD'],
+  },
+  {
+    label: '팀원목표',
+    href: '/progress',
+    icon: <TrendingUp className="h-5 w-5" />,
+    roles: ['TEAM_LEAD'],
+  },
+  {
+    label: '승인 대기함',
+    href: '/approvals',
+    icon: <CheckSquare className="h-5 w-5" />,
+    roles: ['TEAM_LEAD', 'EXECUTIVE'],
+  },
+  {
+    label: '팀원 평가',
+    href: '/evaluation/team',
+    icon: <BarChart3 className="h-5 w-5" />,
+    roles: ['TEAM_LEAD'],
+  },
+
+  // ── 임원 전용 ────────────────────────────────
+  {
+    label: '팀장 업무 진행사항',
+    href: '/progress/leads',
+    icon: <TrendingUp className="h-5 w-5" />,
+    roles: ['EXECUTIVE'],
+  },
+  {
+    label: '팀원 업무 진행사항',
+    href: '/progress/members',
+    icon: <TrendingUp className="h-5 w-5" />,
+    roles: ['EXECUTIVE'],
+  },
+  {
+    label: '평가등급확정',
+    href: '/evaluation',
+    icon: <BarChart3 className="h-5 w-5" />,
+    roles: ['EXECUTIVE'],
+    exact: true,
+  },
+
+  // ── 최고관리자 전용 ───────────────────────────
+  {
+    label: '진행현황',
+    href: '/progress',
+    icon: <TrendingUp className="h-5 w-5" />,
+    roles: ['CEO'],
+  },
+  {
+    label: '조직평가관리',
     href: '/evaluation/org',
     icon: <BarChart3 className="h-5 w-5" />,
     roles: ['CEO'],
+  },
+
+  // ── HR관리자 전용 (역할 무관, isHrAdmin=true 이면 표시) ──
+  {
+    label: '조직평가인원관리',
+    href: '/evaluation/org',
+    icon: <BarChart3 className="h-5 w-5" />,
     requireHrAdmin: true,
   },
-  // ── HR관리자 전용 ──────────────────────────────
+  {
+    label: '평가기간 관리',
+    href: '/admin/evaluation-period',
+    icon: <Flag className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '평가이력 관리',
+    href: '/admin/evaluation-history',
+    icon: <BarChart3 className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
   {
     label: '사용자 관리',
     href: '/admin/users',
@@ -125,7 +192,24 @@ const navItems: NavItem[] = [
     label: '마일리지 관리',
     href: '/admin/mileage',
     icon: <Star className="h-5 w-5" />,
-    roles: ['CEO'],
+    requireHrAdmin: true,
+  },
+  {
+    label: '포상 이력 관리',
+    href: '/admin/awards',
+    icon: <Trophy className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '데이터 백업 관리',
+    href: '/admin/backup',
+    icon: <HardDrive className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '연도 전환 관리',
+    href: '/admin/year-transition',
+    icon: <CalendarClock className="h-5 w-5" />,
     requireHrAdmin: true,
   },
   {
@@ -147,10 +231,12 @@ export default function Sidebar() {
   }
 
   const visibleItems = navItems.filter(item => {
-    const roleOk = !item.roles || (!!userProfile && item.roles.includes(userProfile.role));
-    const hrOk = !!item.requireHrAdmin && !!userProfile?.isHrAdmin;
-    // 역할 제한과 HR 제한이 모두 없으면 모두에게 표시
+    // 역할·HR 제한이 모두 없으면 전체 표시
     if (!item.roles && !item.requireHrAdmin) return true;
+    // 역할 조건: roles 배열이 있을 때만 체크
+    const roleOk = !!item.roles && !!userProfile && item.roles.includes(userProfile.role);
+    // HR 관리자 조건
+    const hrOk = !!item.requireHrAdmin && !!userProfile?.isHrAdmin;
     return roleOk || hrOk;
   });
 
@@ -167,11 +253,13 @@ export default function Sidebar() {
       {/* 네비게이션 */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {visibleItems.map((item) => {
-          const isActive =
-            pathname === item.href || pathname.startsWith(item.href + '/');
+          const normalizedPath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+          const isActive = item.exact
+            ? normalizedPath === item.href
+            : normalizedPath === item.href || normalizedPath.startsWith(item.href + '/');
           return (
             <Link
-              key={item.href}
+              key={item.label}
               href={item.href}
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',

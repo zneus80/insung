@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getOrganizations,
   getAllUsers,
@@ -46,7 +47,6 @@ const GRADE_COLOR: Record<EvaluationGrade, string> = {
 
 const ORG_TYPE_LABEL: Record<string, string> = {
   DIVISION: '부문/공장',
-  HEADQUARTERS: '본부',
 };
 
 // 소수점 0.8 이상 올림, 미만 버림
@@ -99,7 +99,7 @@ export default function OrgEvaluationPage() {
 
 function OrgEvaluationContent() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
   const isCeo = userProfile?.role === 'CEO';
   const isHrAdmin = !!userProfile?.isHrAdmin;
 
@@ -133,7 +133,7 @@ function OrgEvaluationContent() {
       getGradeQuotas(),
     ]);
 
-    const targets = orgs.filter(o => o.type === 'DIVISION' || o.type === 'HEADQUARTERS');
+    const targets = orgs.filter(o => o.type === 'DIVISION');
     const activeUsers = users.filter(u => u.isActive);
 
     setAllOrgs(orgs);
@@ -360,7 +360,7 @@ function OrgEvaluationContent() {
               [1, 2, 3].map(i => <div key={i} className="h-14 animate-pulse rounded-xl bg-gray-100" />)
             ) : targetOrgs.length === 0 ? (
               <div className="rounded-xl border border-dashed p-8 text-center text-sm text-gray-400">
-                부문/공장 유형(DIVISION/HEADQUARTERS)의 조직이 없습니다.
+                부문/공장 유형(DIVISION)의 조직이 없습니다.
               </div>
             ) : (
               <div className="rounded-xl border bg-white overflow-hidden">
