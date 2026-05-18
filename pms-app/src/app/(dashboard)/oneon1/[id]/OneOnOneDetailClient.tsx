@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { ArrowLeft, Send, MessageSquare } from 'lucide-react';
+import { Send, MessageSquare, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getOneOnOne,
@@ -12,6 +12,7 @@ import {
   addOneOnOneQuestion,
   answerOneOnOneQuestion,
   getOneOnOneQuestions,
+  deleteOneOnOneQuestion,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -100,6 +101,18 @@ export default function OneOnOneDetailPage() {
     }
   }
 
+  async function handleDelete(questionId: string) {
+    if (!userProfile) return;
+    if (!confirm('이 대화를 삭제하시겠습니까? 본인에게만 삭제되며 상대방은 영향을 받지 않습니다.')) return;
+    try {
+      await deleteOneOnOneQuestion(id, questionId, userProfile.id);
+      toast.success('삭제되었습니다.');
+      await load();
+    } catch {
+      toast.error('삭제에 실패했습니다.');
+    }
+  }
+
   if (loading || !room || !userProfile) {
     return (
       <div className="flex flex-col h-full">
@@ -113,19 +126,14 @@ export default function OneOnOneDetailPage() {
 
   const isLeader = userProfile.id === room.leaderId;
   const canAnswer = (q: OneOnOneQuestion) => !q.answer && q.askerId !== userProfile.id;
+  const visibleQuestions = questions.filter(q => !q.hiddenFor?.includes(userProfile.id));
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="1on1 Q&A" />
+      <Header title="1on1 Q&A" showBack />
       <div className="flex-1 overflow-y-auto">
 
         <div className="border-b bg-white px-6 py-4">
-          <button
-            onClick={() => router.back()}
-            className="mb-3 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700"
-          >
-            <ArrowLeft className="h-4 w-4" /> 목록으로
-          </button>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-600 font-semibold">
               {(isLeader ? member?.name : leader?.name)?.[0] ?? '?'}
@@ -143,13 +151,13 @@ export default function OneOnOneDetailPage() {
         </div>
 
         <div className="p-6 space-y-4 max-w-2xl mx-auto w-full">
-          {questions.length === 0 ? (
+          {visibleQuestions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <MessageSquare className="h-10 w-10 mb-3 text-gray-200" />
               <p className="text-sm">아직 질문이 없습니다. 첫 질문을 남겨보세요.</p>
             </div>
           ) : (
-            questions.map(q => {
+            visibleQuestions.map(q => {
               const asker = q.askerId === room.leaderId ? leader : member;
               const answerer = q.answeredBy
                 ? (q.answeredBy === room.leaderId ? leader : member)
@@ -165,9 +173,16 @@ export default function OneOnOneDetailPage() {
                       <span className="text-xs text-gray-400">
                         {format(q.createdAt, 'MM.dd HH:mm', { locale: ko })}
                       </span>
-                      <span className="ml-auto rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
                         Q
                       </span>
+                      <button
+                        onClick={() => handleDelete(q.id)}
+                        className="ml-auto p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        title="대화 삭제 (나에게만)"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                     <p className="text-sm text-gray-800 whitespace-pre-wrap pl-9">{q.question}</p>
                   </div>

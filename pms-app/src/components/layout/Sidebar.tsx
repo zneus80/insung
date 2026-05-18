@@ -16,6 +16,10 @@ import {
   LogOut,
   FileText,
   MessageSquareHeart,
+  Bell,
+  Trophy,
+  CalendarClock,
+  HardDrive,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -37,6 +41,11 @@ const navItems: NavItem[] = [
     label: '대시보드',
     href: '/dashboard',
     icon: <LayoutDashboard className="h-5 w-5" />,
+  },
+  {
+    label: '공지사항',
+    href: '/announcements',
+    icon: <Bell className="h-5 w-5" />,
   },
 
   // ── 팀원 전용 ────────────────────────────────
@@ -176,6 +185,24 @@ const navItems: NavItem[] = [
     label: '마일리지 관리',
     href: '/admin/mileage',
     icon: <Star className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '포상 이력 관리',
+    href: '/admin/awards',
+    icon: <Trophy className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '데이터 백업 관리',
+    href: '/admin/backup',
+    icon: <HardDrive className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+  {
+    label: '연도 전환 관리',
+    href: '/admin/year-transition',
+    icon: <CalendarClock className="h-5 w-5" />,
     requireHrAdmin: true,
   },
   {

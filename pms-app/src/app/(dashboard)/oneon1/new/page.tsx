@@ -54,7 +54,7 @@ export default function NewOneOnOnePage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="1on1 대화 시작" />
+      <Header title="1on1 대화 시작" showBack />
       <div className="flex-1 p-6">
         <div className="mx-auto max-w-md">
           <div className="rounded-xl border bg-white p-6 space-y-5">

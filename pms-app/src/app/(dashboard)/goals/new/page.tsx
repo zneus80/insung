@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { createGoal, addGoalHistory, getAnnualGoal, getOrganizations } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import GoalForm, { type GoalFormValues } from '@/components/goals/GoalForm';
@@ -26,10 +27,9 @@ function findAncestorOfType(
 
 export default function NewGoalPage() {
   const { userProfile } = useAuth();
+  const { activeYear: year } = useActiveYear();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-
-  const year = new Date().getFullYear();
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [divisionGoal, setDivisionGoal] = useState<AnnualGoal | null>(null);
   const [divisionName, setDivisionName] = useState('');
@@ -85,7 +85,7 @@ export default function NewGoalPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="목표 등록" />
+      <Header title="목표 등록" showBack />
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-3xl space-y-5">
 

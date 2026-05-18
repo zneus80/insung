@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getMentoringForm, upsertMentoringForm } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
@@ -12,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
   Save, Send, CheckCircle2, Briefcase,
-  TrendingUp, MapPin, MessageSquare, RefreshCw,
+  TrendingUp, MapPin, MessageSquare, RefreshCw, Plus, X,
 } from 'lucide-react';
 import type { MentoringForm, JobRequestType } from '@/types';
 
@@ -56,19 +57,36 @@ export default function MentoringPage() {
 
 function MentoringContent() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear } = useActiveYear();
+  const YEAR_OPTIONS = [activeYear, activeYear - 1, activeYear - 2];
+  const [selectedYear, setSelectedYear] = useState(activeYear);
+  const year = selectedYear;
+  const isPastYear = selectedYear < activeYear;
+
   const [form, setForm] = useState(EMPTY_FORM);
   const [status, setStatus] = useState<MentoringForm['status']>('DRAFT');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [carriedOver, setCarriedOver] = useState(false); // 이전 데이터 불러왔는지 여부
+  // 자격증 개별 입력 목록
+  const [certList, setCertList] = useState<string[]>(['']);
 
   const set = (field: string, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
 
+  // certList → form.certifications 동기화
+  function updateCerts(list: string[]) {
+    setCertList(list);
+    setForm(prev => ({ ...prev, certifications: list.filter(Boolean).join('\n') }));
+  }
+
   const load = useCallback(async () => {
     if (!userProfile) return;
     setLoading(true);
+    setForm(EMPTY_FORM);
+    setStatus('DRAFT');
+    setCertList(['']);
+    setCarriedOver(false);
     try {
       if (IS_MOCK) {
         // 목업: 이전 폼 데이터 자동 세팅
@@ -81,6 +99,7 @@ function MentoringContent() {
           const { id, userId, organizationId, cycleYear, createdAt, updatedAt, status: s, submittedAt, ...rest } = record;
           setForm(rest);
           setStatus(s);
+          setCertList(record.certifications ? record.certifications.split('\n').filter(Boolean) : ['']);
         } else {
           // 현재 연도 폼 없으면 작년 폼에서 고정 필드 불러오기
           const prevRecord = await getMentoringForm(userProfile.id, year - 1);
@@ -103,7 +122,7 @@ function MentoringContent() {
 
   useEffect(() => { load(); }, [load]);
 
-  const isSubmitted = status === 'SUBMITTED';
+  const isSubmitted = status === 'SUBMITTED' || isPastYear;
 
   async function handleSave(submit: boolean) {
     if (!userProfile) return;
@@ -142,8 +161,34 @@ function MentoringContent() {
   return (
     <div className="flex flex-col h-full">
       <Header title="육성면담서" />
+
+      {/* 연도 선택 탭 */}
+      <div className="flex gap-1 border-b bg-white px-6 pt-3 shrink-0">
+        {YEAR_OPTIONS.map(y => (
+          <button
+            key={y}
+            onClick={() => setSelectedYear(y)}
+            className={`px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors ${
+              selectedYear === y
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {y}년
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-y-auto bg-gray-50">
         <div className="max-w-3xl mx-auto px-6 py-6 space-y-5">
+
+          {/* 이전 연도 이력 배너 */}
+          {isPastYear && (
+            <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
+              <span>📅</span>
+              <span>{selectedYear}년 이력 보기 중 — 수정·제출은 당해연도에만 가능합니다.</span>
+            </div>
+          )}
 
           {/* 상단 상태 배너 */}
           <div className="flex items-center justify-between">
@@ -179,8 +224,40 @@ function MentoringContent() {
                     onChange={e => set('currentPosition', e.target.value)} />
                 </Field>
                 <Field label="직무관련 보유자격증">
-                  <Input placeholder="예) 정보처리기사, TOEIC 850" value={form.certifications} disabled={isSubmitted}
-                    onChange={e => set('certifications', e.target.value)} />
+                  <div className="space-y-2">
+                    {certList.map((cert, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <Input
+                          placeholder={`자격증 ${idx + 1}`}
+                          value={cert}
+                          disabled={isSubmitted}
+                          onChange={e => {
+                            const next = [...certList];
+                            next[idx] = e.target.value;
+                            updateCerts(next);
+                          }}
+                        />
+                        {!isSubmitted && certList.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => updateCerts(certList.filter((_, i) => i !== idx))}
+                            className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {!isSubmitted && (
+                      <button
+                        type="button"
+                        onClick={() => updateCerts([...certList, ''])}
+                        className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> 자격증 추가
+                      </button>
+                    )}
+                  </div>
                 </Field>
               </div>
               <Field label="주요 담당업무">

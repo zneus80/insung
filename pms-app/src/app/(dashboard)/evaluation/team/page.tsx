@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getGoalsByOrganization,
   getSelfEvaluationsByUsers,
@@ -12,6 +13,7 @@ import {
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -71,7 +73,7 @@ export default function EvaluationTeamPage() {
 
 function TeamLeadEvalView() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
 
   const [members, setMembers]             = useState<User[]>([]);
   const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
@@ -181,7 +183,7 @@ function TeamLeadEvalView() {
                 >
                   <div className="flex items-center gap-4">
                     <div>
-                      <p className="font-semibold text-gray-900">{member.name}</p>
+                      <MemberInfoModal userId={member.id} userName={member.name} />
                       <p className="text-xs text-gray-400">{member.position}</p>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-gray-500">

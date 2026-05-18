@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getAllUsers, getOrganizations, getAllGoalsByYear, getGoalsByUser } from '@/lib/firestore';
 import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
@@ -130,7 +131,7 @@ function ExecProgressSection({
 
 export default function ProgressPage() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
   const [loading, setLoading] = useState(true);
   const [myGoals, setMyGoals] = useState<Goal[]>([]);
   const [treeNodes, setTreeNodes] = useState<ReturnType<typeof buildTree>>([]);

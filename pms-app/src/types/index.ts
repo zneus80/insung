@@ -31,6 +31,8 @@ export interface User {
   role: UserRole;
   organizationId: string;   // 소속 팀/부문 ID
   position?: string;        // 직책
+  hireDate?: string;        // 입사일 (YYYY-MM-DD)
+  rank?: string;            // 직급 (예: 사원, 주임, 대리, 과장...)
   photoURL?: string;
   isActive: boolean;
   isHrAdmin?: boolean;      // HR 관리자 권한 (역할과 독립적으로 부여)
@@ -148,6 +150,7 @@ export interface OneOnOneQuestion {
   answeredBy?: string;   // 답변자 userId
   answeredAt?: Date;
   createdAt: Date;
+  hiddenFor?: string[];  // 삭제(숨김) 처리한 userId 목록
 }
 
 // ─────────────────────────────────────────────
@@ -256,6 +259,8 @@ export interface Mileage {
   userId: string;
   organizationId: string;
   points: number;
+  submitTds?: number;  // 제출 TDS 점수
+  instructTds?: number; // 지시 TDS 점수
   memo?: string;       // HR관리자 메모
   updatedBy: string;   // HR관리자 userId
   updatedAt: Date;
@@ -392,6 +397,34 @@ export interface YearEndEval {
   taskSummaries: TaskSummaryEntry[]; // 과제업무 세부요약 목록
   status: YearEndEvalStatus;
   submittedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 공지사항
+// ─────────────────────────────────────────────
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  isPinned: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 포상 이력
+// ─────────────────────────────────────────────
+export interface Award {
+  id: string;
+  userId: string;
+  title: string;          // 포상명 (예: 우수사원상)
+  description?: string;   // 내용
+  awardDate: string;      // YYYY-MM-DD
+  grantedBy: string;      // 수여자 userId
   createdAt: Date;
   updatedAt: Date;
 }

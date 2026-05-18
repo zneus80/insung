@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import {
@@ -16,8 +17,6 @@ import { cn } from '@/lib/utils';
 import type { IndividualEvaluation, OrganizationEvaluation, User } from '@/types';
 import { Lock, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 
-const CURRENT_YEAR = new Date().getFullYear();
-
 const GRADE_LABELS: Record<string, { label: string; color: string }> = {
   A: { label: 'A등급', color: 'bg-blue-100 text-blue-700' },
   B: { label: 'B등급', color: 'bg-green-100 text-green-700' },
@@ -25,6 +24,36 @@ const GRADE_LABELS: Record<string, { label: string; color: string }> = {
   D: { label: 'D등급', color: 'bg-orange-100 text-orange-700' },
   E: { label: 'E등급', color: 'bg-red-100 text-red-700' },
 };
+
+// ── 연도 선택 탭 공통 컴포넌트 ────────────────────────────
+function YearTabBar({
+  selectedYear,
+  yearTabs,
+  onChange,
+}: {
+  selectedYear: number;
+  yearTabs: readonly number[];
+  onChange: (year: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-6 py-3 bg-gray-50 border-b shrink-0">
+      {yearTabs.map(year => (
+        <button
+          key={year}
+          onClick={() => onChange(year)}
+          className={cn(
+            'px-4 py-1.5 rounded-full text-sm font-medium transition-colors',
+            selectedYear === year
+              ? 'bg-blue-600 text-white'
+              : 'bg-white border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300',
+          )}
+        >
+          {year}년
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function EvaluationResultPage() {
   return (
@@ -43,7 +72,10 @@ function EvaluationResultRouter() {
 
 // ── 팀장: 내 결과 + 팀원 결과 탭 ──────────────────────────
 function TeamLeadResultView() {
+  const { activeYear } = useActiveYear();
+  const YEAR_TABS = [activeYear, activeYear - 1, activeYear - 2] as const;
   const [tab, setTab] = useState<'mine' | 'team'>('mine');
+  const [yearTab, setYearTab] = useState<number>(activeYear);
 
   return (
     <div className="flex flex-col h-full">
@@ -64,16 +96,17 @@ function TeamLeadResultView() {
           </button>
         ))}
       </div>
+      <YearTabBar selectedYear={yearTab} yearTabs={YEAR_TABS} onChange={setYearTab} />
       {tab === 'mine'
-        ? <MemberResultView standalone={false} />
-        : <TeamMembersResultView />
+        ? <MemberResultView standalone={false} year={yearTab} />
+        : <TeamMembersResultView year={yearTab} />
       }
     </div>
   );
 }
 
 // ── 팀원 결과 목록 (팀장 전용) ────────────────────────────
-function TeamMembersResultView() {
+function TeamMembersResultView({ year }: { year: number }) {
   const { userProfile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<User[]>([]);
@@ -83,9 +116,10 @@ function TeamMembersResultView() {
   useEffect(() => {
     async function load() {
       if (!userProfile) return;
+      setLoading(true);
       const [memberList, evalList] = await Promise.all([
         getUsersByOrganization(userProfile.organizationId),
-        getIndividualEvaluationsByOrg(userProfile.organizationId, CURRENT_YEAR),
+        getIndividualEvaluationsByOrg(userProfile.organizationId, year),
       ]);
       setMembers(memberList.filter(u => u.role === 'MEMBER' && u.isActive));
       const ieMap: Record<string, IndividualEvaluation> = {};
@@ -94,12 +128,12 @@ function TeamMembersResultView() {
       setLoading(false);
     }
     load();
-  }, [userProfile]);
+  }, [userProfile, year]);
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-2xl space-y-3">
-        <p className="text-sm text-gray-500">{CURRENT_YEAR}년 소속 팀원 평가결과</p>
+        <p className="text-sm text-gray-500">{year}년 소속 팀원 평가결과</p>
         {loading ? (
           <div className="space-y-2">
             {[1,2,3].map(i => <div key={i} className="h-14 animate-pulse rounded-xl bg-gray-100" />)}
@@ -170,38 +204,59 @@ function TeamMembersResultView() {
 }
 
 // ── MEMBER / TEAM_LEAD 본인 결과 ──────────────────────────
-function MemberResultView({ standalone = true }: { standalone?: boolean }) {
+function MemberResultView({
+  standalone = true,
+  year: yearProp,
+}: {
+  standalone?: boolean;
+  year?: number;
+}) {
   const { userProfile } = useAuth();
+  const { activeYear } = useActiveYear();
+  const YEAR_TABS = [activeYear, activeYear - 1, activeYear - 2] as const;
+  const [selectedYear, setSelectedYear] = useState<number>(yearProp ?? activeYear);
   const [isPublished, setIsPublished] = useState(false);
   const [eval_, setEval] = useState<IndividualEvaluation | null>(null);
   const [orgEval, setOrgEval] = useState<OrganizationEvaluation | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // yearProp이 외부에서 변경되면(팀장 연도탭) 동기화
+  useEffect(() => {
+    if (yearProp !== undefined) setSelectedYear(yearProp);
+  }, [yearProp]);
+
   useEffect(() => {
     async function load() {
       if (!userProfile) return;
-      const periodSnap = await getDoc(doc(db, 'evaluationPeriods', `${CURRENT_YEAR}`));
+      setLoading(true);
+      const periodSnap = await getDoc(doc(db, 'evaluationPeriods', `${selectedYear}`));
       const published = periodSnap.exists() ? periodSnap.data().isPublished : false;
       setIsPublished(published);
 
       if (published) {
         const [result, orgEvals] = await Promise.all([
-          getIndividualEvaluation(userProfile.id, CURRENT_YEAR),
-          getOrgEvaluations(CURRENT_YEAR),
+          getIndividualEvaluation(userProfile.id, selectedYear),
+          getOrgEvaluations(selectedYear),
         ]);
         setEval(result);
         const myOrg = orgEvals.find(e => e.organizationId === userProfile.organizationId);
         setOrgEval(myOrg ?? null);
+      } else {
+        setEval(null);
+        setOrgEval(null);
       }
       setLoading(false);
     }
     load();
-  }, [userProfile]);
+  }, [userProfile, selectedYear]);
 
   if (loading) {
     return (
       <div className={standalone ? 'flex flex-col h-full' : 'flex-1 flex items-center justify-center'}>
         {standalone && <Header title="평가결과 확인" />}
+        {standalone && (
+          <YearTabBar selectedYear={selectedYear} yearTabs={YEAR_TABS} onChange={setSelectedYear} />
+        )}
         <div className="flex-1 flex items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
         </div>
@@ -212,6 +267,9 @@ function MemberResultView({ standalone = true }: { standalone?: boolean }) {
   return (
     <div className={standalone ? 'flex flex-col h-full' : 'flex-1 overflow-y-auto'}>
       {standalone && <Header title="평가결과 확인" />}
+      {standalone && (
+        <YearTabBar selectedYear={selectedYear} yearTabs={YEAR_TABS} onChange={setSelectedYear} />
+      )}
       <div className="flex-1 overflow-y-auto p-6 max-w-xl space-y-6">
         {!isPublished ? (
           <div className="flex flex-col items-center gap-4 py-16 text-center">
@@ -241,7 +299,7 @@ function MemberResultView({ standalone = true }: { standalone?: boolean }) {
 
             {/* 개인 평가결과 — 최종 평가권한자(임원) 등급·의견만 표시 */}
             <div className="rounded-xl border bg-white p-6 space-y-4">
-              <h2 className="font-semibold text-gray-900">{CURRENT_YEAR}년 개인 평가결과</h2>
+              <h2 className="font-semibold text-gray-900">{selectedYear}년 개인 평가결과</h2>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-gray-500">최종 평가등급</span>
                 {eval_.execGrade ? (

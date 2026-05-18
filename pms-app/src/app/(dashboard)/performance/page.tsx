@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getGoalsByUser, getYearEndEval, upsertYearEndEval } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
@@ -89,7 +90,7 @@ export default function PerformancePage() {
 
 function PerformanceContent() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
 
   const [taskGoals, setTaskGoals] = useState<Goal[]>([]);    // 과제업무
   const [generalGoals, setGeneralGoals] = useState<Goal[]>([]); // 일반업무

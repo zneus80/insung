@@ -5,13 +5,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User } from 'lucide-react';
+import { LogOut, User, ArrowLeft } from 'lucide-react';
 
 interface HeaderProps {
   title?: string;
+  showBack?: boolean;
 }
 
-export default function Header({ title }: HeaderProps) {
+export default function Header({ title, showBack }: HeaderProps) {
   const { userProfile, firebaseUser } = useAuth();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -40,7 +41,18 @@ export default function Header({ title }: HeaderProps) {
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6 shrink-0">
-      <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+      <div className="flex items-center gap-3">
+        {showBack && (
+          <button
+            onClick={() => router.back()}
+            className="flex items-center justify-center h-8 w-8 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            title="뒤로 가기"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+        )}
+        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+      </div>
 
       {/* 사용자 드롭다운 */}
       <div className="relative" ref={ref}>
@@ -77,10 +89,10 @@ export default function Header({ title }: HeaderProps) {
               </p>
             </div>
 
-            {/* 내 프로필 (비활성) */}
+            {/* 내 프로필 */}
             <button
-              disabled
-              className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-400 cursor-not-allowed"
+              onClick={() => { setOpen(false); router.push('/profile'); }}
+              className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <User className="h-4 w-4" />
               내 프로필

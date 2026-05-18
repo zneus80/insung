@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { CalendarDays, Eye } from 'lucide-react';
+import { CalendarDays, Eye, RefreshCw } from 'lucide-react';
 
 interface EvalPeriod {
   year: number;
@@ -22,8 +23,6 @@ interface EvalPeriod {
   isPublished: boolean;
   updatedBy: string;
 }
-
-const CURRENT_YEAR = new Date().getFullYear();
 
 export default function EvaluationPeriodPage() {
   return (
@@ -35,6 +34,7 @@ export default function EvaluationPeriodPage() {
 
 function EvaluationPeriodContent() {
   const { userProfile } = useAuth();
+  const { activeYear: CURRENT_YEAR } = useActiveYear();
   const [period, setPeriod] = useState<EvalPeriod | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -42,11 +42,16 @@ function EvaluationPeriodContent() {
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [restarting, setRestarting] = useState(false);
+  const [nextYearExists, setNextYearExists] = useState(false);
 
   const docId = `${CURRENT_YEAR}`;
 
   async function load() {
-    const snap = await getDoc(doc(db, 'evaluationPeriods', docId));
+    const [snap, nextSnap] = await Promise.all([
+      getDoc(doc(db, 'evaluationPeriods', docId)),
+      getDoc(doc(db, 'evaluationPeriods', `${CURRENT_YEAR + 1}`)),
+    ]);
     if (snap.exists()) {
       const d = snap.data();
       const p: EvalPeriod = {
@@ -61,10 +66,11 @@ function EvaluationPeriodContent() {
       setStartDate(format(p.startDate, 'yyyy-MM-dd'));
       setEndDate(format(p.endDate, 'yyyy-MM-dd'));
     }
+    setNextYearExists(nextSnap.exists());
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [CURRENT_YEAR]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSave() {
     if (!startDate || !endDate) { toast.error('시작일과 종료일을 입력하세요.'); return; }
@@ -87,6 +93,32 @@ function EvaluationPeriodContent() {
       toast.error(e?.message ?? '저장 실패');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRestart() {
+    if (!period?.isPublished) { toast.error('현재 연도 평가가 공개 완료된 후에 다음 연도 평가를 시작할 수 있습니다.'); return; }
+    if (nextYearExists) { toast.error(`${CURRENT_YEAR + 1}년 평가 기간이 이미 존재합니다.`); return; }
+    if (!confirm(`${CURRENT_YEAR + 1}년 평가를 새로 시작하시겠습니까?\n다음 연도 평가 기간 문서가 생성됩니다.`)) return;
+    if (!userProfile) return;
+    setRestarting(true);
+    try {
+      const nextYear = CURRENT_YEAR + 1;
+      await setDoc(doc(db, 'evaluationPeriods', `${nextYear}`), {
+        year: nextYear,
+        startDate: Timestamp.fromDate(new Date(`${nextYear}-01-01`)),
+        endDate: Timestamp.fromDate(new Date(`${nextYear}-12-31`)),
+        isPublished: false,
+        publishedAt: null,
+        updatedBy: userProfile.id,
+        updatedAt: serverTimestamp(),
+      });
+      toast.success(`${nextYear}년 평가가 시작되었습니다. 평가 기간을 설정해주세요.`);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message ?? '재시작 실패');
+    } finally {
+      setRestarting(false);
     }
   }
 
@@ -181,6 +213,34 @@ function EvaluationPeriodContent() {
             {period?.isPublished ? '이미 공개됨' : publishing ? '공개 중...' : '전체 공개하기'}
           </Button>
         </div>
+
+        {/* 다음 연도 평가 재시작 */}
+        {period?.isPublished && (
+          <div className="rounded-xl border bg-white p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <RefreshCw className="h-5 w-5 text-blue-600" />
+              <h2 className="font-semibold text-gray-900">{CURRENT_YEAR + 1}년 평가 시작</h2>
+            </div>
+            <p className="text-sm text-gray-500">
+              {CURRENT_YEAR}년 평가가 완료되었습니다. 다음 연도 평가 사이클을 시작할 수 있습니다.
+            </p>
+            {nextYearExists ? (
+              <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 text-sm text-green-700">
+                ✅ {CURRENT_YEAR + 1}년 평가 기간이 이미 생성되어 있습니다.
+              </div>
+            ) : (
+              <Button
+                onClick={handleRestart}
+                disabled={restarting}
+                variant="outline"
+                className="w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                {restarting ? '생성 중...' : `${CURRENT_YEAR + 1}년 평가 시작하기`}
+              </Button>
+            )}
+          </div>
+        )}
 
       </div>
     </div>

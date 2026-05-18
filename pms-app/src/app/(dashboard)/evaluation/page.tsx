@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getActiveCycle,
   getGoalsByUser,
@@ -87,7 +88,7 @@ export default function EvaluationPage() {
 // ─── 팀원: 자기평가 ──────────────────────────────────────
 function MemberEvalView() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
 
   const [cycle, setCycle]               = useState<EvaluationCycle | null>(null);
   const [completedGoals, setCompleted]  = useState<Goal[]>([]);
@@ -344,7 +345,7 @@ function MemberEvalView() {
 // ─── 임원: 최종 등급 확정 ────────────────────────────────
 function ExecutiveEvalView() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
 
   const [allOrgs, setAllOrgs]         = useState<Organization[]>([]);
   const [members, setMembers]         = useState<User[]>([]);

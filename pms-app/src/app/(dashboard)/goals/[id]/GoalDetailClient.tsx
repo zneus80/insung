@@ -265,7 +265,7 @@ export default function GoalDetailPage() {
   if (loading || !goal || !userProfile) {
     return (
       <div className="flex flex-col h-full">
-        <Header title="목표 상세" />
+        <Header title="목표 상세" showBack />
         <div className="flex flex-1 items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
         </div>
@@ -347,7 +347,7 @@ export default function GoalDetailPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="목표 상세" />
+      <Header title="목표 상세" showBack />
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-3xl space-y-6">
 

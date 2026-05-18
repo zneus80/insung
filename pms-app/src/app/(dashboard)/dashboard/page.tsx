@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getGoalsByUser,
   getPendingGoalsByOrganization,
@@ -13,14 +14,15 @@ import {
   getOrganizations,
   getAllGoalsByYear,
   getAnnualGoal,
+  getAnnouncements,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Target, TrendingUp, CheckCircle, Clock, Users, ArrowRight, Building2, LayoutList } from 'lucide-react';
+import { Target, TrendingUp, CheckCircle, Clock, Users, ArrowRight, Building2, LayoutList, Bell } from 'lucide-react';
 import GoalCard from '@/components/goals/GoalCard';
 import MileageCard from '@/components/mileage/MileageCard';
 import { OrgTreeNode, buildTree, findDescendantIds } from '@/components/goals/OrgGoalTree';
-import type { Goal, OneOnOne, Mileage, User, AnnualGoal, Organization } from '@/types';
+import type { Goal, OneOnOne, Mileage, User, AnnualGoal, Organization, Announcement } from '@/types';
 
 export default function DashboardPage() {
   const { userProfile } = useAuth();
@@ -35,7 +37,7 @@ export default function DashboardPage() {
 
 function MemberDashboard() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
 
   const [goals, setGoals] = useState<Goal[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
@@ -43,13 +45,14 @@ function MemberDashboard() {
   const [myMileage, setMyMileage] = useState<Mileage | null>(null);
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [orgGoal, setOrgGoal] = useState<AnnualGoal | null>(null);
+  const [recentAnnouncements, setRecentAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!userProfile) return;
     async function load() {
       try {
-        const [goalList, pending, meetings, mileage, cGoal, oGoal] = await Promise.all([
+        const [goalList, pending, meetings, mileage, cGoal, oGoal, announcements] = await Promise.all([
           getGoalsByUser(userProfile!.id, year),
           userProfile!.role === 'TEAM_LEAD'
             ? getPendingGoalsByOrganization(userProfile!.organizationId)
@@ -60,6 +63,7 @@ function MemberDashboard() {
           getMileage(userProfile!.id),
           getAnnualGoal('company', year),
           getAnnualGoal('org', year, userProfile!.organizationId),
+          getAnnouncements(),
         ]);
         setGoals(goalList);
         setPendingCount(pending.length);
@@ -67,6 +71,7 @@ function MemberDashboard() {
         setMyMileage(mileage);
         setCompanyGoal(cGoal);
         setOrgGoal(oGoal);
+        setRecentAnnouncements(announcements.slice(0, 3));
       } catch (e: any) {
         console.error('대시보드 로드 실패:', e);
       } finally {
@@ -99,6 +104,42 @@ function MemberDashboard() {
           <p className="mt-1 text-sm text-gray-500">{year}년 목표 현황입니다.</p>
         </div>
 
+        {/* 공지사항 위젯 */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <Bell className="h-4 w-4 text-gray-500" />
+              공지사항
+            </h4>
+            <Link href="/announcements" className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
+              전체 보기 <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+          {loading ? (
+            <div className="h-12 animate-pulse rounded-xl bg-gray-100" />
+          ) : recentAnnouncements.length === 0 ? (
+            <div className="rounded-xl border border-dashed bg-gray-50 p-4 text-center">
+              <p className="text-sm text-gray-400">등록된 공지사항이 없습니다.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-white divide-y divide-gray-100">
+              {recentAnnouncements.map(a => (
+                <Link key={a.id} href="/announcements">
+                  <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {a.isPinned && <span className="text-sm">📌</span>}
+                      <span className="text-sm font-medium text-gray-900 truncate">{a.title}</span>
+                    </div>
+                    <span className="text-xs text-gray-400 ml-3 shrink-0">
+                      {a.createdAt.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* 연간 목표 배너 */}
         {(companyGoal || orgGoal) && (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -126,22 +167,26 @@ function MemberDashboard() {
         {/* 요약 카드 */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <SummaryCard title="전체 목표" value={String(totalGoals)} sub="등록된 목표 수"
-            icon={<Target className="h-5 w-5 text-blue-600" />} color="bg-blue-50" />
+            icon={<Target className="h-5 w-5 text-blue-600" />} color="bg-blue-50" href="/goals" />
           <SummaryCard title="평균 진행률" value={`${avgProgress}%`} sub="진행 중 목표 기준"
-            icon={<TrendingUp className="h-5 w-5 text-green-600" />} color="bg-green-50" />
+            icon={<TrendingUp className="h-5 w-5 text-green-600" />} color="bg-green-50" href="/goals" />
           <SummaryCard title="완료" value={String(completedGoals.length)} sub="달성한 목표"
-            icon={<CheckCircle className="h-5 w-5 text-purple-600" />} color="bg-purple-50" />
+            icon={<CheckCircle className="h-5 w-5 text-purple-600" />} color="bg-purple-50" href="/goals" />
           {userProfile?.role === 'TEAM_LEAD' ? (
             <SummaryCard title="승인 대기" value={String(pendingCount)} sub="처리 필요"
-              icon={<Clock className="h-5 w-5 text-orange-600" />} color="bg-orange-50" />
+              icon={<Clock className="h-5 w-5 text-orange-600" />} color="bg-orange-50" href="/approvals" />
           ) : (
             <SummaryCard title="예정 1on1" value={String(upcomingMeetings.length)} sub="다가오는 미팅"
-              icon={<Clock className="h-5 w-5 text-orange-600" />} color="bg-orange-50" />
+              icon={<Clock className="h-5 w-5 text-orange-600" />} color="bg-orange-50" href="/oneon1" />
           )}
         </div>
 
         {/* 마일리지 카드 */}
-        <MileageCard points={myMileage?.points ?? 0} />
+        <MileageCard
+          points={myMileage?.points ?? 0}
+          submitTds={myMileage?.submitTds}
+          instructTds={myMileage?.instructTds}
+        />
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* 최근 목표 */}
@@ -164,7 +209,11 @@ function MemberDashboard() {
                 </Link>
               </div>
             ) : (
-              recentGoals.map(g => <GoalCard key={g.id} goal={g} />)
+              recentGoals.map(g => (
+                <Link key={g.id} href="/goals">
+                  <GoalCard goal={g} />
+                </Link>
+              ))
             )}
           </div>
 
@@ -184,14 +233,11 @@ function MemberDashboard() {
               upcomingMeetings.map(m => (
                 <Link key={m.id} href={`/oneon1/${m.id}`}>
                   <div className="rounded-xl border bg-white p-4 hover:shadow-sm transition-shadow cursor-pointer">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2">
                       <Users className="h-4 w-4 text-blue-500" />
                       <span className="text-sm font-medium text-gray-900">1on1</span>
                       {m.title && <span className="text-xs text-gray-400">· {m.title}</span>}
                     </div>
-                    <p className="text-xs text-gray-500 truncate">
-                      {m.lastMessagePreview ?? '메시지 없음'}
-                    </p>
                   </div>
                 </Link>
               ))
@@ -213,6 +259,7 @@ function MemberDashboard() {
             )}
           </div>
         </div>
+
       </div>
     </div>
   );
@@ -221,7 +268,7 @@ function MemberDashboard() {
 // ── 임원 / CEO 대시보드 ──────────────────────────
 function ExecDashboard() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
   const [loading, setLoading] = useState(true);
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [treeNodes, setTreeNodes] = useState<ReturnType<typeof buildTree>>([]);
@@ -310,12 +357,12 @@ function ExecDashboard() {
   );
 }
 
-function SummaryCard({ title, value, sub, icon, color }: {
+function SummaryCard({ title, value, sub, icon, color, href }: {
   title: string; value: string; sub: string;
-  icon: React.ReactNode; color: string;
+  icon: React.ReactNode; color: string; href?: string;
 }) {
-  return (
-    <Card>
+  const card = (
+    <Card className={href ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-medium text-gray-500">{title}</CardTitle>
         <div className={`rounded-lg p-2 ${color}`}>{icon}</div>
@@ -326,4 +373,6 @@ function SummaryCard({ title, value, sub, icon, color }: {
       </CardContent>
     </Card>
   );
+  if (href) return <Link href={href}>{card}</Link>;
+  return card;
 }

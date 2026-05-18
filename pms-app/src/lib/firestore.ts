@@ -18,9 +18,10 @@ import {
   Timestamp,
   QueryConstraint,
   DocumentData,
+  arrayUnion,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -43,6 +44,10 @@ export const COLLECTIONS = {
   SELF_EVALUATIONS: 'selfEvaluations',
   YEAR_END_EVALS: 'yearEndEvals',
   MENTORING_FORMS: 'mentoringForms',
+  ANNOUNCEMENTS: 'announcements',
+  AWARDS: 'awards',
+  SYSTEM_SETTINGS: 'systemSettings',
+  BACKUPS: 'backups',
 } as const;
 
 // ─── Timestamp 변환 유틸 ──────────────────────
@@ -74,6 +79,13 @@ export async function createUser(uid: string, data: Omit<User, 'id' | 'createdAt
 
 export async function updateUser(uid: string, data: Partial<User>) {
   await updateDoc(doc(db, COLLECTIONS.USERS, uid), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function updateUserProfile(userId: string, data: { position?: string; hireDate?: string; rank?: string }) {
+  await updateDoc(doc(db, COLLECTIONS.USERS, userId), {
     ...data,
     updatedAt: serverTimestamp(),
   });
@@ -505,6 +517,20 @@ export async function getOneOnOneQuestions(oneOnOneId: string): Promise<OneOnOne
   } as OneOnOneQuestion));
 }
 
+/**
+ * 1on1 질문·답변 삭제 (본인에게만 숨김 처리)
+ * 상대방은 영향 없음 — 본인이 별도로 삭제해야 함
+ */
+export async function deleteOneOnOneQuestion(
+  oneOnOneId: string,
+  questionId: string,
+  userId: string,
+) {
+  await updateDoc(doc(questionsRef(oneOnOneId), questionId), {
+    hiddenFor: arrayUnion(userId),
+  });
+}
+
 // ─── 조직 평가 ────────────────────────────────
 export async function getOrgEvaluations(year: number): Promise<OrganizationEvaluation[]> {
   const snap = await getDocs(query(
@@ -835,4 +861,144 @@ export async function getMentoringFormsByUsers(userIds: string[], year: number):
     userIds.map(uid => getMentoringForm(uid, year))
   );
   return results.filter((f): f is MentoringForm => f !== null);
+}
+
+// ─── 공지사항 ──────────────────────────────────
+function mapAnnouncement(id: string, d: DocumentData): Announcement {
+  return {
+    ...d,
+    id,
+    isPinned: d.isPinned ?? false,
+    createdAt: fromTimestamp(d.createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
+  } as Announcement;
+}
+
+export async function getAnnouncements(): Promise<Announcement[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.ANNOUNCEMENTS),
+    orderBy('createdAt', 'desc'),
+  ));
+  const items = snap.docs.map(d => mapAnnouncement(d.id, d.data()));
+  // isPinned true 먼저, 그 다음 최신순
+  return items.sort((a, b) => {
+    if (a.isPinned === b.isPinned) return b.createdAt.getTime() - a.createdAt.getTime();
+    return a.isPinned ? -1 : 1;
+  });
+}
+
+export async function createAnnouncement(data: Omit<Announcement, 'id' | 'createdAt' | 'updatedAt'>) {
+  const ref = await addDoc(collection(db, COLLECTIONS.ANNOUNCEMENTS), {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function updateAnnouncement(id: string, data: Partial<Omit<Announcement, 'id' | 'createdAt' | 'updatedAt'>>) {
+  await updateDoc(doc(db, COLLECTIONS.ANNOUNCEMENTS, id), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteAnnouncement(id: string) {
+  await deleteDoc(doc(db, COLLECTIONS.ANNOUNCEMENTS, id));
+}
+
+// ─── 포상 이력 ────────────────────────────────
+export async function getAwardsByUser(userId: string): Promise<Award[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.AWARDS),
+    where('userId', '==', userId),
+    orderBy('awardDate', 'desc'),
+  ));
+  return snap.docs.map(d => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
+  } as Award));
+}
+
+export async function createAward(data: Omit<Award, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  const ref = await addDoc(collection(db, COLLECTIONS.AWARDS), {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function deleteAward(id: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.AWARDS, id));
+}
+
+// ─── 시스템 설정 ──────────────────────────────
+export interface SystemSettings {
+  activeYear: number;
+  updatedBy?: string;
+  updatedAt?: Date;
+}
+
+export async function getSystemSettings(): Promise<SystemSettings | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.SYSTEM_SETTINGS, 'global'));
+  if (!snap.exists()) return null;
+  const d = snap.data();
+  return {
+    activeYear: d.activeYear ?? new Date().getFullYear(),
+    updatedBy: d.updatedBy,
+    updatedAt: d.updatedAt ? (d.updatedAt as Timestamp).toDate() : undefined,
+  };
+}
+
+export async function updateSystemSettings(settings: Partial<SystemSettings> & { updatedBy: string }): Promise<void> {
+  await setDoc(doc(db, COLLECTIONS.SYSTEM_SETTINGS, 'global'), {
+    ...settings,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+// ─── 백업 ─────────────────────────────────────────
+export interface BackupRecord {
+  id: string;
+  year: number;
+  createdBy: string;
+  createdAt: Date;
+  stats: {
+    goals: number;
+    users: number;
+    orgEvaluations: number;
+    individualEvaluations: number;
+    mentoringForms: number;
+  };
+}
+
+export async function getBackups(): Promise<BackupRecord[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.BACKUPS),
+    orderBy('createdAt', 'desc'),
+  ));
+  return snap.docs.map(d => ({
+    id: d.id,
+    year: d.data().year,
+    createdBy: d.data().createdBy,
+    createdAt: (d.data().createdAt as Timestamp).toDate(),
+    stats: d.data().stats ?? {},
+  }));
+}
+
+export async function createBackup(year: number, createdBy: string, stats: BackupRecord['stats']): Promise<string> {
+  const ref = await addDoc(collection(db, COLLECTIONS.BACKUPS), {
+    year,
+    createdBy,
+    stats,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function deleteBackup(id: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.BACKUPS, id));
 }

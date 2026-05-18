@@ -35,6 +35,8 @@ function MileageContent() {
 
   const [editing, setEditing] = useState<User | null>(null);
   const [points, setPoints] = useState('');
+  const [submitTds, setSubmitTds] = useState('');
+  const [instructTds, setInstructTds] = useState('');
   const [memo, setMemo] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -59,6 +61,8 @@ function MileageContent() {
     const existing = mileages[user.id];
     setEditing(user);
     setPoints(String(existing?.points ?? 0));
+    setSubmitTds(String(existing?.submitTds ?? 0));
+    setInstructTds(String(existing?.instructTds ?? 0));
     setMemo(existing?.memo ?? '');
   }
 
@@ -66,12 +70,16 @@ function MileageContent() {
     if (!editing || !userProfile) return;
     const parsed = parseInt(points, 10);
     if (isNaN(parsed) || parsed < 0) { toast.error('올바른 마일리지 값을 입력하세요.'); return; }
+    const parsedSubmitTds = parseInt(submitTds, 10) || 0;
+    const parsedInstructTds = parseInt(instructTds, 10) || 0;
     setSaving(true);
     try {
       await setMileage(editing.id, {
         userId: editing.id,
         organizationId: editing.organizationId,
         points: parsed,
+        submitTds: parsedSubmitTds,
+        instructTds: parsedInstructTds,
         memo: memo.trim() || '',
         updatedBy: userProfile.id,
       });
@@ -135,6 +143,7 @@ function MileageContent() {
                 <th className="px-4 py-3 text-left">직책</th>
                 <th className="px-4 py-3 text-left">등급</th>
                 <th className="px-4 py-3 text-right">마일리지</th>
+                <th className="px-4 py-3 text-right">TDS 합계</th>
                 <th className="px-4 py-3 text-left">메모</th>
                 <th className="px-4 py-3 text-left">최종 수정</th>
                 {!isReadOnly && <th className="px-4 py-3" />}
@@ -144,7 +153,7 @@ function MileageContent() {
               {loading ? (
                 [1, 2, 3].map(i => (
                   <tr key={i}>
-                    <td colSpan={7} className="px-4 py-3">
+                    <td colSpan={8} className="px-4 py-3">
                       <div className="h-4 animate-pulse rounded bg-gray-100" />
                     </td>
                   </tr>
@@ -174,6 +183,14 @@ function MileageContent() {
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {m ? (() => {
+                        const tdsTotal = (m.submitTds ?? 0) + (m.instructTds ?? 0);
+                        return tdsTotal > 0
+                          ? <span className="text-sm font-medium text-gray-700">{tdsTotal.toLocaleString()}점</span>
+                          : <span className="text-gray-300">-</span>;
+                      })() : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs max-w-[160px] truncate">
                       {m?.memo ?? '-'}
@@ -219,6 +236,28 @@ function MileageContent() {
                   onChange={e => setPoints(e.target.value)}
                   placeholder="0"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>제출 TDS</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={submitTds}
+                    onChange={e => setSubmitTds(e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>지시 TDS</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={instructTds}
+                    onChange={e => setInstructTds(e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label>메모</Label>

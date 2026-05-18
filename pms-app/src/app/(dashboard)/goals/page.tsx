@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Plus, Target, Zap, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getGoalsByUser, getActiveCycle, getOrganizations, getAnnualGoal } from '@/lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,6 +16,9 @@ import type { Goal, EvaluationCycle, AnnualGoal } from '@/types';
 
 export default function GoalsPage() {
   const { userProfile } = useAuth();
+  const { activeYear } = useActiveYear();
+  const YEAR_OPTIONS = [activeYear, activeYear - 1, activeYear - 2];
+
   const [goals, setGoals] = useState<Goal[]>([]);
   const [cycle, setCycle] = useState<EvaluationCycle | null>(null);
   const [divisionGoal, setDivisionGoal] = useState<AnnualGoal | null>(null);
@@ -22,15 +26,17 @@ export default function GoalsPage() {
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [generalFormOpen, setGeneralFormOpen] = useState(false);
   const [editGoal, setEditGoal] = useState<Goal | undefined>();
+  const [selectedYear, setSelectedYear] = useState(activeYear);
 
-  const year = new Date().getFullYear();
+  const year = selectedYear;
+  const isPastYear = selectedYear < activeYear;
 
   const load = useCallback(async () => {
     if (!userProfile) return;
     setLoading(true);
     try {
       const [goalList, activeCycle, orgs] = await Promise.all([
-        getGoalsByUser(userProfile.id, year),
+        getGoalsByUser(userProfile.id, selectedYear),
         getActiveCycle(),
         getOrganizations(),
       ]);
@@ -44,7 +50,7 @@ export default function GoalsPage() {
     } finally {
       setLoading(false);
     }
-  }, [userProfile, year]);
+  }, [userProfile, selectedYear]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -68,7 +74,31 @@ export default function GoalsPage() {
   return (
     <div className="flex flex-col h-full">
       <Header title="목표관리" />
+
+      {/* 연도 선택 탭 */}
+      <div className="flex gap-1 border-b bg-white px-6 pt-3 shrink-0">
+        {YEAR_OPTIONS.map(y => (
+          <button
+            key={y}
+            onClick={() => setSelectedYear(y)}
+            className={`px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors ${
+              selectedYear === y
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {y}년
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-y-auto p-6">
+        {isPastYear && (
+          <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
+            <span>📅</span>
+            <span>{selectedYear}년 이력 보기 중 — 수정·추가는 당해연도에만 가능합니다.</span>
+          </div>
+        )}
         <Tabs defaultValue="task">
           <TabsList className="mb-6">
             <TabsTrigger value="task">
@@ -99,11 +129,13 @@ export default function GoalsPage() {
               <p className="text-xs text-gray-400">팀원 전체 과제업무 합산 최대 80% · 잔여 {Math.max(80 - taskWeightUsed, 0)}%</p>
             </div>
 
-            <div className="flex justify-end">
-              <Button size="sm" onClick={handleAddTask} className="gap-1.5">
-                <Plus className="h-4 w-4" />과제업무 추가
-              </Button>
-            </div>
+            {!isPastYear && (
+              <div className="flex justify-end">
+                <Button size="sm" onClick={handleAddTask} className="gap-1.5">
+                  <Plus className="h-4 w-4" />과제업무 추가
+                </Button>
+              </div>
+            )}
 
             {loading ? (
               <div className="space-y-3">{[1,2].map(i => <div key={i} className="h-32 animate-pulse rounded-xl bg-gray-100"/>)}</div>
@@ -111,18 +143,20 @@ export default function GoalsPage() {
               <EmptyState icon={<Target className="h-10 w-10"/>} label="등록된 과제업무가 없습니다." />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {taskGoals.map(g => <GoalCard key={g.id} goal={g} onEdit={handleEdit} />)}
+                {taskGoals.map(g => <GoalCard key={g.id} goal={g} onEdit={isPastYear ? undefined : handleEdit} />)}
               </div>
             )}
           </TabsContent>
 
           {/* ── 일반업무 탭 ── */}
           <TabsContent value="general" className="space-y-6">
-            <div className="flex justify-end">
-              <Button size="sm" onClick={handleAddGeneral} className="gap-1.5">
-                <Plus className="h-4 w-4" />일반업무 추가
-              </Button>
-            </div>
+            {!isPastYear && (
+              <div className="flex justify-end">
+                <Button size="sm" onClick={handleAddGeneral} className="gap-1.5">
+                  <Plus className="h-4 w-4" />일반업무 추가
+                </Button>
+              </div>
+            )}
 
             {/* 주요업무 */}
             <section className="space-y-3">
@@ -137,7 +171,7 @@ export default function GoalsPage() {
                 <EmptyState icon={<Zap className="h-8 w-8"/>} label="등록된 주요업무가 없습니다." />
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {majorGoals.map(g => <GoalCard key={g.id} goal={g} onEdit={handleEdit} />)}
+                  {majorGoals.map(g => <GoalCard key={g.id} goal={g} onEdit={isPastYear ? undefined : handleEdit} />)}
                 </div>
               )}
             </section>
@@ -155,7 +189,7 @@ export default function GoalsPage() {
                 <EmptyState icon={<div className="h-8 w-8 rounded-full bg-gray-200"/>} label="등록된 기타업무가 없습니다." />
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {otherGoals.map(g => <GoalCard key={g.id} goal={g} onEdit={handleEdit} />)}
+                  {otherGoals.map(g => <GoalCard key={g.id} goal={g} onEdit={isPastYear ? undefined : handleEdit} />)}
                 </div>
               )}
             </section>
