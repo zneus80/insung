@@ -51,11 +51,6 @@ steps:
       - '--update-secrets=FIREBASE_SERVICE_ACCOUNT_KEY=FIREBASE_SERVICE_ACCOUNT_KEY:latest'
     waitFor: [push]
 
-availableSecrets:
-  secretManager:
-    - versionName: 'projects/$PROJECT_ID/secrets/FIREBASE_SERVICE_ACCOUNT_KEY/versions/latest'
-      env: 'FIREBASE_SERVICE_ACCOUNT_KEY'
-
 images:
   - '${_IMAGE}:$SHORT_SHA'
   - '${_IMAGE}:latest'
