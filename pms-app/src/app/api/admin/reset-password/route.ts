@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
     const { uid } = await req.json();
     if (!uid) return NextResponse.json({ error: 'uid 필요' }, { status: 400 });
 
-    await adminAuth.updateUser(uid, { password: RESET_PASSWORD });
+    await adminAuth.getAuth().updateUser(uid, { password: RESET_PASSWORD });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
