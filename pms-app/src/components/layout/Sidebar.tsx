@@ -14,9 +14,9 @@ import {
   Star,
   Flag,
   LogOut,
-  BookOpen,
   FileText,
   MessageSquareHeart,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -46,10 +46,10 @@ const navItems: NavItem[] = [
     roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE', 'CEO'],
   },
   {
-    label: 'CDP',
-    href: '/cdp',
-    icon: <BookOpen className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
+    label: '업무관리',
+    href: '/tasks',
+    icon: <ClipboardList className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
   {
     label: '평가',

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { createGoal, updateGoal } from '@/lib/firestore';
+import { createGoal, updateGoal, getOrganizations, createNotification } from '@/lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -61,6 +61,39 @@ export default function TaskGoalForm({
     setError('');
   }, [open, editGoal]);
 
+  // 승인 요청 시 팀장/임원에게 알림 발송
+  async function sendApprovalNotification(goalId: string, goalTitle: string) {
+    try {
+      const orgs = await getOrganizations();
+      const myOrg = orgs.find(o => o.id === userProfile!.organizationId);
+      const parentOrg = myOrg?.parentId ? orgs.find(o => o.id === myOrg.parentId) : undefined;
+      const leadId = myOrg?.leaderId ?? null;
+      const execId = parentOrg?.leaderId ?? null;
+
+      const notifBase = {
+        goalId,
+        goalTitle,
+        type: 'GOAL_SUBMITTED' as const,
+        message: `${userProfile!.name}님이 '${goalTitle}' 목표 승인을 요청했습니다.`,
+        read: false,
+      };
+
+      if (userProfile!.role === 'TEAM_LEAD') {
+        // 팀장 목표 → 임원에게
+        if (execId && execId !== userProfile!.id) {
+          await createNotification({ userId: execId, ...notifBase });
+        }
+      } else {
+        // 팀원 목표 → 팀장에게
+        if (leadId && leadId !== userProfile!.id) {
+          await createNotification({ userId: leadId, ...notifBase });
+        }
+      }
+    } catch {
+      // 알림 발송 실패는 조용히 처리 (목표 상신 자체는 성공)
+    }
+  }
+
   async function handleSubmit(isDraft: boolean) {
     if (!userProfile) return;
     if (!title.trim()) { setError('목표명을 입력하세요.'); return; }
@@ -83,11 +116,14 @@ export default function TaskGoalForm({
       const isApprovedGoal = isEdit && !['DRAFT', 'REJECTED'].includes(capturedStatus);
 
       if (isEdit && !isApprovedGoal) {
-        // DRAFT 목표 수정
+        // DRAFT 목표 수정 → 상신
         await updateGoal(editGoal.id, {
           ...payload,
           status: isDraft ? 'DRAFT' : 'PENDING_APPROVAL',
         });
+        if (!isDraft) {
+          await sendApprovalNotification(editGoal.id, payload.title);
+        }
       } else if (isApprovedGoal && !isDraft) {
         // 승인된 목표 → 수정 상신: 기존 목표를 PENDING_MODIFY 상태로 업데이트
         await updateGoal(editGoal.id, {
@@ -96,13 +132,16 @@ export default function TaskGoalForm({
         });
       } else {
         // 신규 목표 또는 승인된 목표의 임시저장(새 DRAFT 생성)
-        await createGoal({
+        const newGoalId = await createGoal({
           ...payload,
           status: isDraft ? 'DRAFT' : 'PENDING_APPROVAL',
           userId: userProfile.id,
           organizationId: userProfile.organizationId,
           cycleYear: new Date().getFullYear(),
         });
+        if (!isDraft) {
+          await sendApprovalNotification(newGoalId, payload.title);
+        }
       }
       onSave();
       onClose();

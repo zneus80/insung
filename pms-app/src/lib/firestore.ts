@@ -17,11 +17,12 @@ import {
   onSnapshot,
   serverTimestamp,
   Timestamp,
+  arrayUnion,
   QueryConstraint,
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, CDP, YearEndEval, MentoringForm, AppNotification } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -42,10 +43,10 @@ export const COLLECTIONS = {
   ORG_GRADE_HISTORIES: 'orgGradeHistories',
   DIVISION_GRADE_QUOTAS: 'divisionGradeQuotas',
   SELF_EVALUATIONS: 'selfEvaluations',
-  CDPS: 'cdps',
   YEAR_END_EVALS: 'yearEndEvals',
   MENTORING_FORMS: 'mentoringForms',
   NOTIFICATIONS: 'notifications',
+  WEEKLY_TASKS: 'weeklyTasks',
 } as const;
 
 // ─── Timestamp 변환 유틸 ──────────────────────
@@ -805,57 +806,6 @@ export async function getAllDivisionGradeQuotas(cycleYear: number): Promise<Divi
   } as DivisionGradeQuota));
 }
 
-// ─── CDP ──────────────────────────────────────
-export async function getCDP(userId: string, year: number): Promise<CDP | null> {
-  const id = `${userId}_${year}`;
-  const snap = await getDoc(doc(db, COLLECTIONS.CDPS, id));
-  if (!snap.exists()) return null;
-  const d = snap.data();
-  return {
-    ...d,
-    id: snap.id,
-    createdAt: fromTimestamp(d.createdAt) ?? new Date(),
-    updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
-  } as CDP;
-}
-
-export async function saveCDP(userId: string, orgId: string, year: number, data: Partial<Omit<CDP, 'id' | 'userId' | 'organizationId' | 'cycleYear' | 'createdAt' | 'updatedAt'>>): Promise<void> {
-  const id = `${userId}_${year}`;
-  const ref = doc(db, COLLECTIONS.CDPS, id);
-  const snap = await getDoc(ref);
-  if (snap.exists()) {
-    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
-  } else {
-    await setDoc(ref, {
-      userId,
-      organizationId: orgId,
-      cycleYear: year,
-      direction: '',
-      educationPlan: '',
-      educationRecord: '',
-      selfEval: '',
-      concern: '',
-      ...data,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  }
-}
-
-export async function getCDPsByOrganization(orgId: string, year: number): Promise<CDP[]> {
-  const snap = await getDocs(query(
-    collection(db, COLLECTIONS.CDPS),
-    where('organizationId', '==', orgId),
-    where('cycleYear', '==', year)
-  ));
-  return snap.docs.map(d => ({
-    ...d.data(),
-    id: d.id,
-    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
-    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-  } as CDP));
-}
-
 // ─── 연말 인사평가 (YearEndEval) ──────────────
 function yearEndEvalDocId(userId: string, year: number) {
   return `${userId}_${year}`;
@@ -985,4 +935,96 @@ export async function markAllNotificationsRead(userId: string) {
     where('read', '==', false),
   ));
   await Promise.all(snap.docs.map(d => updateDoc(d.ref, { read: true })));
+}
+
+// ─── 주간 업무 ────────────────────────────────
+function weeklyTaskDocId(userId: string, year: number, week: number): string {
+  return `${userId}_${year}_W${String(week).padStart(2, '0')}`;
+}
+
+function toWeeklyTask(snap: { id: string; data(): DocumentData }): WeeklyTask {
+  const d = snap.data();
+  // leadComments 배열 파싱 (구버전 leadComment 문자열 하위 호환)
+  let leadComments: LeadCommentEntry[] = [];
+  if (Array.isArray(d.leadComments)) {
+    leadComments = (d.leadComments as any[]).map(c => ({
+      id: c.id ?? '',
+      text: c.text ?? '',
+      authorId: c.authorId ?? '',
+      authorName: c.authorName ?? '',
+      createdAt: c.createdAt instanceof Timestamp ? c.createdAt.toDate() : new Date(c.createdAt ?? 0),
+    }));
+  } else if (typeof d.leadComment === 'string' && d.leadComment) {
+    // 구버전 단일 문자열 → 1건 배열로 변환
+    leadComments = [{ id: 'legacy', text: d.leadComment, authorId: '', authorName: '팀장', createdAt: new Date(0) }];
+  }
+  return {
+    id: snap.id,
+    userId: d.userId,
+    organizationId: d.organizationId,
+    year: d.year,
+    weekNumber: d.weekNumber,
+    weekStart: fromTimestamp(d.weekStart) ?? new Date(),
+    weekEnd:   fromTimestamp(d.weekEnd)   ?? new Date(),
+    items: (d.items ?? []) as WeeklyTaskItem[],
+    summary:      d.summary ?? '',
+    leadComments,
+    updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
+  };
+}
+
+export async function getWeeklyTask(
+  userId: string, year: number, week: number
+): Promise<WeeklyTask | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, weeklyTaskDocId(userId, year, week)));
+  if (!snap.exists()) return null;
+  return toWeeklyTask(snap);
+}
+
+export async function upsertWeeklyTask(
+  userId: string, year: number, week: number,
+  orgId: string, weekStart: Date, weekEnd: Date,
+  items: WeeklyTaskItem[],
+  summary = '',
+): Promise<void> {
+  const docId = weeklyTaskDocId(userId, year, week);
+  await setDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, docId), {
+    userId, organizationId: orgId, year, weekNumber: week,
+    weekStart: Timestamp.fromDate(weekStart),
+    weekEnd:   Timestamp.fromDate(weekEnd),
+    items, summary,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });  // leadComment는 덮어쓰지 않도록 merge
+}
+
+export async function addLeadComment(
+  userId: string, year: number, week: number,
+  authorId: string, authorName: string, text: string
+): Promise<LeadCommentEntry> {
+  const docId = weeklyTaskDocId(userId, year, week);
+  const entry = {
+    id: crypto.randomUUID(),
+    text,
+    authorId,
+    authorName,
+    createdAt: Timestamp.now(),
+  };
+  await updateDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, docId), {
+    leadComments: arrayUnion(entry),
+    updatedAt: serverTimestamp(),
+  });
+  // 반환용: createdAt을 Date로 변환
+  return { ...entry, createdAt: entry.createdAt.toDate() };
+}
+
+export async function getWeeklyTasksByUsersAndWeek(
+  userIds: string[], year: number, week: number
+): Promise<WeeklyTask[]> {
+  if (!userIds.length) return [];
+  const docIds = userIds.map(uid => weeklyTaskDocId(uid, year, week));
+  // getDoc 병렬 처리 (chunk 필요 없음 — 개별 doc reads)
+  const snaps = await Promise.all(
+    docIds.map(id => getDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, id)))
+  );
+  return snaps.filter(s => s.exists()).map(s => toWeeklyTask(s));
 }

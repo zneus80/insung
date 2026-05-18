@@ -165,8 +165,30 @@ service cloud.firestore {
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
-    // CDP (docId = userId_year)
-    match /cdps/{docId} {
+    // 주간 업무 (docId = userId_year_Wnn)
+    match /weeklyTasks/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        // 문서 소유자: 모든 필드 수정 가능
+        resource.data.userId == request.auth.uid
+        ||
+        // 팀장 등 다른 사용자: 핵심 필드(소유자·업무·요약)가 변경되지 않은 경우만 허용
+        // → leadComments / updatedAt 만 추가/수정되는 Comment 기능에 해당
+        (
+          request.resource.data.userId        == resource.data.userId        &&
+          request.resource.data.organizationId == resource.data.organizationId &&
+          request.resource.data.year          == resource.data.year          &&
+          request.resource.data.weekNumber    == resource.data.weekNumber    &&
+          request.resource.data.items         == resource.data.items         &&
+          request.resource.data.summary       == resource.data.summary
+        )
+      );
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // 연말 평가 (docId = userId_year)
+    match /yearEndEvals/{docId} {
       allow read: if isAuthenticated() && (
         docId.matches('^' + request.auth.uid + '_.*') ||
         isLead() || isExec() || isCeo() || isHrAdmin()
@@ -174,5 +196,19 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
+
+    // 육성면담서 (docId = userId_year)
+    match /mentoringForms/{docId} {
+      allow read: if isAuthenticated() && (
+        docId.matches('^' + request.auth.uid + '_.*') ||
+        isLead() || isExec() || isCeo() || isHrAdmin()
+      );
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isLead() || isExec() || isCeo() || isHrAdmin()
+      );
+    }
+
   }
 }

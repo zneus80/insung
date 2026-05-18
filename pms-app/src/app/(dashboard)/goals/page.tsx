@@ -6,8 +6,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal } from '@/lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Header from '@/components/layout/Header';
 import GoalCard from '@/components/goals/GoalCard';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
@@ -145,29 +145,32 @@ function MyGoalsView() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
 
-          {/* 상단 버튼 */}
-          <div className="flex justify-end gap-2">
-            {activeTab === 'my' && (
-              <Button size="sm" onClick={handleAdd} className="gap-1.5">
-                <Plus className="h-4 w-4" /> 목표 추가
+          {/* 탭 버튼 + 액션 버튼 (같은 줄) */}
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+              {(['my', 'team'] as const).map(t => (
+                <button key={t} onClick={() => setActiveTab(t)}
+                  className={cn('px-5 py-1.5 rounded-md text-sm font-medium transition-colors',
+                    activeTab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                  {t === 'my' ? '내 목표' : '팀 목표'}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              {activeTab === 'my' && (
+                <Button size="sm" onClick={handleAdd} className="gap-1.5">
+                  <Plus className="h-4 w-4" /> 목표 추가
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setTrashOpen(true)} className="gap-1.5 text-gray-500">
+                <Trash2 className="h-4 w-4" />
+                휴지통{trashGoals.length > 0 && ` (${trashGoals.length})`}
               </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={() => setTrashOpen(true)} className="gap-1.5 text-gray-500">
-              <Trash2 className="h-4 w-4" />
-              휴지통{trashGoals.length > 0 && ` (${trashGoals.length})`}
-            </Button>
+            </div>
           </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
-              <TabsTrigger value="my">내 목표</TabsTrigger>
-              <TabsTrigger value="team" className="gap-1.5">
-                <Users className="h-3.5 w-3.5" /> 팀 목표
-              </TabsTrigger>
-            </TabsList>
-
             {/* ── 내 목표 ── */}
-            <TabsContent value="my" className="mt-4 space-y-4">
+            {activeTab === 'my' && <div className="mt-4 space-y-4">
               {/* 내 전체 진행률 */}
               {!loading && myActive.length > 0 && (
                 <div className="rounded-xl border bg-white px-5 py-4 space-y-2">
@@ -188,13 +191,13 @@ function MyGoalsView() {
                 <EmptyState icon={<Target className="h-10 w-10" />} label="등록된 목표가 없습니다." />
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {myActive.map(g => <GoalCard key={g.id} goal={g} onEdit={!['COMPLETED', 'ABANDONED'].includes(g.status) ? handleEdit : undefined} />)}
+                  {myActive.map(g => <GoalCard key={g.id} goal={g} onEdit={['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined} />)}
                 </div>
               )}
-            </TabsContent>
+            </div>}
 
             {/* ── 팀 목표 ── */}
-            <TabsContent value="team" className="mt-4 space-y-4">
+            {activeTab === 'team' && <div className="mt-4 space-y-4">
               {/* 팀 전체 진행률 */}
               {!teamLoading && teamGoals.length > 0 && (
                 <div className="rounded-xl border bg-white px-5 py-4 space-y-2">
@@ -267,7 +270,7 @@ function MyGoalsView() {
                                 <GoalCard
                                   key={g.id}
                                   goal={g}
-                                  onEdit={g.userId === userProfile?.id ? handleEdit : undefined}
+                                  onEdit={g.userId === userProfile?.id && ['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined}
                                 />
                               ))}
                             </div>
@@ -278,8 +281,7 @@ function MyGoalsView() {
                   })}
                 </div>
               )}
-            </TabsContent>
-          </Tabs>
+            </div>}
 
         </div>
       </div>

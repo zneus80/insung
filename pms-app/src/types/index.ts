@@ -314,7 +314,7 @@ export interface DivisionGradeQuota {
 }
 
 // ─────────────────────────────────────────────
-// 육성면담서 (CDP 자기신고서)
+// 육성면담서
 // ─────────────────────────────────────────────
 
 export type JobRequestType = 'EXPAND' | 'REDUCE' | 'CHANGE' | 'RELOCATE' | 'SATISFIED';
@@ -330,7 +330,7 @@ export interface MentoringForm {
   interviewDate: string;    // 면담일 (YYYY-MM-DD)
   interviewerName: string;  // 면담자 이름
 
-  // CDP 자기신고서 - 기본
+  // 자기신고서 - 기본
   lastSchoolMajor: string;  // 최종학교/전공
   familyInfo: string;       // 가족사항
   commute: string;          // 거주지 (출퇴근시간)
@@ -438,18 +438,40 @@ export interface AppNotification {
 }
 
 // ─────────────────────────────────────────────
-// CDP (Career Development Plan)
+// 업무관리 (주간 실적 보고)
 // ─────────────────────────────────────────────
-export interface CDP {
-  id: string;            // `${userId}_${cycleYear}`
+export type WeeklyTaskStatus   = 'PLANNED' | 'IN_PROGRESS' | 'DONE';
+export type WeeklyTaskCategory = 'CORE' | 'GENERAL' | 'MEETING' | 'TRAINING' | 'OTHER';
+
+export interface WeeklyTaskItem {
+  id: string;                  // crypto.randomUUID()
+  category: WeeklyTaskCategory;
+  title: string;               // 업무명
+  content: string;             // 업무 상세 내용
+  result: string;              // 실적 / 결과 (PLANNED 상태에서는 미사용)
+  achievement: number;         // 달성률 0~100
+  status: WeeklyTaskStatus;
+}
+
+export interface LeadCommentEntry {
+  id: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  createdAt: Date;
+}
+
+export interface WeeklyTask {
+  id: string;                  // `${userId}_${year}_W${weekNumber}`
   userId: string;
   organizationId: string;
-  cycleYear: number;
-  direction: string;          // 직무 방향
-  educationPlan: string;      // 교육 희망
-  educationRecord: string;    // 교육 실적
-  selfEval: string;           // 자기평가
-  concern: string;            // 애로사항
-  createdAt: Date;
+  year: number;
+  weekNumber: number;
+  weekStart: Date;
+  weekEnd: Date;
+  items: WeeklyTaskItem[];
+  summary: string;             // 이번 주 종합 의견
+  leadComments: LeadCommentEntry[];  // 팀장 Comment (누적 스레드)
   updatedAt: Date;
 }
+

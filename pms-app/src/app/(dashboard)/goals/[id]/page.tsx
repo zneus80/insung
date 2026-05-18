@@ -168,10 +168,14 @@ export default function GoalDetailPage() {
         read: false,
       };
       // 팀장 목표 → 임원에게 직접, 팀원 목표 → 팀장에게 (임원은 팀장 승인 후 단계적으로)
-      if (userProfile.role === 'TEAM_LEAD') {
-        if (execId && execId !== userProfile.id) await createNotification({ userId: execId, ...notifBase });
-      } else {
-        if (leadId && leadId !== userProfile.id) await createNotification({ userId: leadId, ...notifBase });
+      try {
+        if (userProfile.role === 'TEAM_LEAD') {
+          if (execId && execId !== userProfile.id) await createNotification({ userId: execId, ...notifBase });
+        } else {
+          if (leadId && leadId !== userProfile.id) await createNotification({ userId: leadId, ...notifBase });
+        }
+      } catch {
+        // 알림 발송 실패는 조용히 처리 (승인 요청 자체는 성공)
       }
       toast.success('승인 요청을 보냈습니다.');
       await load();

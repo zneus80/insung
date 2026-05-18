@@ -114,6 +114,12 @@ function PerformanceContent() {
         ]);
       }
 
+      // 완료됐거나 포기 승인된 목표만 평가 대상
+      goals = goals.filter(g =>
+        g.status === 'COMPLETED' ||
+        (g.status === 'ABANDONED' && !!g.approvedBy)
+      );
+
       setAllGoals(goals);
       setEvalRecord(record);
 
@@ -222,7 +228,7 @@ function PerformanceContent() {
 
             {allGoals.length === 0 ? (
               <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">
-                등록된 목표가 없습니다.
+                완료 또는 포기 승인된 목표가 없습니다.
               </div>
             ) : (
               <div className="space-y-3">
