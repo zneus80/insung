@@ -21,13 +21,11 @@ const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
 
 const EMPTY_FORM: Omit<MentoringForm, 'id' | 'userId' | 'organizationId' | 'cycleYear' | 'createdAt' | 'updatedAt' | 'status' | 'submittedAt'> = {
   interviewDate: '', interviewerName: '',
-  lastSchoolMajor: '', familyInfo: '', commute: '', importantEvent: '',
   currentPosition: '', mainDuties: '', promotionDate: '', certifications: '', achievements: '',
   careerPlan: '',
   jobRequest: 'SATISFIED', jobRequestReason: '',
   desiredJob1: '', desiredJob2: '', jobChangeReason: '',
   desiredLocation1: '', desiredLocation2: '', locationChangeReason: '',
-  languageType: '', languagePurpose: '', additionalEducation: '',
   selfOpinion: '', interviewerOpinion: '',
 };
 
@@ -150,7 +148,7 @@ function MentoringContent() {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <Header title="육성면담서" />
+        <Header title="육성면담서" showBack />
         <div className="p-6 space-y-4">
           {[1,2,3,4].map(i => <div key={i} className="h-32 animate-pulse rounded-2xl bg-gray-100" />)}
         </div>
@@ -160,7 +158,7 @@ function MentoringContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="육성면담서" />
+      <Header title="육성면담서" showBack />
 
       {/* 연도 선택 탭 */}
       <div className="flex gap-1 border-b bg-white px-6 pt-3 shrink-0">

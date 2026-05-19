@@ -335,12 +335,6 @@ export interface MentoringForm {
   interviewDate: string;    // 면담일 (YYYY-MM-DD)
   interviewerName: string;  // 면담자 이름
 
-  // 자기신고서 - 기본
-  lastSchoolMajor: string;  // 최종학교/전공
-  familyInfo: string;       // 가족사항
-  commute: string;          // 거주지 (출퇴근시간)
-  importantEvent: string;   // 개인적으로 중요했던 Event
-
   // 직무 정보
   currentPosition: string;  // 직위/직책
   mainDuties: string;       // 주요담당업무
@@ -360,11 +354,6 @@ export interface MentoringForm {
   desiredLocation1: string;         // 희망 근무지 1순위
   desiredLocation2: string;         // 희망 근무지 2순위
   locationChangeReason: string;     // 근무지 변경 희망 이유
-
-  // 교육지원 요청
-  languageType: string;             // 어학 종류
-  languagePurpose: string;          // 교육 목적
-  additionalEducation: string;      // 기타 희망 교육
 
   // 종합의견
   selfOpinion: string;              // 작성자 종합의견

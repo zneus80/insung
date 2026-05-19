@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { getUser, getMileage, getOrganizations } from '@/lib/firestore';
+import { getUser, getMileage, getOrganizations, getAllIndividualEvaluations, getAwardsByUser } from '@/lib/firestore';
 import { getTier } from '@/lib/mileage-tier';
-import type { User, Mileage, Organization } from '@/types';
+import type { User, Mileage, Organization, IndividualEvaluation, Award } from '@/types';
 
 interface Props {
   userId: string;
@@ -14,7 +14,20 @@ interface LoadedData {
   user: User | null;
   mileage: Mileage | null;
   orgs: Organization[];
+  evalHistory: IndividualEvaluation[];
+  awards: Award[];
 }
+
+const GRADE_LABEL: Record<string, string> = {
+  S: 'S', A: 'A', B: 'B', C: 'C', D: 'D',
+};
+const GRADE_COLOR: Record<string, string> = {
+  S: 'bg-yellow-100 text-yellow-700',
+  A: 'bg-blue-100 text-blue-700',
+  B: 'bg-green-100 text-green-700',
+  C: 'bg-gray-100 text-gray-600',
+  D: 'bg-red-100 text-red-600',
+};
 
 const ROLE_LABEL: Record<string, string> = {
   MEMBER:    '팀원',
@@ -33,12 +46,20 @@ export default function MemberInfoModal({ userId, userName }: Props) {
     if (data) return; // 이미 로드된 경우 재사용
     setLoading(true);
     try {
-      const [user, mileage, orgs] = await Promise.all([
+      const currentYear = new Date().getFullYear();
+      const years = [currentYear, currentYear - 1, currentYear - 2];
+      const [user, mileage, orgs, awards, ...evalResults] = await Promise.all([
         getUser(userId),
         getMileage(userId),
         getOrganizations(),
+        getAwardsByUser(userId),
+        ...years.map(y => getAllIndividualEvaluations(y)),
       ]);
-      setData({ user, mileage, orgs });
+      const evalHistory = evalResults
+        .flat()
+        .filter((e): e is IndividualEvaluation => e.userId === userId)
+        .sort((a, b) => b.cycleYear - a.cycleYear);
+      setData({ user, mileage, orgs, evalHistory, awards });
     } finally {
       setLoading(false);
     }
@@ -98,6 +119,51 @@ export default function MemberInfoModal({ userId, userName }: Props) {
                     <Row label="입사일"   value={data.user.hireDate} />
                     <Row label="소속 조직" value={orgName} />
                     <Row label="역할"     value={ROLE_LABEL[data.user.role] ?? data.user.role} />
+                  </Section>
+
+                  {/* 평가이력 (최근 3년) */}
+                  <Section title="평가이력 (최근 3년)">
+                    {data.evalHistory.length === 0 ? (
+                      <div className="px-4 py-3">
+                        <p className="text-sm text-gray-400">평가이력 없음</p>
+                      </div>
+                    ) : (
+                      data.evalHistory.map(ev => (
+                        <div key={ev.id} className="px-4 py-3 flex items-center justify-between">
+                          <span className="text-xs font-medium text-gray-500">{ev.cycleYear}년</span>
+                          <div className="flex items-center gap-2">
+                            {ev.execGrade ? (
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLOR[ev.execGrade] ?? 'bg-gray-100 text-gray-600'}`}>
+                                {GRADE_LABEL[ev.execGrade] ?? ev.execGrade}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">미확정</span>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </Section>
+
+                  {/* 포상이력 */}
+                  <Section title="포상이력">
+                    {data.awards.length === 0 ? (
+                      <div className="px-4 py-3">
+                        <p className="text-sm text-gray-400">포상이력 없음</p>
+                      </div>
+                    ) : (
+                      data.awards.map(award => (
+                        <div key={award.id} className="px-4 py-3 flex items-start justify-between gap-3">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-800">{award.title}</p>
+                            {award.description && (
+                              <p className="text-xs text-gray-500 mt-0.5">{award.description}</p>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-400 shrink-0">{award.awardDate}</span>
+                        </div>
+                      ))
+                    )}
                   </Section>
 
                   {/* 마일리지 */}
