@@ -364,15 +364,21 @@ function MentoringContent() {
 
           {/* ── 버튼 영역 ── */}
           {!isSubmitted ? (
-            <div className="flex gap-3 pb-6">
-              <Button variant="outline" onClick={() => handleSave(false)} disabled={saving} className="flex-1 gap-2 h-11">
-                <Save className="h-4 w-4" />
-                {saving ? '저장 중...' : '임시저장'}
-              </Button>
-              <Button onClick={() => handleSave(true)} disabled={saving} className="flex-1 gap-2 h-11 bg-blue-600 hover:bg-blue-700">
-                <Send className="h-4 w-4" />
-                {saving ? '제출 중...' : '제출하기'}
-              </Button>
+            <div className="space-y-3 pb-6">
+              <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-700">
+                <span className="mt-0.5 shrink-0">⚠️</span>
+                <p>제출 후에는 내용 수정이 어렵습니다. 제출 전 모든 항목을 꼼꼼히 확인해 주세요. 수정이 필요한 경우 담당 HR 관리자에게 문의하세요.</p>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" onClick={() => handleSave(false)} disabled={saving} className="flex-1 gap-2 h-11">
+                  <Save className="h-4 w-4" />
+                  {saving ? '저장 중...' : '임시저장'}
+                </Button>
+                <Button onClick={() => handleSave(true)} disabled={saving} className="flex-1 gap-2 h-11 bg-blue-600 hover:bg-blue-700">
+                  <Send className="h-4 w-4" />
+                  {saving ? '제출 중...' : '제출하기'}
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-5 py-4 text-sm text-green-700 mb-6">
