@@ -139,18 +139,7 @@ function YearTransitionContent() {
             <li>이전 연도 데이터는 각 메뉴의 연도 탭에서 조회 가능합니다.</li>
             <li>연도 전환 후 새 연도의 목표, 평가 등을 새로 등록해야 합니다.</li>
             <li>평가기간 관리에서 새 연도 평가 기간을 별도로 설정하세요.</li>
-            <li>주간 업무관리 데이터는 연도전환 전에 입력된 익년도 기록도 그대로 유지됩니다.</li>
           </ul>
-        </div>
-
-        {/* 주간 업무관리 데이터 보존 안내 */}
-        <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700 space-y-1.5">
-          <p className="font-semibold">주간 업무관리 연도 전환 동작</p>
-          <p className="text-xs">
-            주간 업무관리는 실제 달력 날짜 기준으로 데이터가 저장됩니다.
-            예를 들어 2027년 4월에 연도전환을 실행하더라도, 2027년 1월부터 작성된 주간 업무 데이터는
-            모두 그대로 유지됩니다. 연도전환 시 주간 업무관리 데이터는 절대 삭제되지 않습니다.
-          </p>
         </div>
 
       </div>

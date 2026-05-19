@@ -217,8 +217,8 @@ function MentoringContent() {
           <SectionCard icon={<Briefcase className="h-4 w-4" />} title="직무 정보" color="violet">
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <Field label="직책">
-                  <Input placeholder="예) 영업팀장" value={form.currentPosition} disabled={isSubmitted}
+                <Field label="직위 / 직책">
+                  <Input placeholder="예) 대리 / 영업팀" value={form.currentPosition} disabled={isSubmitted}
                     onChange={e => set('currentPosition', e.target.value)} />
                 </Field>
                 <Field label="직무관련 보유자격증">

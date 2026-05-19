@@ -192,10 +192,9 @@ export default function TaskGoalForm({
   }, [open]);
 
   return (
-    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+    <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
         className="max-w-3xl"
-        showCloseButton={false}
       >
         <DialogHeader>
           <div className="flex items-center justify-between">

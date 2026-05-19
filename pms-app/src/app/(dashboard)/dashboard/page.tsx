@@ -46,7 +46,6 @@ function MemberDashboard() {
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [orgGoal, setOrgGoal] = useState<AnnualGoal | null>(null);
   const [recentAnnouncements, setRecentAnnouncements] = useState<Announcement[]>([]);
-  const [expandedAnnouncementId, setExpandedAnnouncementId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -125,11 +124,8 @@ function MemberDashboard() {
           ) : (
             <div className="rounded-xl border bg-white divide-y divide-gray-100">
               {recentAnnouncements.map(a => (
-                <div key={a.id}>
-                  <button
-                    onClick={() => setExpandedAnnouncementId(prev => prev === a.id ? null : a.id)}
-                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-                  >
+                <Link key={a.id} href="/announcements">
+                  <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-2 min-w-0">
                       {a.isPinned && <span className="text-sm">📌</span>}
                       <span className="text-sm font-medium text-gray-900 truncate">{a.title}</span>
@@ -137,13 +133,8 @@ function MemberDashboard() {
                     <span className="text-xs text-gray-400 ml-3 shrink-0">
                       {a.createdAt.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })}
                     </span>
-                  </button>
-                  {expandedAnnouncementId === a.id && (
-                    <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100">
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed pt-3">{a.content}</p>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                </Link>
               ))}
             </div>
           )}
@@ -219,7 +210,9 @@ function MemberDashboard() {
               </div>
             ) : (
               recentGoals.map(g => (
-                <GoalCard key={g.id} goal={g} />
+                <Link key={g.id} href="/goals">
+                  <GoalCard goal={g} />
+                </Link>
               ))
             )}
           </div>
@@ -288,27 +281,23 @@ function ExecDashboard() {
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [treeNodes, setTreeNodes] = useState<ReturnType<typeof buildTree>>([]);
   const [orgSummaries, setOrgSummaries] = useState<OrgSummary[]>([]);
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [expandedAnnouncementId2, setExpandedAnnouncementId2] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userProfile) return;
     async function load() {
       try {
-        const [allUsers, allOrgs, allGoals, cGoal, announcementList] = await Promise.all([
+        const [allUsers, allOrgs, allGoals, cGoal] = await Promise.all([
             getAllUsers(),
             getOrganizations(),
             getAllGoalsByYear(year),
             getAnnualGoal('company', year),
-            getAnnouncements(),
           ]);
-          setAnnouncements(announcementList.slice(0, 3));
           setCompanyGoal(cGoal);
 
-          // 임원: 소속 조직(organizationId) 기준 하위 전체 / CEO: 전체
-          // (복수 임원 지원: leaderId 단일 비교 대신 organizationId 기준)
+          // 임원: 자신이 책임진 조직 산하만 / CEO: 전체
           const scopeOrgIds = userProfile!.role === 'EXECUTIVE'
-            ? findDescendantIds(userProfile!.organizationId, allOrgs)
+            ? allOrgs.filter(o => o.leaderId === userProfile!.id)
+                .flatMap(o => findDescendantIds(o.id, allOrgs))
             : allOrgs.map(o => o.id);
 
           const scopeUsers = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
@@ -357,48 +346,6 @@ function ExecDashboard() {
           <p className="mt-1 text-sm text-gray-500">{year}년 조직 목표 진행 현황입니다.</p>
         </div>
 
-        {/* 공지사항 위젯 */}
-        {(loading || announcements.length > 0) && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-                <Bell className="h-4 w-4 text-gray-500" />
-                공지사항
-              </h4>
-              <Link href="/announcements" className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                전체 보기 <ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
-            {loading ? (
-              <div className="h-12 animate-pulse rounded-xl bg-gray-100" />
-            ) : (
-              <div className="rounded-xl border bg-white divide-y divide-gray-100">
-                {announcements.map(a => (
-                  <div key={a.id}>
-                    <button
-                      onClick={() => setExpandedAnnouncementId2(prev => prev === a.id ? null : a.id)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        {a.isPinned && <span className="text-sm">📌</span>}
-                        <span className="text-sm font-medium text-gray-900 truncate">{a.title}</span>
-                      </div>
-                      <span className="text-xs text-gray-400 ml-3 shrink-0">
-                        {a.createdAt.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })}
-                      </span>
-                    </button>
-                    {expandedAnnouncementId2 === a.id && (
-                      <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100">
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed pt-3">{a.content}</p>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* 회사 경영목표 */}
         {companyGoal && (
           <div className="rounded-xl border-l-4 border-l-blue-500 bg-blue-50 px-5 py-4 space-y-1">
@@ -409,8 +356,8 @@ function ExecDashboard() {
           </div>
         )}
 
-        {/* 팀별 카드 요약 — 임원 전용 */}
-        {userProfile?.role === 'EXECUTIVE' && (loading || orgSummaries.length > 0) && (
+        {/* 팀별 카드 요약 */}
+        {(loading || orgSummaries.length > 0) && (
           <div>
             <h4 className="text-sm font-semibold text-gray-700 mb-3">팀별 목표 현황</h4>
             {loading ? (

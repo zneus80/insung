@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useEffect, useState, useCallback } from 'react';
 import { Plus, Target, Trash2, Users, ChevronDown, ChevronRight, Calendar, Building2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory, createNotification } from '@/lib/firestore';
+import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal } from '@/lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
@@ -16,7 +15,6 @@ import TaskGoalForm from '@/components/goals/TaskGoalForm';
 import type { Goal, User, Organization } from '@/types';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { toast } from 'sonner';
 
 // 특정 orgId의 모든 하위 조직 ID 반환 (자신 포함)
 function getDescendantOrgIds(orgId: string, orgs: Organization[]): string[] {
@@ -35,16 +33,11 @@ export default function GoalsPage() {
   if (userProfile?.role === 'EXECUTIVE' || userProfile?.role === 'CEO') {
     return <OrgGoalsView />;
   }
-  return (
-    <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-gray-400">로딩 중...</div>}>
-      <MyGoalsView />
-    </Suspense>
-  );
+  return <MyGoalsView />;
 }
 
 function MyGoalsView() {
   const { userProfile } = useAuth();
-  const searchParams = useSearchParams();
 
   const [myGoals, setMyGoals] = useState<Goal[]>([]);
   const [teamGoals, setTeamGoals] = useState<Goal[]>([]);
@@ -58,7 +51,6 @@ function MyGoalsView() {
   const [previewGoal, setPreviewGoal] = useState<Goal | null>(null);
   const [activeTab, setActiveTab] = useState('my');
   const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
-  const [actionLoading, setActionLoading] = useState(false);
 
   const year = new Date().getFullYear();
 
@@ -77,23 +69,9 @@ function MyGoalsView() {
     if (!userProfile) return;
     setTeamLoading(true);
     try {
-      // 내 소속 조직 목표 + 팀장 목표 함께 조회 (팀장 organizationId가 다를 수 있음)
-      const [orgs, list] = await Promise.all([
-        getOrganizations(),
-        getGoalsByOrganization(userProfile.organizationId, year),
-      ]);
-      const myOrg = orgs.find(o => o.id === userProfile.organizationId);
-      let leadGoals: Goal[] = [];
-      if (myOrg?.leaderId && myOrg.leaderId !== userProfile.id) {
-        const leadUser = await getUser(myOrg.leaderId);
-        if (leadUser && leadUser.organizationId !== userProfile.organizationId) {
-          // 팀장이 다른 org에 속해 있으면 개인 목표로 별도 조회
-          leadGoals = await getGoalsByUser(myOrg.leaderId, year);
-        }
-      }
-      const merged = [...list, ...leadGoals.filter(g => !list.some(l => l.id === g.id))];
+      const list = await getGoalsByOrganization(userProfile.organizationId, year);
       // DRAFT 제외, ABANDONED는 포기 승인된 것(approvedBy 있음)만 표시
-      const active = merged.filter(g => g.status !== 'DRAFT' && (g.status !== 'ABANDONED' || !!g.approvedBy));
+      const active = list.filter(g => g.status !== 'DRAFT' && (g.status !== 'ABANDONED' || !!g.approvedBy));
       setTeamGoals(active);
 
       // 팀원 프로필 조회
@@ -115,17 +93,6 @@ function MyGoalsView() {
     if (activeTab === 'team' && teamGoals.length === 0 && !teamLoading) loadTeam();
   }, [activeTab]);
 
-  // ?edit=goalId → 해당 목표 편집 폼 자동 오픈
-  useEffect(() => {
-    const editId = searchParams.get('edit');
-    if (!editId || loading || myGoals.length === 0) return;
-    const found = myGoals.find(g => g.id === editId);
-    if (found && ['DRAFT', 'REJECTED'].includes(found.status)) {
-      setEditGoal(found);
-      setFormOpen(true);
-    }
-  }, [searchParams, myGoals, loading]);
-
   // 포기 승인됨(approvedBy 있음)은 목표함에 표시, 직접 삭제한 것만 휴지통
   const myActive = myGoals.filter(g => g.status !== 'ABANDONED' || !!g.approvedBy);
   const trashGoals = myGoals.filter(g => g.status === 'ABANDONED' && !g.approvedBy);
@@ -135,17 +102,13 @@ function MyGoalsView() {
   const myAvgProgress = myProgressGoals.length > 0
     ? Math.round(myProgressGoals.reduce((s, g) => s + g.progress, 0) / myProgressGoals.length)
     : 0;
-  // 팀 목표: DRAFT·PENDING_APPROVAL·REJECTED 제외 (개인 목표에서만 관리)
-  const teamVisibleGoals = teamGoals.filter(g =>
-    !['DRAFT', 'PENDING_APPROVAL', 'REJECTED', 'ABANDONED'].includes(g.status)
-  );
-  const teamProgressGoals = teamVisibleGoals.filter(g => g.status !== 'ABANDONED');
+  const teamProgressGoals = teamGoals.filter(g => g.status !== 'ABANDONED');
   const teamAvgProgress = teamProgressGoals.length > 0
     ? Math.round(teamProgressGoals.reduce((s, g) => s + g.progress, 0) / teamProgressGoals.length)
     : 0;
 
   // 팀 목표를 멤버별로 그룹핑
-  const teamByMember = teamVisibleGoals.reduce<Record<string, Goal[]>>((acc, g) => {
+  const teamByMember = teamGoals.reduce<Record<string, Goal[]>>((acc, g) => {
     (acc[g.userId] ??= []).push(g);
     return acc;
   }, {});
@@ -176,63 +139,9 @@ function MyGoalsView() {
     loadMy();
   }
 
-  // 카드 액션 핸들러들
-  async function handleTrash(goal: Goal) {
-    if (actionLoading) return;
-    if (!confirm('이 목표를 휴지통으로 이동하시겠습니까?')) return;
-    setActionLoading(true);
-    try {
-      await updateGoal(goal.id, { status: 'ABANDONED' });
-      toast.success('휴지통으로 이동했습니다.');
-      loadMy();
-    } catch { toast.error('오류가 발생했습니다.'); }
-    finally { setActionLoading(false); }
-  }
-
-  async function handleWithdraw(goal: Goal) {
-    if (actionLoading) return;
-    if (!confirm('승인 요청을 회수하시겠습니까? 임시저장 상태로 돌아갑니다.')) return;
-    setActionLoading(true);
-    try {
-      await updateGoal(goal.id, { status: 'DRAFT' });
-      if (userProfile) {
-        await addGoalHistory({ goalId: goal.id, changedBy: userProfile.id, changeType: 'STATUS_CHANGED', previousStatus: 'PENDING_APPROVAL', newStatus: 'DRAFT', comment: '승인 요청 회수' });
-      }
-      toast.success('승인 요청을 회수했습니다.');
-      loadMy();
-    } catch { toast.error('오류가 발생했습니다.'); }
-    finally { setActionLoading(false); }
-  }
-
-  async function handleResubmit(goal: Goal) {
-    if (actionLoading) return;
-    if (!confirm('승인 요청을 다시 제출하시겠습니까?')) return;
-    setActionLoading(true);
-    try {
-      await updateGoal(goal.id, { status: 'PENDING_APPROVAL' });
-      if (userProfile) {
-        await addGoalHistory({ goalId: goal.id, changedBy: userProfile.id, changeType: 'STATUS_CHANGED', previousStatus: 'REJECTED', newStatus: 'PENDING_APPROVAL', comment: '재상신' });
-        // 상위 결재자 알림
-        try {
-          const orgs = await getOrganizations();
-          const myOrg = orgs.find(o => o.id === userProfile.organizationId);
-          const approverId = userProfile.role === 'MEMBER'
-            ? myOrg?.leaderId
-            : (myOrg?.parentId ? orgs.find(o => o.id === myOrg.parentId)?.leaderId : undefined);
-          if (approverId) {
-            await createNotification({ userId: approverId, goalId: goal.id, goalTitle: goal.title, type: 'GOAL_SUBMITTED', message: `${userProfile.name}님이 "${goal.title}" 목표 승인을 재요청했습니다.`, read: false });
-          }
-        } catch { /* 알림 실패 무시 */ }
-      }
-      toast.success('승인 요청을 제출했습니다.');
-      loadMy();
-    } catch { toast.error('오류가 발생했습니다.'); }
-    finally { setActionLoading(false); }
-  }
-
   return (
     <div className="flex flex-col h-full">
-      <Header title="핵심목표관리" />
+      <Header title="목표관리" />
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
 
@@ -282,16 +191,7 @@ function MyGoalsView() {
                 <EmptyState icon={<Target className="h-10 w-10" />} label="등록된 목표가 없습니다." />
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {myActive.map(g => (
-                    <GoalCard
-                      key={g.id}
-                      goal={g}
-                      onEdit={['DRAFT', 'REJECTED'].includes(g.status) ? handleEdit : undefined}
-                      onTrash={['DRAFT', 'REJECTED'].includes(g.status) ? handleTrash : undefined}
-                      onWithdraw={g.status === 'PENDING_APPROVAL' ? handleWithdraw : undefined}
-                      onResubmit={g.status === 'REJECTED' ? handleResubmit : undefined}
-                    />
-                  ))}
+                  {myActive.map(g => <GoalCard key={g.id} goal={g} onEdit={['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined} />)}
                 </div>
               )}
             </div>}
@@ -410,7 +310,7 @@ function MyGoalsView() {
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {trashGoals.map(g => (
-                <GoalCard key={g.id} goal={g} onClick={goal => setPreviewGoal(goal)} />
+                <GoalCard key={g.id} goal={g} />
               ))}
             </div>
           )}
@@ -543,7 +443,7 @@ function OrgGoalsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="핵심목표관리" />
+      <Header title="목표관리" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
         {/* 전체 진행률 */}
