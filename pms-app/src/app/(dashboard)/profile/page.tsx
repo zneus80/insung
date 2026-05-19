@@ -13,7 +13,6 @@ export default function ProfilePage() {
   const { userProfile, firebaseUser } = useAuth();
 
   const [position, setPosition] = useState('');
-  const [rank, setRank] = useState('');
   const [hireDate, setHireDate] = useState('');
   const [saving, setSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -21,7 +20,6 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!userProfile) return;
     setPosition(userProfile.position ?? '');
-    setRank(userProfile.rank ?? '');
     setHireDate(userProfile.hireDate ?? '');
   }, [userProfile]);
 
@@ -36,7 +34,6 @@ export default function ProfilePage() {
     try {
       await updateUserProfile(userProfile.id, {
         position: position.trim() || undefined,
-        rank: rank.trim() || undefined,
         hireDate: hireDate || undefined,
       });
       showToast('저장 완료');
@@ -95,17 +92,6 @@ export default function ProfilePage() {
                   value={position}
                   onChange={e => setPosition(e.target.value)}
                   placeholder="예: 팀장, 파트장"
-                />
-              </div>
-
-              {/* 직급 (편집) */}
-              <div className="space-y-1.5">
-                <Label htmlFor="rank">직급</Label>
-                <Input
-                  id="rank"
-                  value={rank}
-                  onChange={e => setRank(e.target.value)}
-                  placeholder="예: 사원, 주임, 대리, 과장, 차장, 부장"
                 />
               </div>
 

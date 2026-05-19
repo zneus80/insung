@@ -89,6 +89,8 @@ function ApprovalsContent() {
       if (g.goalType === 'TASK' && g.status === 'PENDING_APPROVAL') return true;
       // MAJOR: 팀원의 PENDING_APPROVAL (최종 승인)
       if (g.goalType === 'GENERAL' && g.generalType === 'MAJOR' && g.status === 'PENDING_APPROVAL') return true;
+      // 수정 요청 (팀원 목표만)
+      if (g.status === 'PENDING_MODIFY' && ownerIsMemberLike) return true;
       return false;
     }
     if (isExec) {
@@ -96,6 +98,8 @@ function ApprovalsContent() {
       if (g.goalType === 'TASK' && g.status === 'LEAD_APPROVED' && ownerIsMemberLike) return true;
       // TASK/GENERAL: 팀장의 PENDING_APPROVAL
       if (g.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') return true;
+      // 수정 요청 (팀장 목표)
+      if (g.status === 'PENDING_MODIFY' && ownerRole === 'TEAM_LEAD') return true;
       return false;
     }
     return g.status === 'PENDING_APPROVAL';

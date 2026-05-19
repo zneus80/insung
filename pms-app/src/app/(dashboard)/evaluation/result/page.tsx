@@ -12,10 +12,13 @@ import {
   getOrgEvaluations,
   getUsersByOrganization,
   getIndividualEvaluationsByOrg,
+  getAllUsers,
+  getAllIndividualEvaluations,
+  getOrganizations,
 } from '@/lib/firestore';
 import { cn } from '@/lib/utils';
-import type { IndividualEvaluation, OrganizationEvaluation, User } from '@/types';
-import { Lock, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import type { IndividualEvaluation, OrganizationEvaluation, User, Organization } from '@/types';
+import { Lock, CheckCircle2, ChevronDown, ChevronUp, Building2 } from 'lucide-react';
 
 const GRADE_LABELS: Record<string, { label: string; color: string }> = {
   A: { label: 'A등급', color: 'bg-blue-100 text-blue-700' },
@@ -57,7 +60,7 @@ function YearTabBar({
 
 export default function EvaluationResultPage() {
   return (
-    <AuthGuard allowedRoles={['MEMBER', 'TEAM_LEAD']}>
+    <AuthGuard allowedRoles={['MEMBER', 'TEAM_LEAD', 'CEO']} requireHrAdmin>
       <EvaluationResultRouter />
     </AuthGuard>
   );
@@ -66,6 +69,7 @@ export default function EvaluationResultPage() {
 function EvaluationResultRouter() {
   const { userProfile } = useAuth();
   if (!userProfile) return null;
+  if (userProfile.role === 'CEO' || userProfile.isHrAdmin) return <AdminResultView />;
   if (userProfile.role === 'TEAM_LEAD') return <TeamLeadResultView />;
   return <MemberResultView />;
 }
@@ -319,6 +323,110 @@ function MemberResultView({
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── CEO / HR관리자: 전체 인사평가 결과 ───────────────────────
+function AdminResultView() {
+  const { activeYear } = useActiveYear();
+  const YEAR_TABS = [activeYear, activeYear - 1, activeYear - 2] as const;
+  const [year, setYear] = useState<number>(activeYear);
+  const [loading, setLoading] = useState(true);
+  const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [evals, setEvals] = useState<IndividualEvaluation[]>([]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      const [allOrgs, allUsers, allEvals] = await Promise.all([
+        getOrganizations(),
+        getAllUsers(),
+        getAllIndividualEvaluations(year),
+      ]);
+      setOrgs(allOrgs);
+      setUsers(allUsers.filter(u => u.isActive));
+      setEvals(allEvals);
+      setLoading(false);
+    }
+    load();
+  }, [year]);
+
+  const evalMap = Object.fromEntries(evals.map(e => [e.userId, e]));
+  const teamOrgs = orgs.filter(o => o.type === 'TEAM');
+  const usersByOrg = users.reduce<Record<string, User[]>>((acc, u) => {
+    (acc[u.organizationId] ??= []).push(u);
+    return acc;
+  }, {});
+
+  return (
+    <div className="flex flex-col h-full">
+      <Header title="평가결과 확인" showBack />
+      <YearTabBar selectedYear={year} yearTabs={YEAR_TABS} onChange={setYear} />
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-3xl space-y-4">
+          {loading ? (
+            <div className="space-y-2">
+              {[1,2,3].map(i => <div key={i} className="h-16 animate-pulse rounded-xl bg-gray-100" />)}
+            </div>
+          ) : teamOrgs.length === 0 ? (
+            <div className="py-16 text-center text-gray-400">조직 데이터가 없습니다.</div>
+          ) : (
+            teamOrgs.map(org => {
+              const orgUsers = (usersByOrg[org.id] ?? []).filter(u => ['MEMBER', 'TEAM_LEAD'].includes(u.role));
+              if (orgUsers.length === 0) return null;
+              const isOpen = expanded[org.id] ?? false;
+              return (
+                <div key={org.id} className="rounded-xl border bg-white overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50"
+                    onClick={() => setExpanded(p => ({ ...p, [org.id]: !isOpen }))}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-gray-400" />
+                      <span className="font-medium text-gray-900">{org.name}</span>
+                      <span className="text-xs text-gray-400">{orgUsers.length}명</span>
+                    </div>
+                    {isOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                  </button>
+                  {isOpen && (
+                    <div className="border-t divide-y">
+                      {orgUsers.map(u => {
+                        const ie = evalMap[u.id];
+                        const isPublished = ie?.status === 'PUBLISHED';
+                        return (
+                          <div key={u.id} className="px-5 py-3 flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{u.name}</p>
+                              <p className="text-xs text-gray-400">{u.position} · {u.role === 'TEAM_LEAD' ? '팀장' : '팀원'}</p>
+                            </div>
+                            <div className="text-right space-y-0.5">
+                              {isPublished && ie?.execGrade ? (
+                                <span className={`rounded-full px-3 py-0.5 text-sm font-bold ${GRADE_LABELS[ie.execGrade]?.color}`}>
+                                  {ie.execGrade}등급
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2.5 py-0.5">
+                                  {isPublished ? '미확정' : ie ? '비공개' : '평가 없음'}
+                                </span>
+                              )}
+                              {isPublished && ie?.execComment && (
+                                <p className="text-xs text-gray-500 max-w-[200px] text-right truncate">{ie.execComment}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );

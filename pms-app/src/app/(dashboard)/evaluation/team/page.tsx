@@ -10,6 +10,7 @@ import {
   upsertIndividualEvaluation,
   getIndividualEvaluationsByOrg,
   getUsersByOrganization,
+  getWeeklyTasksByUsersAndYear,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
@@ -19,7 +20,7 @@ import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, CheckCircle2, AlertCircle } from 'lucide-react';
 import type {
   Goal, SelfEvaluation, IndividualEvaluation,
-  EvaluationGrade, User, MentoringForm,
+  EvaluationGrade, User, MentoringForm, WeeklyTask,
 } from '@/types';
 
 const GRADES: EvaluationGrade[] = ['A', 'B', 'C', 'D', 'E'];
@@ -80,6 +81,7 @@ function TeamLeadEvalView() {
   const [selfEvals, setSelfEvals]         = useState<Record<string, SelfEvaluation>>({});
   const [indivEvals, setIndivEvals]       = useState<Record<string, IndividualEvaluation>>({});
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
+  const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [expanded, setExpanded]           = useState<Record<string, boolean>>({});
   const [opinions, setOpinions]           = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
   const [loading, setLoading]             = useState(true);
@@ -110,6 +112,15 @@ function TeamLeadEvalView() {
       const mfMap: Record<string, MentoringForm> = {};
       mfList.forEach(mf => { mfMap[mf.userId] = mf; });
       setMentoringForms(mfMap);
+
+      // 주간 업무관리 내역 로드
+      const wtList = await getWeeklyTasksByUsersAndYear(active.map(m => m.id), year);
+      const wtMap: Record<string, WeeklyTask[]> = {};
+      active.forEach(m => { wtMap[m.id] = []; });
+      wtList.forEach(wt => { if (wtMap[wt.userId]) wtMap[wt.userId].push(wt); });
+      // 주차 오름차순 정렬
+      Object.values(wtMap).forEach(arr => arr.sort((a, b) => a.weekNumber - b.weekNumber));
+      setWeeklyTasksByMember(wtMap);
 
       const ieMap: Record<string, IndividualEvaluation> = {};
       evalList.forEach(ie => { ieMap[ie.userId] = ie; });
@@ -169,6 +180,7 @@ function TeamLeadEvalView() {
             const ie = indivEvals[member.id];
             const se = selfEvals[member.id];
             const goals = goalsByMember[member.id] ?? [];
+            const weeklyTasks = weeklyTasksByMember[member.id] ?? [];
             const summary = goalCountSummary(goals);
             const isOpen = expanded[member.id] ?? false;
             const isReviewed = ie?.status === 'LEAD_REVIEWED' || ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
@@ -215,7 +227,7 @@ function TeamLeadEvalView() {
                   <div className="border-t px-5 py-5 space-y-5">
                     {/* 업무 목록 */}
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 mb-2">업무 목록</p>
+                      <p className="text-xs font-semibold text-gray-500 mb-2">핵심목표 목록</p>
                       {goals.length === 0 ? (
                         <p className="text-sm text-gray-400">등록된 목표가 없습니다.</p>
                       ) : (
@@ -227,6 +239,45 @@ function TeamLeadEvalView() {
                                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${st.color}`}>{st.label}</span>
                                 <span className="text-sm text-gray-700 flex-1">{g.title}</span>
                                 <span className="text-xs text-gray-400">{g.progress}%</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 주간 업무관리 내역 */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 mb-2">주간 업무관리 내역</p>
+                      {weeklyTasks.length === 0 ? (
+                        <p className="text-sm text-gray-400">주간 업무관리 내역이 없습니다.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {weeklyTasks.map(wt => {
+                            const inProgress = wt.items.filter(i => i.status !== 'DONE');
+                            const done = wt.items.filter(i => i.status === 'DONE');
+                            return (
+                              <div key={`${wt.userId}_${wt.year}_${wt.weekNumber}`} className="rounded-lg border bg-gray-50 px-3 py-2.5">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-semibold text-gray-700">{wt.year}년 {wt.weekNumber}주차</span>
+                                  <div className="flex gap-2 text-xs text-gray-500">
+                                    {inProgress.length > 0 && <span className="text-blue-600">진행 {inProgress.length}</span>}
+                                    {done.length > 0 && <span className="text-green-600">완료 {done.length}</span>}
+                                  </div>
+                                </div>
+                                {wt.items.length > 0 && (
+                                  <div className="space-y-1">
+                                    {wt.items.map(item => (
+                                      <div key={item.id} className="flex items-start gap-2">
+                                        <span className={`mt-0.5 shrink-0 h-1.5 w-1.5 rounded-full ${item.status === 'DONE' ? 'bg-green-400' : 'bg-blue-400'}`} />
+                                        <span className={`text-xs ${item.status === 'DONE' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{item.title}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {wt.summary && (
+                                  <p className="mt-2 text-xs text-gray-500 italic border-t pt-1.5">{wt.summary}</p>
+                                )}
                               </div>
                             );
                           })}

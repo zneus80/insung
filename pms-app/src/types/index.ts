@@ -90,6 +90,13 @@ export interface Goal {
   requestPromotion?: boolean;   // 주요업무(MAJOR) → 과제업무 반영요청
   promotionStatus?: PromotionStatus;
 
+  // 수정 요청 (PENDING_MODIFY 상태일 때 사용)
+  pendingModify?: {
+    title: string;
+    description: string;
+    comment?: string;  // 수정 사유
+  };
+
   // 승인 정보
   leadApprovedBy?: string;
   leadApprovedAt?: Date;
@@ -113,6 +120,19 @@ export interface GoalHistory {
   newStatus?: GoalStatus;
   comment?: string;
   createdAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 목표 댓글
+// ─────────────────────────────────────────────
+export interface GoalComment {
+  id: string;
+  goalId: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // ─────────────────────────────────────────────

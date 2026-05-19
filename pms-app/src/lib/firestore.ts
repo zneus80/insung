@@ -21,7 +21,7 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, GoalComment, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -50,6 +50,7 @@ export const COLLECTIONS = {
   BACKUPS: 'backups',
   NOTIFICATIONS: 'notifications',
   WEEKLY_TASKS: 'weeklyTasks',
+  GOAL_COMMENTS: 'goalComments',
 } as const;
 
 // ─── Timestamp 변환 유틸 ──────────────────────
@@ -274,7 +275,7 @@ export async function getPendingGoalsByOrganizations(orgIds: string[]): Promise<
     const snap = await getDocs(query(
       collection(db, COLLECTIONS.GOALS),
       where('organizationId', 'in', chunk),
-      where('status', 'in', ['PENDING_APPROVAL', 'LEAD_APPROVED', 'PENDING_ABANDON', 'COMPLETED']),
+      where('status', 'in', ['PENDING_APPROVAL', 'LEAD_APPROVED', 'PENDING_ABANDON', 'PENDING_MODIFY', 'COMPLETED']),
     ));
     results.push(...snap.docs.map(d => {
       const data = d.data();
@@ -1122,6 +1123,24 @@ export async function getWeeklyTasksByUsersAndWeek(
   return snaps.filter(s => s.exists()).map(s => toWeeklyTask(s));
 }
 
+export async function getWeeklyTasksByUsersAndYear(
+  userIds: string[], year: number
+): Promise<WeeklyTask[]> {
+  if (!userIds.length) return [];
+  const CHUNK = 10;
+  const results: WeeklyTask[] = [];
+  for (let i = 0; i < userIds.length; i += CHUNK) {
+    const chunk = userIds.slice(i, i + CHUNK);
+    const snap = await getDocs(query(
+      collection(db, COLLECTIONS.WEEKLY_TASKS),
+      where('userId', 'in', chunk),
+      where('year', '==', year),
+    ));
+    results.push(...snap.docs.map(d => toWeeklyTask(d)));
+  }
+  return results;
+}
+
 // ─── 알림 (Notification) ──────────────────────
 export async function createNotification(data: Omit<AppNotification, 'id' | 'createdAt'>) {
   await addDoc(collection(db, COLLECTIONS.NOTIFICATIONS), {
@@ -1144,4 +1163,38 @@ export async function getNotifications(userId: string): Promise<AppNotification[
 
 export async function markNotificationRead(id: string) {
   await updateDoc(doc(db, COLLECTIONS.NOTIFICATIONS, id), { read: true });
+}
+
+// ─── 목표 댓글 (GoalComment) ──────────────────────
+export async function getGoalComments(goalId: string): Promise<GoalComment[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.GOAL_COMMENTS),
+    where('goalId', '==', goalId),
+    orderBy('createdAt', 'asc'),
+  ));
+  return snap.docs.map(d => ({
+    ...d.data(), id: d.id,
+    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
+  } as GoalComment));
+}
+
+export async function addGoalComment(data: Omit<GoalComment, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  const ref = await addDoc(collection(db, COLLECTIONS.GOAL_COMMENTS), {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function updateGoalComment(commentId: string, content: string): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.GOAL_COMMENTS, commentId), {
+    content,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteGoalComment(commentId: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.GOAL_COMMENTS, commentId));
 }
