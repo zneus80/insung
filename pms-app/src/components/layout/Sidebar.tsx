@@ -98,12 +98,6 @@ const navItems: NavItem[] = [
     roles: ['TEAM_LEAD'],
   },
   {
-    label: '팀원목표',
-    href: '/progress',
-    icon: <TrendingUp className="h-5 w-5" />,
-    roles: ['TEAM_LEAD'],
-  },
-  {
     label: '승인 대기함',
     href: '/approvals',
     icon: <CheckSquare className="h-5 w-5" />,
