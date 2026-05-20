@@ -267,26 +267,31 @@ export async function getPendingGoalsByOrganizations(orgIds: string[]): Promise<
     } as Goal;
   }
 
+  const PENDING_STATUSES = new Set(['PENDING_APPROVAL', 'LEAD_APPROVED', 'PENDING_ABANDON', 'COMPLETED']);
   const CHUNK = 10;
   const results: Goal[] = [];
   for (let i = 0; i < orgIds.length; i += CHUNK) {
     const chunk = orgIds.slice(i, i + CHUNK);
+    // status 'in' 조건을 쿼리에서 제거하고 JS에서 필터링
+    // (organizationId in × status in 복합 시 disjunctions 40개 초과 → Firestore 한계 30개)
     const snap = await getDocs(query(
       collection(db, COLLECTIONS.GOALS),
       where('organizationId', 'in', chunk),
-      where('status', 'in', ['PENDING_APPROVAL', 'LEAD_APPROVED', 'PENDING_ABANDON', 'COMPLETED']),
     ));
-    results.push(...snap.docs.map(d => {
-      const data = d.data();
-      return {
-        ...data, id: d.id,
-        dueDate: fromTimestamp(data.dueDate) ?? new Date(),
-        createdAt: fromTimestamp(data.createdAt) ?? new Date(),
-        updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
-        approvedAt: fromTimestamp(data.approvedAt),
-        leadApprovedAt: fromTimestamp(data.leadApprovedAt),
-      } as Goal;
-    }));
+    results.push(...snap.docs
+      .filter(d => PENDING_STATUSES.has(d.data().status))
+      .map(d => {
+        const data = d.data();
+        return {
+          ...data, id: d.id,
+          dueDate: fromTimestamp(data.dueDate) ?? new Date(),
+          createdAt: fromTimestamp(data.createdAt) ?? new Date(),
+          updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
+          approvedAt: fromTimestamp(data.approvedAt),
+          leadApprovedAt: fromTimestamp(data.leadApprovedAt),
+          hqApprovedAt: fromTimestamp(data.hqApprovedAt),
+        } as Goal;
+      }));
   }
   return results.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }

@@ -47,7 +47,20 @@ const GRADE_COLOR: Record<EvaluationGrade, string> = {
 
 const ORG_TYPE_LABEL: Record<string, string> = {
   DIVISION: '부문/공장',
+  TEAM:     '팀 (독립)',
 };
+
+/** orgId 기준 상위 조직 목록 반환 */
+function getAncestorOrgs(orgId: string, allOrgs: Organization[]): Organization[] {
+  const ancestors: Organization[] = [];
+  let current = allOrgs.find(o => o.id === orgId);
+  while (current?.parentId) {
+    const parent = allOrgs.find(o => o.id === current!.parentId);
+    if (parent) ancestors.push(parent);
+    current = parent;
+  }
+  return ancestors;
+}
 
 // 소수점 0.8 이상 올림, 미만 버림
 function roundQuota(n: number): number {
@@ -133,7 +146,15 @@ function OrgEvaluationContent() {
       getGradeQuotas(),
     ]);
 
-    const targets = orgs.filter(o => o.type === 'DIVISION');
+    // DIVISION + 상위에 DIVISION이 없는 독립 TEAM을 평가 단위로 포함
+    const targets = orgs.filter(o => {
+      if (o.type === 'DIVISION') return true;
+      if (o.type === 'TEAM') {
+        const ancestors = getAncestorOrgs(o.id, orgs);
+        return !ancestors.some(a => a.type === 'DIVISION');
+      }
+      return false;
+    });
     const activeUsers = users.filter(u => u.isActive);
 
     setAllOrgs(orgs);
@@ -350,9 +371,10 @@ function OrgEvaluationContent() {
         {isCeo && (
           <section className="space-y-3">
             <div>
-              <h3 className="font-semibold text-gray-900">{year}년 부문/공장 등급 지정</h3>
+              <h3 className="font-semibold text-gray-900">{year}년 조직 등급 지정</h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                등급 변경 시 이력이 자동으로 기록됩니다. 이미 HR관리자가 쿼터를 확정한 경우 등급 변경 시 쿼터 재확정이 필요합니다.
+                부문/공장 단위 조직의 등급을 지정합니다. 상위 부문 없이 단독으로 운영되는 팀도 여기서 등급을 지정합니다.
+                등급 변경 시 이력이 자동으로 기록되며, 쿼터 확정 후 등급 변경 시 재확정이 필요합니다.
               </p>
             </div>
 
@@ -360,7 +382,7 @@ function OrgEvaluationContent() {
               [1, 2, 3].map(i => <div key={i} className="h-14 animate-pulse rounded-xl bg-gray-100" />)
             ) : targetOrgs.length === 0 ? (
               <div className="rounded-xl border border-dashed p-8 text-center text-sm text-gray-400">
-                부문/공장 유형(DIVISION)의 조직이 없습니다.
+                평가 대상 조직(부문/공장 또는 독립 팀)이 없습니다.
               </div>
             ) : (
               <div className="rounded-xl border bg-white overflow-hidden">
@@ -471,7 +493,7 @@ function OrgEvaluationContent() {
               [1, 2, 3].map(i => <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100" />)
             ) : targetOrgs.length === 0 ? (
               <div className="rounded-xl border border-dashed p-8 text-center text-sm text-gray-400">
-                부문/공장 유형의 조직이 없습니다.
+                평가 대상 조직(부문/공장 또는 독립 팀)이 없습니다.
               </div>
             ) : (
               <div className="space-y-3">

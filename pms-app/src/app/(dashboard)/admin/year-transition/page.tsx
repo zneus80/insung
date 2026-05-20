@@ -133,12 +133,12 @@ function YearTransitionContent() {
 
         {/* 안내 */}
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 space-y-1.5">
-          <p className="font-semibold">연도 전환 주의사항</p>
+          <p className="font-semibold">연도 전환 안내</p>
           <ul className="list-disc list-inside space-y-1 text-xs">
-            <li>연도 전환 시 기존 데이터는 삭제되지 않습니다.</li>
-            <li>이전 연도 데이터는 각 메뉴의 연도 탭에서 조회 가능합니다.</li>
-            <li>연도 전환 후 새 연도의 목표, 평가 등을 새로 등록해야 합니다.</li>
-            <li>평가기간 관리에서 새 연도 평가 기간을 별도로 설정하세요.</li>
+            <li>연도 전환은 <strong>기본 표시 연도만 변경</strong>하며, 모든 연도의 데이터는 그대로 유지됩니다.</li>
+            <li>인사평가가 익년 초까지 이어지는 경우, 전환 전 미리 입력된 새 연도 데이터도 영향 없이 보존됩니다.</li>
+            <li>이전·이후 연도 데이터는 각 메뉴의 연도 탭에서 언제든지 조회 가능합니다.</li>
+            <li>새 연도 평가 기간이 아직 설정되지 않은 경우, 평가기간 관리에서 별도로 설정하세요.</li>
           </ul>
         </div>
 

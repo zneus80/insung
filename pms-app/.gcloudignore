@@ -1,0 +1,36 @@
+# .gcloudignore - Cloud Build 업로드 제외 파일
+# .gitignore와 달리 .env.production은 포함 (빌드 시 환경변수로 사용)
+
+# 의존성
+node_modules/
+
+# 빌드 결과물
+.next/
+out/
+/build
+
+# 환경변수 (production은 빌드에 필요하므로 포함)
+.env
+.env.local
+.env*.local
+
+# 로컬 개발 관련
+firestore-debug.log
+ui-debug.log
+storage-debug.log
+firebase-debug.log
+npm-debug.log*
+yarn-debug.log*
+*.log
+
+# 에뮬레이터
+Dockerfile.emulator
+docker-compose.yml
+
+# 기타
+.DS_Store
+.git/
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+check-firestore.js
