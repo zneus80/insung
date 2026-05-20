@@ -46,6 +46,7 @@ function MemberDashboard() {
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [orgGoal, setOrgGoal] = useState<AnnualGoal | null>(null);
   const [recentAnnouncements, setRecentAnnouncements] = useState<Announcement[]>([]);
+  const [expandedAnnouncementId, setExpandedAnnouncementId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -123,9 +124,12 @@ function MemberDashboard() {
             </div>
           ) : (
             <div className="rounded-xl border bg-white divide-y divide-gray-100">
-              {recentAnnouncements.map(a => (
-                <Link key={a.id} href="/announcements">
-                  <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
+              {recentAnnouncements.slice(0, 3).map(a => (
+                <div key={a.id}>
+                  <button
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                    onClick={() => setExpandedAnnouncementId(prev => prev === a.id ? null : a.id)}
+                  >
                     <div className="flex items-center gap-2 min-w-0">
                       {a.isPinned && <span className="text-sm">📌</span>}
                       <span className="text-sm font-medium text-gray-900 truncate">{a.title}</span>
@@ -133,8 +137,13 @@ function MemberDashboard() {
                     <span className="text-xs text-gray-400 ml-3 shrink-0">
                       {a.createdAt.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })}
                     </span>
-                  </div>
-                </Link>
+                  </button>
+                  {expandedAnnouncementId === a.id && (
+                    <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{a.content}</p>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}

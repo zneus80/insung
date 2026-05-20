@@ -102,7 +102,7 @@ function MemberTasksPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="업무관리" />
+      <Header title="주간 업무관리" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
           {(['my', 'team'] as const).map(t => (
@@ -841,7 +841,8 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
   useEffect(() => {
     if (!userProfile) return;
     setLoading(true);
-    getUsersByOrganization(userProfile.organizationId).then(async users => {
+    getUsersByOrganization(userProfile.organizationId).then(async allUsers => {
+      const users = allUsers.filter(u => u.id !== userProfile!.id);
       setMembers(users);
       const tasks = await getWeeklyTasksByUsersAndWeek(users.map(u => u.id), year, week);
       const map: Record<string, WeeklyTask> = {};
@@ -1078,7 +1079,7 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
             const byLead = allOrgsList.filter(o => o.leaderId === userProfile!.id).flatMap(o => findDescendantIds(o.id, allOrgsList));
             return [...new Set([...byOrg, ...byLead])];
           })();
-      const scopeUsers = allUsersList.filter(u => scopeOrgIds.includes(u.organizationId));
+      const scopeUsers = allUsersList.filter(u => u.id !== userProfile!.id && scopeOrgIds.includes(u.organizationId));
       const scopeOrgs  = allOrgsList.filter(o => scopeOrgIds.includes(o.id));
       setOrgs(scopeOrgs);
       setUsers(scopeUsers);
@@ -1222,7 +1223,7 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="업무관리" />
+      <Header title="주간 업무관리" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <WeekNav year={year} week={week} start={start} end={end}
           isCurrentWeek={isCurrentWeek} saveStatus="idle"

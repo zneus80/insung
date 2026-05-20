@@ -98,17 +98,6 @@ export default function ProfilePage() {
                 />
               </div>
 
-              {/* 직급 (편집) */}
-              <div className="space-y-1.5">
-                <Label htmlFor="rank">직급</Label>
-                <Input
-                  id="rank"
-                  value={rank}
-                  onChange={e => setRank(e.target.value)}
-                  placeholder="예: 사원, 주임, 대리, 과장, 차장, 부장"
-                />
-              </div>
-
               {/* 입사일 (편집) */}
               <div className="space-y-1.5">
                 <Label htmlFor="hireDate">입사일</Label>
