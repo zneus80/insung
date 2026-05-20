@@ -73,12 +73,15 @@ export default function MemberInfoModal({ userId, userName }: Props) {
 
   return (
     <>
-      <button
-        onClick={handleOpen}
-        className="text-sm font-medium text-blue-600 hover:underline"
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={e => { e.stopPropagation(); handleOpen(); }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleOpen(); } }}
+        className="text-sm font-medium text-blue-600 hover:underline cursor-pointer"
       >
         {userName}
-      </button>
+      </span>
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Plus, Target, Trash2, Users, ChevronDown, ChevronRight, Calendar, Building2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal } from '@/lib/firestore';
+import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory, createNotification } from '@/lib/firestore';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
@@ -71,7 +72,7 @@ function MyGoalsView() {
     try {
       const list = await getGoalsByOrganization(userProfile.organizationId, year);
       // DRAFT 제외, ABANDONED는 포기 승인된 것(approvedBy 있음)만 표시
-      const active = list.filter(g => g.status !== 'DRAFT' && (g.status !== 'ABANDONED' || !!g.approvedBy));
+      const active = list.filter(g => g.userId !== userProfile!.id && g.status !== 'DRAFT' && (g.status !== 'ABANDONED' || !!g.approvedBy));
       setTeamGoals(active);
 
       // 팀원 프로필 조회
@@ -125,6 +126,49 @@ function MyGoalsView() {
   function handleAdd() { setEditGoal(undefined); setFormOpen(true); }
   function handleSave() { loadMy(); if (activeTab === 'team') loadTeam(); }
 
+  async function handleTrash(goal: Goal) {
+    if (!confirm('이 목표를 휴지통으로 이동하시겠습니까?')) return;
+    try {
+      await updateGoal(goal.id, { status: 'ABANDONED' });
+      toast.success('휴지통으로 이동했습니다.');
+      loadMy();
+    } catch { toast.error('오류가 발생했습니다.'); }
+  }
+
+  async function handleWithdraw(goal: Goal) {
+    if (!confirm('승인 요청을 회수하시겠습니까? 임시저장 상태로 돌아갑니다.')) return;
+    try {
+      await updateGoal(goal.id, { status: 'DRAFT' });
+      if (userProfile) {
+        await addGoalHistory({ goalId: goal.id, changedBy: userProfile.id, changeType: 'STATUS_CHANGED', previousStatus: 'PENDING_APPROVAL', newStatus: 'DRAFT', comment: '승인 요청 회수' });
+      }
+      toast.success('승인 요청을 회수했습니다.');
+      loadMy();
+    } catch { toast.error('오류가 발생했습니다.'); }
+  }
+
+  async function handleResubmit(goal: Goal) {
+    if (!confirm('승인 요청을 다시 제출하시겠습니까?')) return;
+    try {
+      await updateGoal(goal.id, { status: 'PENDING_APPROVAL' });
+      if (userProfile) {
+        await addGoalHistory({ goalId: goal.id, changedBy: userProfile.id, changeType: 'STATUS_CHANGED', previousStatus: 'REJECTED', newStatus: 'PENDING_APPROVAL', comment: '재상신' });
+        try {
+          const orgs = await getOrganizations();
+          const myOrg = orgs.find(o => o.id === userProfile.organizationId);
+          const approverId = userProfile.role === 'MEMBER'
+            ? myOrg?.leaderId
+            : (myOrg?.parentId ? orgs.find(o => o.id === myOrg.parentId)?.leaderId : undefined);
+          if (approverId) {
+            await createNotification({ userId: approverId, goalId: goal.id, goalTitle: goal.title, type: 'GOAL_SUBMITTED', message: `${userProfile.name}님이 "${goal.title}" 목표 승인을 재요청했습니다.`, read: false });
+          }
+        } catch { /* 알림 실패 무시 */ }
+      }
+      toast.success('승인 요청을 제출했습니다.');
+      loadMy();
+    } catch { toast.error('오류가 발생했습니다.'); }
+  }
+
   async function handleRestore(goalId: string) {
     if (!confirm('목표를 복구하시겠습니까? 임시저장 상태로 복원됩니다.')) return;
     await updateGoal(goalId, { status: 'DRAFT' });
@@ -141,7 +185,7 @@ function MyGoalsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="목표관리" />
+      <Header title="핵심목표관리" />
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
 
@@ -191,7 +235,14 @@ function MyGoalsView() {
                 <EmptyState icon={<Target className="h-10 w-10" />} label="등록된 목표가 없습니다." />
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {myActive.map(g => <GoalCard key={g.id} goal={g} onEdit={['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined} />)}
+                  {myActive.map(g => (
+                    <GoalCard key={g.id} goal={g}
+                      onEdit={['DRAFT', 'REJECTED'].includes(g.status) ? handleEdit : undefined}
+                      onTrash={['DRAFT', 'REJECTED'].includes(g.status) ? handleTrash : undefined}
+                      onWithdraw={g.status === 'PENDING_APPROVAL' ? handleWithdraw : undefined}
+                      onResubmit={g.status === 'REJECTED' ? handleResubmit : undefined}
+                    />
+                  ))}
                 </div>
               )}
             </div>}
@@ -392,9 +443,24 @@ function OrgGoalsView() {
         setOrgs(allOrgs);
 
         // 조회 대상 조직 결정
-        const orgIds = isCeo
-          ? allOrgs.map(o => o.id)
-          : getDescendantOrgIds(userProfile.organizationId, allOrgs);
+        // EXECUTIVE: 소속 조직 체인에서 DIVISION까지 올라가 하위 전체 포함
+        let orgIds: string[];
+        if (isCeo) {
+          orgIds = allOrgs.map(o => o.id);
+        } else if (userProfile.role === 'EXECUTIVE') {
+          // 임원 소속 조직 체인을 위로 올라가며 DIVISION 탐색
+          const execAncestors: Organization[] = [];
+          let cur = allOrgs.find(o => o.id === userProfile.organizationId);
+          while (cur) {
+            execAncestors.push(cur);
+            cur = cur.parentId ? allOrgs.find(o => o.id === cur!.parentId) : undefined;
+          }
+          const divOrg = execAncestors.find(o => o.type === 'DIVISION');
+          const rootId = divOrg?.id ?? userProfile.organizationId;
+          orgIds = getDescendantOrgIds(rootId, allOrgs);
+        } else {
+          orgIds = getDescendantOrgIds(userProfile.organizationId, allOrgs);
+        }
 
         const allGoals = await getGoalsByOrganizations(orgIds, year);
         // DRAFT, 직접삭제(ABANDONED without approvedBy) 제외
@@ -443,7 +509,7 @@ function OrgGoalsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="목표관리" />
+      <Header title="핵심목표관리" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
         {/* 전체 진행률 */}

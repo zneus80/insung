@@ -90,12 +90,18 @@ export interface Goal {
   requestPromotion?: boolean;   // 주요업무(MAJOR) → 과제업무 반영요청
   promotionStatus?: PromotionStatus;
 
-  // 승인 정보
-  leadApprovedBy?: string;
+  // 승인 정보 (조직 계층별)
+  leadApprovedBy?: string;    // 팀장 1차 승인
   leadApprovedAt?: Date;
-  approvedBy?: string;
+  hqApprovedBy?: string;      // 본부장 2차 승인 (본부 조직이 있는 경우)
+  hqApprovedAt?: Date;
+  approvedBy?: string;        // 임원 최종 승인
   approvedAt?: Date;
   rejectedReason?: string;
+
+  // 포기 승인 정보 (목표 승인 필드와 분리)
+  abandonLeadApprovedBy?: string;   // 팀장 포기 1차 승인
+  abandonLeadApprovedAt?: Date;
 
   createdAt: Date;
   updatedAt: Date;

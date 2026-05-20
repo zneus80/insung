@@ -11,6 +11,7 @@ import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
 import { Target, ChevronDown, ChevronUp, Users } from 'lucide-react';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
+import { cn } from '@/lib/utils';
 import type { Goal, User, Organization } from '@/types';
 
 function avgProgress(goals: Goal[]): number {
@@ -22,19 +23,21 @@ function avgProgress(goals: Goal[]): number {
 export default function ProgressLeadsPage() {
   return (
     <AuthGuard allowedRoles={['EXECUTIVE']}>
-      <ProgressLeadsContent />
+      <ProgressContent />
     </AuthGuard>
   );
 }
 
-function ProgressLeadsContent() {
+function ProgressContent() {
   const { userProfile } = useAuth();
   const { activeYear: year } = useActiveYear();
   const [loading, setLoading] = useState(true);
   const [leads, setLeads] = useState<User[]>([]);
+  const [members, setMembers] = useState<User[]>([]);
   const [goalsByUser, setGoalsByUser] = useState<Record<string, Goal[]>>({});
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [tab, setTab] = useState<'leads' | 'members'>('leads');
 
   useEffect(() => {
     if (!userProfile) return;
@@ -44,13 +47,14 @@ function ProgressLeadsContent() {
           getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
         ]);
         const descIds = findDescendantIds(userProfile!.organizationId, allOrgs);
-        const teamLeads = allUsers.filter(u =>
-          u.role === 'TEAM_LEAD' && u.isActive && descIds.includes(u.organizationId)
-        );
+        const scopedUsers = allUsers.filter(u => u.isActive && descIds.includes(u.organizationId));
+        const teamLeads = scopedUsers.filter(u => u.role === 'TEAM_LEAD');
+        const teamMembers = scopedUsers.filter(u => u.role === 'MEMBER');
         setLeads(teamLeads);
+        setMembers(teamMembers);
         setOrgs(allOrgs);
         const gMap: Record<string, Goal[]> = {};
-        teamLeads.forEach(u => {
+        scopedUsers.forEach(u => {
           gMap[u.id] = allGoals.filter(g => g.userId === u.id);
         });
         setGoalsByUser(gMap);
@@ -59,43 +63,73 @@ function ProgressLeadsContent() {
       }
     }
     load();
-  }, [userProfile]);
+  }, [userProfile, year]);
 
   const orgMap = Object.fromEntries(orgs.map(o => [o.id, o]));
 
-  // 팀장을 소속 조직별로 그룹핑
-  const leadsByOrg = leads.reduce<Record<string, User[]>>((acc, lead) => {
-    if (!acc[lead.organizationId]) acc[lead.organizationId] = [];
-    acc[lead.organizationId].push(lead);
+  const activeUsers = tab === 'leads' ? leads : members;
+  const emptyMsg = tab === 'leads' ? '소관 조직에 팀장이 없습니다.' : '소관 조직에 팀원이 없습니다.';
+  const countLabel = tab === 'leads' ? '팀장' : '팀원';
+
+  // 사용자를 조직별로 그룹핑
+  const usersByOrg = activeUsers.reduce<Record<string, User[]>>((acc, u) => {
+    if (!acc[u.organizationId]) acc[u.organizationId] = [];
+    acc[u.organizationId].push(u);
     return acc;
   }, {});
 
-  // 조직별 평균 진행률
-  function orgAvgProgress(orgLeads: User[]): number {
-    const allGoals = orgLeads.flatMap(l => goalsByUser[l.id] ?? []);
+  function orgAvgProgress(orgUsers: User[]): number {
+    const allGoals = orgUsers.flatMap(u => goalsByUser[u.id] ?? []);
     return avgProgress(allGoals);
   }
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="팀장 업무 진행사항" showBack />
+      <Header title="업무 진행사항" showBack />
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl mx-auto space-y-4">
-          <p className="text-sm text-gray-500">{year}년 소관 조직 팀장 업무 진행현황</p>
+          {/* 탭 */}
+          <div className="flex gap-1 rounded-lg bg-gray-100 p-1 w-fit">
+            <button
+              onClick={() => { setTab('leads'); setExpanded({}); }}
+              className={cn(
+                'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+                tab === 'leads'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
+              팀장
+            </button>
+            <button
+              onClick={() => { setTab('members'); setExpanded({}); }}
+              className={cn(
+                'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+                tab === 'members'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
+              팀원
+            </button>
+          </div>
+
+          <p className="text-sm text-gray-500">{year}년 소관 조직 {countLabel} 업무 진행현황</p>
+
           {loading ? (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {[1, 2, 3, 4].map(i => <div key={i} className="h-36 animate-pulse rounded-2xl bg-gray-100" />)}
             </div>
-          ) : leads.length === 0 ? (
+          ) : activeUsers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <Target className="mb-3 h-10 w-10" />
-              <p className="text-sm">소관 조직에 팀장이 없습니다.</p>
+              <p className="text-sm">{emptyMsg}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {Object.entries(leadsByOrg).map(([orgId, orgLeads]) => {
+              {Object.entries(usersByOrg).map(([orgId, orgUsers]) => {
                 const org = orgMap[orgId];
-                const orgAvg = orgAvgProgress(orgLeads);
+                const orgAvg = orgAvgProgress(orgUsers);
                 const isOpen = expanded[orgId] ?? false;
                 return (
                   <div key={orgId} className="rounded-2xl border bg-white overflow-hidden shadow-sm">
@@ -109,7 +143,7 @@ function ProgressLeadsContent() {
                           <p className="font-semibold text-gray-900">{org?.name ?? orgId}</p>
                           <div className="flex items-center gap-1 mt-0.5 text-xs text-gray-400">
                             <Users className="h-3.5 w-3.5" />
-                            팀장 {orgLeads.length}명
+                            {countLabel} {orgUsers.length}명
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -122,34 +156,34 @@ function ProgressLeadsContent() {
                       <Progress value={orgAvg} className="h-2" />
                     </button>
 
-                    {/* 팀장별 상세 */}
+                    {/* 사용자별 상세 */}
                     {isOpen && (
                       <div className="border-t divide-y">
-                        {orgLeads.map(lead => {
-                          const goals = goalsByUser[lead.id] ?? [];
+                        {orgUsers.map(user => {
+                          const goals = goalsByUser[user.id] ?? [];
                           const avg = avgProgress(goals);
-                          const isLeadOpen = expanded[lead.id] ?? false;
+                          const isUserOpen = expanded[user.id] ?? false;
                           return (
-                            <div key={lead.id}>
+                            <div key={user.id}>
                               <button
                                 className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-gray-50 transition-colors"
-                                onClick={() => setExpanded(p => ({ ...p, [lead.id]: !isLeadOpen }))}
+                                onClick={() => setExpanded(p => ({ ...p, [user.id]: !isUserOpen }))}
                               >
                                 <div>
-                                  <MemberInfoModal userId={lead.id} userName={lead.name} />
-                                  <p className="text-xs text-gray-400">{lead.position} · 목표 {goals.length}개</p>
+                                  <MemberInfoModal userId={user.id} userName={user.name} />
+                                  <p className="text-xs text-gray-400">{user.position} · 목표 {goals.length}개</p>
                                 </div>
                                 <div className="flex items-center gap-3">
                                   <div className="flex items-center gap-2 min-w-[100px]">
                                     <Progress value={avg} className="h-1.5 flex-1" />
                                     <span className="text-xs font-semibold text-gray-600 w-8 text-right">{avg}%</span>
                                   </div>
-                                  {isLeadOpen
+                                  {isUserOpen
                                     ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" />
                                     : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
                                 </div>
                               </button>
-                              {isLeadOpen && (
+                              {isUserOpen && (
                                 <div className="bg-gray-50 px-5 py-3 space-y-1.5">
                                   {goals.length === 0 ? (
                                     <p className="text-xs text-gray-400">등록된 목표가 없습니다.</p>

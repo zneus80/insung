@@ -149,7 +149,7 @@ function MemberDashboard() {
                   <Building2 className="h-3.5 w-3.5" />
                   {year}년 회사 목표
                 </div>
-                <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{companyGoal.content}</p>
+                <p className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">{companyGoal.content}</p>
               </div>
             )}
             {orgGoal && (
@@ -158,7 +158,7 @@ function MemberDashboard() {
                   <LayoutList className="h-3.5 w-3.5" />
                   {year}년 우리 조직 목표
                 </div>
-                <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{orgGoal.content}</p>
+                <p className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">{orgGoal.content}</p>
               </div>
             )}
           </div>
@@ -210,9 +210,7 @@ function MemberDashboard() {
               </div>
             ) : (
               recentGoals.map(g => (
-                <Link key={g.id} href="/goals">
-                  <GoalCard goal={g} />
-                </Link>
+                <GoalCard key={g.id} goal={g} />
               ))
             )}
           </div>
@@ -349,37 +347,10 @@ function ExecDashboard() {
         {/* 회사 경영목표 */}
         {companyGoal && (
           <div className="rounded-xl border-l-4 border-l-blue-500 bg-blue-50 px-5 py-4 space-y-1">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 uppercase tracking-wide">
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-blue-600 uppercase tracking-wide">
               <Building2 className="h-3.5 w-3.5" /> {year}년 회사 경영목표
             </div>
-            <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{companyGoal.content}</p>
-          </div>
-        )}
-
-        {/* 팀별 카드 요약 */}
-        {(loading || orgSummaries.length > 0) && (
-          <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-3">팀별 목표 현황</h4>
-            {loading ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {[1,2,3,4].map(i => <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100" />)}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {orgSummaries.map(s => (
-                  <div key={s.org.id} className="rounded-xl border bg-white p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-gray-900 text-sm">{s.org.name}</span>
-                      <span className="text-xs text-gray-400">{s.leads.length + s.members.length}명</span>
-                    </div>
-                    <div className="space-y-2">
-                      <OrgProgressRow label="팀장" goals={s.leadGoals} count={s.leads.length} />
-                      <OrgProgressRow label="팀원" goals={s.memberGoals} count={s.members.length} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <p className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">{companyGoal.content}</p>
           </div>
         )}
 
@@ -429,12 +400,12 @@ function OrgProgressRow({ label, goals, count }: { label: string; goals: Goal[];
   const avg = avgProgress(goals);
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs text-gray-500 w-8 shrink-0">{label}</span>
-      <span className="text-xs text-gray-400 shrink-0">{count}명</span>
+      <span className="text-sm text-gray-500 w-8 shrink-0">{label}</span>
+      <span className="text-sm text-gray-400 shrink-0">{count}명</span>
       <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
         <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${avg}%` }} />
       </div>
-      <span className="text-xs font-medium text-gray-600 w-8 text-right shrink-0">{avg}%</span>
+      <span className="text-sm font-medium text-gray-600 w-8 text-right shrink-0">{avg}%</span>
     </div>
   );
 }

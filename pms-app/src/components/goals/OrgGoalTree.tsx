@@ -74,7 +74,7 @@ function MemberGoalRow({ user, goals }: { user: User; goals: Goal[] }) {
         </span>
         {/* 아이콘 클릭 시 개인 프로필 모달 (10-2-3-8) */}
         <div
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-600 hover:bg-blue-100 hover:text-blue-600 transition-colors"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-600 hover:bg-blue-100 hover:text-blue-600 transition-colors"
           onClick={e => e.stopPropagation()}
           title="프로필 보기"
         >
@@ -82,14 +82,14 @@ function MemberGoalRow({ user, goals }: { user: User; goals: Goal[] }) {
         </div>
         <span className="text-sm text-gray-800 flex-1">
           {user.name}
-          {user.position && <span className="ml-1 text-xs text-gray-400">· {user.position}</span>}
+          {user.position && <span className="ml-1 text-sm text-gray-400">· {user.position}</span>}
         </span>
-        <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
+        <span className="flex items-center gap-1 text-sm text-gray-400 shrink-0">
           <Target className="h-3.5 w-3.5" />{goals.length}개
         </span>
         <div className="flex items-center gap-2 shrink-0 w-36">
           <Progress value={avg} className="h-1.5 flex-1" />
-          <span className="text-xs font-medium text-gray-600 w-8 text-right">{avg}%</span>
+          <span className="text-sm font-medium text-gray-600 w-8 text-right">{avg}%</span>
         </div>
       </div>
       {open && (
@@ -98,10 +98,10 @@ function MemberGoalRow({ user, goals }: { user: User; goals: Goal[] }) {
             <Link key={goal.id} href={`/goals/${goal.id}`}>
               <div className="flex items-center gap-3 rounded-lg border bg-white px-3 py-2 hover:shadow-sm transition-shadow">
                 <GoalStatusBadge status={goal.status} />
-                <span className="flex-1 text-xs text-gray-800 truncate">{goal.title}</span>
+                <span className="flex-1 text-sm text-gray-800 truncate">{goal.title}</span>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <Progress value={goal.progress} className="h-1.5 w-16" />
-                  <span className="text-xs text-gray-500 w-8 text-right">{goal.progress}%</span>
+                  <span className="text-sm text-gray-500 w-8 text-right">{goal.progress}%</span>
                 </div>
               </div>
             </Link>
@@ -126,17 +126,17 @@ export function OrgTreeNode({ node, depth = 0 }: { node: OrgNode; depth?: number
         <span className="text-gray-400 w-4 shrink-0">
           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </span>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold shrink-0 ${TYPE_COLOR[node.org.type] ?? 'bg-gray-100 text-gray-600'}`}>
+        <span className={`rounded-full px-2 py-0.5 text-sm font-semibold shrink-0 ${TYPE_COLOR[node.org.type] ?? 'bg-gray-100 text-gray-600'}`}>
           {TYPE_LABEL[node.org.type] ?? node.org.type}
         </span>
         <span className="font-medium text-gray-900 flex-1">{node.org.name}</span>
-        <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
+        <span className="flex items-center gap-1 text-sm text-gray-400 shrink-0">
           <Users className="h-3.5 w-3.5" />{node.members.length}명
         </span>
         {node.goals.length > 0 && (
           <div className="flex items-center gap-2 shrink-0 w-36">
             <Progress value={avg} className="h-1.5 flex-1" />
-            <span className="text-xs font-medium text-gray-600 w-8 text-right">{avg}%</span>
+            <span className="text-sm font-medium text-gray-600 w-8 text-right">{avg}%</span>
           </div>
         )}
       </div>
