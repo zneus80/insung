@@ -22,46 +22,114 @@ export default function ApprovalsPage() {
   );
 }
 
-// 특정 orgId의 모든 하위 조직 ID 반환 (자신 포함)
+// ── 유틸 ────────────────────────────────────────────────────
+
+/** orgId 기준으로 자신 + 모든 하위 조직 ID 반환 */
 function getDescendantOrgIds(orgId: string, orgs: Organization[]): string[] {
   const result: string[] = [orgId];
-  const children = orgs.filter(o => o.parentId === orgId);
-  for (const child of children) {
+  for (const child of orgs.filter(o => o.parentId === orgId)) {
     result.push(...getDescendantOrgIds(child.id, orgs));
   }
   return result;
 }
 
+/**
+ * orgId 기준으로 상위 조직 체인 반환 (자신 포함, 아래→위 순서)
+ * 예: [TEAM, HEADQUARTERS, DIVISION, COMPANY]
+ */
+function getOrgChain(orgId: string, allOrgs: Organization[]): Organization[] {
+  const chain: Organization[] = [];
+  let current = allOrgs.find(o => o.id === orgId);
+  while (current) {
+    chain.push(current);
+    current = current.parentId ? allOrgs.find(o => o.id === current!.parentId) : undefined;
+  }
+  return chain;
+}
+
+/**
+ * 현재 사용자가 특정 목표의 결재 체인에서 담당하는 역할 반환
+ *
+ * 조직 계층: COMPANY > DIVISION(부문/공장) > HEADQUARTERS(본부) > TEAM(팀)
+ *
+ * - TEAM_LEAD  : 목표 소유자의 팀 조직 leaderId가 나일 때
+ * - HQ_HEAD    : 목표 소유자의 팀 상위 본부 leaderId가 나일 때
+ * - EXEC       : 목표 소유자의 부문 leaderId가 나이거나, EXECUTIVE/CEO 역할일 때
+ */
+function getMyApprovalRole(
+  goal: Goal,
+  allOrgs: Organization[],
+  userId: string,
+  userRole: string,
+): 'TEAM_LEAD' | 'HQ_HEAD' | 'EXEC' | null {
+  if (!goal?.organizationId) return null;
+  const chain = getOrgChain(goal.organizationId, allOrgs);
+  const teamOrg = chain.find(o => o.type === 'TEAM');
+  const hqOrg   = chain.find(o => o.type === 'HEADQUARTERS');
+  const divOrg  = chain.find(o => o.type === 'DIVISION');
+
+  // 팀장 판단은 항상 먼저
+  if (teamOrg?.leaderId === userId) return 'TEAM_LEAD';
+
+  // DIVISION head → 항상 최종 승인자(EXEC)
+  if (divOrg?.leaderId === userId) return 'EXEC';
+
+  // HQ head 판단:
+  //   - DIVISION이 있으면 → 중간 승인자(HQ_HEAD)
+  //   - DIVISION이 없으면 → 최종 승인자(EXEC) ← e.g. COMPANY→HQ→TEAM 구조
+  if (hqOrg?.leaderId === userId) return divOrg ? 'HQ_HEAD' : 'EXEC';
+
+  // role 기반 fallback (leaderId 미설정 환경)
+  if (userRole === 'EXECUTIVE' || userRole === 'CEO') return 'EXEC';
+  return null;
+}
+
+// ── 뱃지 ─────────────────────────────────────────────────────
+
 const GOAL_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
-  'TASK': { label: '과제업무', cls: 'bg-blue-50 text-blue-700' },
-  'GENERAL_MAJOR': { label: '주요업무', cls: 'bg-green-50 text-green-700' },
+  TASK:          { label: '과제업무', cls: 'bg-blue-50 text-blue-700' },
+  GENERAL_MAJOR: { label: '주요업무', cls: 'bg-green-50 text-green-700' },
 };
+
+// ── 메인 컴포넌트 ─────────────────────────────────────────────
 
 function ApprovalsContent() {
   const { userProfile } = useAuth();
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [users, setUsers] = useState<Record<string, AppUser>>({});
+  const [goals,   setGoals]   = useState<Goal[]>([]);
+  const [users,   setUsers]   = useState<Record<string, AppUser>>({});
+  const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   async function load() {
     if (!userProfile) return;
     try {
-      const [allOrgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
-      const userMap = Object.fromEntries(allUsers.map(u => [u.id, u]));
-      setUsers(userMap);
+      const [orgsData, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
+      setAllOrgs(orgsData);
+      setUsers(Object.fromEntries(allUsers.map(u => [u.id, u])));
 
-      // 조회할 조직 ID 목록 결정
-      let orgIds: string[];
-      if (userProfile.role === 'EXECUTIVE') {
-        // 임원: 자신의 조직 + 하위 조직 전체
-        orgIds = getDescendantOrgIds(userProfile.organizationId, allOrgs);
-      } else {
-        // 팀장: 본인 팀만
-        orgIds = [userProfile.organizationId];
+      // 내가 leaderId로 등록된 조직 목록
+      const myLedOrgs = orgsData.filter(o => o.leaderId === userProfile.id);
+
+      // 조회 범위 루트 조직 결정
+      const rootIdSet = new Set<string>([userProfile.organizationId]);
+      myLedOrgs.forEach(o => rootIdSet.add(o.id));
+
+      // EXECUTIVE/CEO이고 leaderId 미설정인 경우:
+      // 소속 조직 체인을 위로 올라가 DIVISION 또는 COMPANY를 찾아 범위 확장
+      if (userProfile.role === 'EXECUTIVE' || userProfile.role === 'CEO') {
+        const chain = getOrgChain(userProfile.organizationId, orgsData);
+        const divOrg = chain.find(o => o.type === 'DIVISION');
+        const companyOrg = chain.find(o => o.type === 'COMPANY');
+        const rootOrg = divOrg ?? companyOrg;
+        if (rootOrg) rootIdSet.add(rootOrg.id);
       }
 
-      const pendingGoals = await getPendingGoalsByOrganizations(orgIds);
+      const scopeOrgIds = [...new Set(
+        [...rootIdSet].flatMap(id => getDescendantOrgIds(id, orgsData))
+      )];
+
+      const pendingGoals = await getPendingGoalsByOrganizations(scopeOrgIds);
       setGoals(pendingGoals);
     } catch (e) {
       console.error('승인 대기함 로드 실패:', e);
@@ -75,64 +143,99 @@ function ApprovalsContent() {
     load();
   }, [userProfile]);
 
-  const isLead = userProfile?.role === 'TEAM_LEAD';
-  const isExec = userProfile?.role === 'EXECUTIVE';
+  // ── 목록 필터링 ─────────────────────────────────────────────
 
-  // 역할별 필터링
+  function myRole(g: Goal) {
+    if (!userProfile) return null;
+    const chainRole = getMyApprovalRole(g, allOrgs, userProfile.id, userProfile.role);
+    if (chainRole) return chainRole;
+    // org.leaderId 미설정 환경 fallback: userProfile.role 기준으로 역할 결정
+    if (userProfile.role === 'TEAM_LEAD') return 'TEAM_LEAD' as const;
+    if (userProfile.role === 'EXECUTIVE' || userProfile.role === 'CEO') return 'EXEC' as const;
+    return null;
+  }
+
+  function hasHQ(g: Goal | undefined) {
+    if (!g?.organizationId) return false;
+    const chain = getOrgChain(g.organizationId, allOrgs);
+    // 실질적인 HQ 중간 승인 단계는 HEADQUARTERS와 DIVISION이 모두 있을 때만 존재
+    // HQ만 있고 DIVISION이 없으면 (e.g. COMPANY→HQ→TEAM) HQ head가 최종 승인자
+    return chain.some(o => o.type === 'HEADQUARTERS') && chain.some(o => o.type === 'DIVISION');
+  }
+
+  /** 목표 승인 요청 (PENDING_APPROVAL / LEAD_APPROVED) */
   const approvalGoals = goals.filter(g => {
+    const role = myRole(g);
     const ownerRole = users[g.userId]?.role;
-    const ownerIsMemberLike = ownerRole === 'MEMBER';
 
-    if (isLead) {
-      if (!ownerIsMemberLike) return false;
-      // TASK: 팀원의 PENDING_APPROVAL (1차 승인)
-      if (g.goalType === 'TASK' && g.status === 'PENDING_APPROVAL') return true;
-      // MAJOR: 팀원의 PENDING_APPROVAL (최종 승인)
-      if (g.goalType === 'GENERAL' && g.generalType === 'MAJOR' && g.status === 'PENDING_APPROVAL') return true;
-      return false;
+    if (role === 'TEAM_LEAD') {
+      // 팀원(MEMBER) 1차 승인. 팀장/임원 역할이 아닌 모든 목표 (role 미설정 포함)
+      const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
+      if (g.status === 'PENDING_APPROVAL' && isSubordinate && g.userId !== userProfile?.id) return true;
     }
-    if (isExec) {
-      // TASK: 팀원의 LEAD_APPROVED (임원 최종)
-      if (g.goalType === 'TASK' && g.status === 'LEAD_APPROVED' && ownerIsMemberLike) return true;
-      // TASK/GENERAL: 팀장의 PENDING_APPROVAL
+    if (role === 'HQ_HEAD') {
+      // 팀장 1차 승인 완료 후 본부장 2차 승인 대기 (hqApprovedBy 없는 것)
+      if (g.status === 'LEAD_APPROVED' && !g.hqApprovedBy) return true;
+    }
+    if (role === 'EXEC') {
+      // 팀장의 목표: 직접 최종 승인
       if (g.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') return true;
-      return false;
+      // 팀원의 LEAD_APPROVED:
+      //   - 본부 없는 경우: 팀장 승인 후 바로 임원 최종
+      //   - 본부 있는 경우: 본부장 승인(hqApprovedBy) 후 임원 최종
+      if (g.status === 'LEAD_APPROVED') {
+        if (!hasHQ(g)) return true;
+        if (g.hqApprovedBy) return true;
+      }
     }
-    return g.status === 'PENDING_APPROVAL';
+    return false;
   });
 
+  /** 완료 확인 요청 */
   const completionGoals = goals.filter(g => {
     if (g.status !== 'COMPLETED') return false;
+    const role = myRole(g);
     const ownerRole = users[g.userId]?.role;
-    if (isLead) {
-      // 팀장: 팀원의 완료 1차 확인 (leadApprovedBy 없는 것)
-      return ownerRole === 'MEMBER' && !g.leadApprovedBy;
+
+    if (role === 'TEAM_LEAD') {
+      const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
+      return isSubordinate && !g.leadApprovedBy && g.userId !== userProfile?.id;
     }
-    if (isExec) {
-      // 임원: 팀원의 완료 최종 확인 (leadApprovedBy 있는 것) + 팀장의 완료 확인
-      return (ownerRole === 'MEMBER' && !!g.leadApprovedBy && !g.approvedBy) ||
-        (ownerRole === 'TEAM_LEAD' && !g.approvedBy);
+    if (role === 'HQ_HEAD')   return ownerRole === 'MEMBER' && !!g.leadApprovedBy && !g.hqApprovedBy;
+    if (role === 'EXEC') {
+      if (ownerRole === 'TEAM_LEAD') return !g.approvedBy;
+      if (ownerRole === 'MEMBER' && !!g.leadApprovedBy && !g.approvedBy) {
+        if (!hasHQ(g)) return true;
+        if (g.hqApprovedBy) return true;
+      }
     }
-    return !g.approvedBy;
+    return false;
   });
 
+  /** 포기 요청 */
   const abandonGoals = goals.filter(g => {
     if (g.status !== 'PENDING_ABANDON') return false;
+    const role = myRole(g);
     const ownerRole = users[g.userId]?.role;
-    if (isLead) return ownerRole === 'MEMBER';
-    if (isExec) return ownerRole === 'TEAM_LEAD';
-    return true;
+
+    if (role === 'TEAM_LEAD') {
+      const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
+      // 팀원 포기 요청 중 아직 1차 승인하지 않은 것만
+      return isSubordinate && g.userId !== userProfile?.id && !g.abandonLeadApprovedBy;
+    }
+    if (role === 'EXEC')      return ownerRole === 'TEAM_LEAD' || (ownerRole === 'MEMBER' && !!g.abandonLeadApprovedBy);
+    return false;
   });
 
   const isEmpty = approvalGoals.length === 0 && completionGoals.length === 0 && abandonGoals.length === 0;
 
-  // 과제업무 전환 처리 (requestPromotion=true인 주요업무를 팀장이 승인할 때)
+  // ── 과제업무 전환 처리 ────────────────────────────────────────
+
   async function handlePromotionApprove(goal: Goal, promoteToTask: boolean) {
     if (!userProfile) return;
     setActionLoading(goal.id);
     try {
       if (promoteToTask) {
-        // 과제업무로 전환
         await updateGoal(goal.id, {
           promotionStatus: 'APPROVED',
           goalType: 'TASK',
@@ -149,28 +252,47 @@ function ApprovalsContent() {
         });
         toast.success('과제업무로 전환했습니다. 임원의 최종 승인을 기다립니다.');
       } else {
-        // 주요업무로 그냥 승인
         await updateGoal(goal.id, {
           promotionStatus: 'REJECTED',
-          status: 'APPROVED',
-          approvedBy: userProfile.id,
-          approvedAt: new Date(),
+          status: 'LEAD_APPROVED',
+          leadApprovedBy: userProfile.id,
+          leadApprovedAt: new Date(),
         });
         await addGoalHistory({
           goalId: goal.id, changedBy: userProfile.id,
           changeType: 'APPROVED',
-          previousStatus: goal.status, newStatus: 'APPROVED',
-          comment: '주요업무로 승인 완료.',
+          previousStatus: goal.status, newStatus: 'LEAD_APPROVED',
+          comment: '주요업무 1차 승인 완료. 임원의 최종 승인을 기다립니다.',
         });
-        toast.success('주요업무로 승인했습니다.');
+        toast.success('주요업무 1차 승인. 임원의 최종 승인을 기다립니다.');
       }
       await load();
-    } catch (e: any) {
+    } catch {
       toast.error('처리 중 오류가 발생했습니다.');
     } finally {
       setActionLoading(null);
     }
   }
+
+  // ── 렌더 ─────────────────────────────────────────────────────
+
+  // 현재 사용자의 대표 역할 (헤더 문구용)
+  const representativeRole = userProfile
+    ? (goals.length > 0 ? myRole(goals[0]) : null) ?? (
+        userProfile.role === 'EXECUTIVE' || userProfile.role === 'CEO' ? 'EXEC' :
+        userProfile.role === 'TEAM_LEAD' ? 'TEAM_LEAD' : null
+      )
+    : null;
+
+  const approvalSectionLabel =
+    representativeRole === 'TEAM_LEAD' ? '목표 승인 요청 — 1차 승인' :
+    representativeRole === 'HQ_HEAD'   ? '목표 승인 요청 — 2차 승인 (본부)' :
+    '목표 승인 요청 — 최종 승인';
+
+  const completionSectionLabel =
+    representativeRole === 'TEAM_LEAD' ? '완료 확인 요청 — 1차 확인' :
+    representativeRole === 'HQ_HEAD'   ? '완료 확인 요청 — 2차 확인 (본부)' :
+    '완료 확인 요청 — 최종 확인';
 
   return (
     <div className="flex flex-col h-full">
@@ -188,13 +310,17 @@ function ApprovalsContent() {
         {(loading || approvalGoals.length > 0) && (
           <section className="space-y-3">
             <h3 className="text-sm font-semibold text-gray-700">
-              {isLead ? '목표 승인 요청' : '목표 승인 요청 — 최종 승인'}
-              {' '}({approvalGoals.length})
+              {approvalSectionLabel} ({approvalGoals.length})
             </h3>
-            {isLead && (
-              <p className="text-xs text-gray-400">과제업무는 1차 승인 후 임원에게 최종 승인 요청이 갑니다. 주요업무는 팀장이 최종 승인합니다.</p>
+            {representativeRole === 'TEAM_LEAD' && (
+              <p className="text-xs text-gray-400">
+                1차 승인 후{hasHQ(approvalGoals[0] ?? goals[0]) ? ' 본부장 2차 승인을 거쳐' : ''} 임원에게 최종 승인 요청이 갑니다.
+              </p>
             )}
-            {isExec && (
+            {representativeRole === 'HQ_HEAD' && (
+              <p className="text-xs text-gray-400">팀장 1차 승인 완료된 목표입니다. 승인 후 담당 임원에게 최종 승인 요청이 갑니다.</p>
+            )}
+            {representativeRole === 'EXEC' && (
               <p className="text-xs text-gray-400">팀원 목표(1차 승인 완료) 및 팀장 목표의 최종 승인입니다.</p>
             )}
             {loading ? <SkeletonList /> : (
@@ -204,7 +330,7 @@ function ApprovalsContent() {
                     key={goal.id}
                     goal={goal}
                     requester={users[goal.userId]}
-                    isLead={!!isLead}
+                    approvalRole={myRole(goal) ?? 'TEAM_LEAD'}
                     actionLoading={actionLoading === goal.id}
                     onPromotionApprove={handlePromotionApprove}
                   />
@@ -218,8 +344,7 @@ function ApprovalsContent() {
         {(loading || completionGoals.length > 0) && (
           <section className="space-y-3">
             <h3 className="text-sm font-semibold text-gray-700">
-              {isLead ? '완료 확인 요청 — 1차 확인' : '완료 확인 요청 — 최종 확인'}
-              {' '}({completionGoals.length})
+              {completionSectionLabel} ({completionGoals.length})
             </h3>
             {loading ? <SkeletonList /> : (
               <div className="space-y-2">
@@ -228,7 +353,7 @@ function ApprovalsContent() {
                     key={goal.id}
                     goal={goal}
                     requester={users[goal.userId]}
-                    isLead={!!isLead}
+                    approvalRole={myRole(goal) ?? 'TEAM_LEAD'}
                     actionLoading={actionLoading === goal.id}
                     onPromotionApprove={handlePromotionApprove}
                   />
@@ -251,7 +376,7 @@ function ApprovalsContent() {
                     key={goal.id}
                     goal={goal}
                     requester={users[goal.userId]}
-                    isLead={!!isLead}
+                    approvalRole={myRole(goal) ?? 'TEAM_LEAD'}
                     actionLoading={actionLoading === goal.id}
                     onPromotionApprove={handlePromotionApprove}
                   />
@@ -265,24 +390,24 @@ function ApprovalsContent() {
   );
 }
 
+// ── ApprovalRow ───────────────────────────────────────────────
+
 interface ApprovalRowProps {
   goal: Goal;
   requester?: AppUser;
-  isLead: boolean;
+  approvalRole: 'TEAM_LEAD' | 'HQ_HEAD' | 'EXEC';
   actionLoading: boolean;
   onPromotionApprove: (goal: Goal, promoteToTask: boolean) => void;
 }
 
-function ApprovalRow({ goal, requester, isLead, actionLoading, onPromotionApprove }: ApprovalRowProps) {
-  // 목표 유형 뱃지 결정
+function ApprovalRow({ goal, requester, approvalRole, actionLoading, onPromotionApprove }: ApprovalRowProps) {
   let typeBadge: { label: string; cls: string } | null = null;
-  if (goal.goalType === 'TASK') {
-    typeBadge = GOAL_TYPE_BADGE['TASK'];
-  } else if (goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR') {
-    typeBadge = GOAL_TYPE_BADGE['GENERAL_MAJOR'];
-  }
+  if (goal.goalType === 'TASK') typeBadge = GOAL_TYPE_BADGE['TASK'];
+  else if (goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR') typeBadge = GOAL_TYPE_BADGE['GENERAL_MAJOR'];
 
-  // 팀장이 requestPromotion=true인 주요업무를 볼 때 두 버튼 표시
+  const isLead = approvalRole === 'TEAM_LEAD';
+
+  // 팀장이 과제반영 요청된 주요업무를 볼 때 두 버튼 표시
   const showPromotionButtons =
     isLead &&
     goal.goalType === 'GENERAL' &&
@@ -302,6 +427,11 @@ function ApprovalRow({ goal, requester, isLead, actionLoading, onPromotionApprov
                 </span>
               )}
               <GoalStatusBadge status={goal.status} />
+              {approvalRole === 'HQ_HEAD' && (
+                <span className="shrink-0 text-xs font-medium rounded-full px-2 py-0.5 bg-purple-50 text-purple-700">
+                  2차 승인 대기
+                </span>
+              )}
               <span className="font-medium text-gray-900 truncate">{goal.title}</span>
               {goal.requestPromotion && (
                 <span className="shrink-0 text-xs font-medium rounded-full px-2 py-0.5 bg-amber-50 text-amber-700">
@@ -318,30 +448,21 @@ function ApprovalRow({ goal, requester, isLead, actionLoading, onPromotionApprov
                 <Calendar className="h-3.5 w-3.5" />
                 {format(goal.dueDate, 'MM/dd', { locale: ko })}까지
               </span>
-              {goal.goalType === 'TASK' && (
-                <span>가중치 {goal.weight}%</span>
-              )}
+              {goal.goalType === 'TASK' && <span>가중치 {goal.weight}%</span>}
             </div>
           </div>
         </Link>
         <div className="shrink-0 flex items-center gap-2">
           {showPromotionButtons ? (
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={actionLoading}
+              <Button size="sm" variant="outline" disabled={actionLoading}
                 onClick={() => onPromotionApprove(goal, false)}
-                className="text-green-700 border-green-300 hover:bg-green-50"
-              >
+                className="text-green-700 border-green-300 hover:bg-green-50">
                 주요업무로 승인
               </Button>
-              <Button
-                size="sm"
-                disabled={actionLoading}
+              <Button size="sm" disabled={actionLoading}
                 onClick={() => onPromotionApprove(goal, true)}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
+                className="bg-blue-600 hover:bg-blue-700">
                 과제업무로 전환
               </Button>
             </div>
@@ -359,9 +480,7 @@ function ApprovalRow({ goal, requester, isLead, actionLoading, onPromotionApprov
 function SkeletonList() {
   return (
     <div className="space-y-2">
-      {[1, 2].map(i => (
-        <div key={i} className="h-16 animate-pulse rounded-xl bg-gray-100" />
-      ))}
+      {[1, 2].map(i => <div key={i} className="h-16 animate-pulse rounded-xl bg-gray-100" />)}
     </div>
   );
 }

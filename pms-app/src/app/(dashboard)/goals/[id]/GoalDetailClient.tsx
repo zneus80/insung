@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { ArrowLeft, Calendar, Weight, Send, XCircle, CheckCircle2, Flag, CheckCheck } from 'lucide-react';
+import { ArrowLeft, Calendar, Weight, Send, XCircle, CheckCircle2, Flag, CheckCheck, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   updateGoal,
@@ -13,8 +13,11 @@ import {
   addProgressUpdate,
   getProgressUpdates,
   getUser,
+  getOrganizations,
   COLLECTIONS,
 } from '@/lib/firestore';
+import TaskGoalForm from '@/components/goals/TaskGoalForm';
+import GeneralGoalForm from '@/components/goals/GeneralGoalForm';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -26,7 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Header from '@/components/layout/Header';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
 import { toast } from 'sonner';
-import type { Goal, GoalHistory, ProgressUpdate, User } from '@/types';
+import type { Goal, GoalHistory, ProgressUpdate, User, Organization } from '@/types';
 import { fromTimestamp } from '@/lib/firestore';
 import { Timestamp } from 'firebase/firestore';
 
@@ -57,6 +60,7 @@ export default function GoalDetailPage() {
 
   const [goal, setGoal] = useState<Goal | null>(null);
   const [goalOwner, setGoalOwner] = useState<User | null>(null);
+  const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
   const [histories, setHistories] = useState<GoalHistory[]>([]);
   const [updates, setUpdates] = useState<ProgressUpdate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +70,7 @@ export default function GoalDetailPage() {
   const [progressComment, setProgressComment] = useState('');
   const [rejectComment, setRejectComment] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
 
   async function load() {
     try {
@@ -80,15 +85,18 @@ export default function GoalDetailPage() {
         updatedAt: fromTimestamp(data.updatedAt as Timestamp) ?? new Date(),
         approvedAt: fromTimestamp(data.approvedAt as Timestamp),
         leadApprovedAt: fromTimestamp(data.leadApprovedAt as Timestamp),
+        abandonLeadApprovedAt: fromTimestamp(data.abandonLeadApprovedAt as Timestamp),
       } as Goal;
 
-      const [owner, h, u] = await Promise.all([
+      const [owner, h, u, orgs] = await Promise.all([
         getUser(loadedGoal.userId),
         getGoalHistories(id),
         getProgressUpdates(id),
+        getOrganizations(),
       ]);
       setGoal(loadedGoal);
       setGoalOwner(owner);
+      setAllOrgs(orgs);
       setNewProgress(loadedGoal.progress);
       setHistories(h);
       setUpdates(u);
@@ -154,6 +162,37 @@ export default function GoalDetailPage() {
     } finally { setActionLoading(false); }
   }
 
+  async function withdrawApproval() {
+    if (!goal || !userProfile) return;
+    if (!confirm('승인 요청을 회수하시겠습니까? 임시저장 상태로 돌아갑니다.')) return;
+    setActionLoading(true);
+    try {
+      await updateGoal(id, { status: 'DRAFT' });
+      await addGoalHistory({
+        goalId: id, changedBy: userProfile.id,
+        changeType: 'STATUS_CHANGED',
+        previousStatus: 'PENDING_APPROVAL', newStatus: 'DRAFT',
+        comment: '승인 요청 회수',
+      });
+      toast.success('승인 요청을 회수했습니다.');
+      await load();
+    } finally { setActionLoading(false); }
+  }
+
+  async function handleDelete() {
+    if (!goal || !userProfile) return;
+    if (!confirm('이 목표를 휴지통으로 이동하시겠습니까?')) return;
+    setActionLoading(true);
+    try {
+      await updateGoal(id, { status: 'ABANDONED' });
+      toast.success('휴지통으로 이동했습니다.');
+      router.push('/goals');
+    } catch {
+      toast.error('오류가 발생했습니다.');
+      setActionLoading(false);
+    }
+  }
+
   async function submitProgress() {
     if (!goal || !userProfile || !progressComment.trim()) return;
     setActionLoading(true);
@@ -181,26 +220,40 @@ export default function GoalDetailPage() {
       let newStatus: Goal['status'] = goal.status;
       let successMsg = '';
 
-      if (isLead) {
-        if (goal.goalType === 'TASK' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) {
-          // 과제업무 팀장 1차 승인 → 임원 대기
+      if (iAmTeamLead && ownerIsMemberLike) {
+        if (goal.status === 'PENDING_APPROVAL') {
+          // 과제업무: 1차 승인 → LEAD_APPROVED (본부/임원 추가 승인 대기)
+          // 주요업무: 팀장이 최종 승인 → APPROVED
+          // 모든 목표 유형: 팀장 1차 승인 → LEAD_APPROVED → 임원 최종 승인 필요
           newStatus = 'LEAD_APPROVED';
           updateData = { status: 'LEAD_APPROVED', leadApprovedBy: userProfile.id, leadApprovedAt: new Date() };
-          successMsg = '과제업무 1차 승인. 임원의 최종 승인을 기다립니다.';
-        } else if (goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) {
-          // 주요업무 팀장 최종 승인
-          newStatus = 'APPROVED';
-          updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '주요업무 승인 완료.';
-        } else if (goal.status === 'COMPLETED' && !goal.leadApprovedBy && ownerIsMemberLike) {
+          if (goal.goalType === 'TASK') {
+            successMsg = hasHQInChain
+              ? '과제업무 1차 승인. 본부장 2차 승인을 기다립니다.'
+              : '과제업무 1차 승인. 임원의 최종 승인을 기다립니다.';
+          } else {
+            successMsg = hasHQInChain
+              ? '주요업무 1차 승인. 본부장 2차 승인을 기다립니다.'
+              : '주요업무 1차 승인. 임원의 최종 승인을 기다립니다.';
+          }
+        } else if (goal.status === 'COMPLETED' && !goal.leadApprovedBy) {
           updateData = { leadApprovedBy: userProfile.id, leadApprovedAt: new Date() };
-          successMsg = '완료 1차 확인. 임원 최종 확인 대기 중.';
-        } else if (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike) {
-          newStatus = 'ABANDONED';
-          updateData = { status: 'ABANDONED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '포기 승인.';
+          successMsg = hasHQInChain ? '완료 1차 확인. 본부장 2차 확인 대기 중.' : '완료 1차 확인. 임원 최종 확인 대기 중.';
+        } else if (goal.status === 'PENDING_ABANDON' && !goal.abandonLeadApprovedBy) {
+          // 팀장 포기 1차 승인: 별도 필드 기록, 상태는 PENDING_ABANDON 유지
+          updateData = { abandonLeadApprovedBy: userProfile.id, abandonLeadApprovedAt: new Date() };
+          successMsg = '포기 1차 승인. 임원의 최종 승인을 기다립니다.';
         }
-      } else if (isExec) {
+      } else if (iAmHQHead) {
+        // 본부장 2차 승인: 상태 변경 없이 hqApprovedBy만 기록
+        if (goal.status === 'LEAD_APPROVED' && !goal.hqApprovedBy) {
+          updateData = { hqApprovedBy: userProfile.id, hqApprovedAt: new Date() };
+          successMsg = '본부 2차 승인 완료. 임원의 최종 승인을 기다립니다.';
+        } else if (goal.status === 'COMPLETED' && !!goal.leadApprovedBy && !goal.hqApprovedBy) {
+          updateData = { hqApprovedBy: userProfile.id, hqApprovedAt: new Date() };
+          successMsg = '완료 2차 확인. 임원 최종 확인 대기 중.';
+        }
+      } else if (iAmExec) {
         if (goal.status === 'LEAD_APPROVED') {
           newStatus = 'APPROVED';
           updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
@@ -213,9 +266,13 @@ export default function GoalDetailPage() {
           updateData = { approvedBy: userProfile.id, approvedAt: new Date() };
           successMsg = '완료 최종 확인.';
         } else if (goal.status === 'PENDING_ABANDON') {
-          newStatus = 'ABANDONED';
-          updateData = { status: 'ABANDONED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '포기 승인.';
+          // 팀원 목표: 팀장 포기 1차 승인 후에만 임원 최종 가능 / 팀장 목표: 바로 최종
+          const abandonReady = ownerRole === 'TEAM_LEAD' || (ownerIsMemberLike && !!goal.abandonLeadApprovedBy);
+          if (abandonReady) {
+            newStatus = 'ABANDONED';
+            updateData = { status: 'ABANDONED', approvedBy: userProfile.id, approvedAt: new Date() };
+            successMsg = '포기 최종 승인.';
+          }
         }
       }
 
@@ -274,60 +331,103 @@ export default function GoalDetailPage() {
   }
 
   const isOwner = goal.userId === userProfile.id;
-  const isLead = userProfile.role === 'TEAM_LEAD';
-  const isExec = userProfile.role === 'EXECUTIVE';
   const ownerRole = goalOwner?.role;
+  // goalOwner가 로드되었고 팀장/임원 역할이 아니면 팀원으로 취급 (role 미설정 포함)
+  const ownerIsMemberLike = !!goalOwner &&
+    ownerRole !== 'TEAM_LEAD' &&
+    ownerRole !== 'EXECUTIVE' &&
+    ownerRole !== 'CEO';
 
-  // HR_ADMIN은 MEMBER와 동일한 승인 흐름을 따름
-  const ownerIsMemberLike = ownerRole === 'MEMBER';
+  // ── 조직 체인 기반 결재 역할 판단 ──────────────────────────
+  function getOrgChain(orgId: string): Organization[] {
+    const chain: Organization[] = [];
+    let current = allOrgs.find(o => o.id === orgId);
+    while (current) {
+      chain.push(current);
+      current = current.parentId ? allOrgs.find(o => o.id === current!.parentId) : undefined;
+    }
+    return chain;
+  }
+
+  const goalOrgChain = getOrgChain(goal.organizationId);
+  const teamOrg = goalOrgChain.find(o => o.type === 'TEAM');
+  const hqOrg   = goalOrgChain.find(o => o.type === 'HEADQUARTERS');
+  const divOrg  = goalOrgChain.find(o => o.type === 'DIVISION');
+
+  // ── 조직 체인 기반 역할 판단 (우선순위: 팀장 > 본부장 > 임원) ──
+  // 팀장: teamOrg leaderId 일치 또는 leaderId 미설정 시 role+조직 fallback
+  const iAmTeamLead = teamOrg?.leaderId === userProfile.id ||
+    (!teamOrg?.leaderId && userProfile.role === 'TEAM_LEAD' && teamOrg?.id === userProfile.organizationId);
+
+  // 본부장(중간 승인자): DIVISION이 있을 때만 의미 있음, 팀장인 경우 제외
+  //   DIVISION 없는 HQ head(e.g. COMPANY→HQ→TEAM)는 최종 승인자(iAmExec)로 처리
+  const iAmHQHead = !iAmTeamLead && !!divOrg && (hqOrg?.leaderId === userProfile.id);
+
+  // 최종 승인자: 팀장·본부장이 아닌 경우에만
+  //   1) DIVISION leaderId 일치
+  //   2) HQ leaderId 일치 + DIVISION 없음 (HQ가 최종 레벨인 구조)
+  //   3) role 기반 fallback (EXECUTIVE/CEO) — leaderId 미설정 환경
+  const iAmExec = !iAmTeamLead && !iAmHQHead && (
+    divOrg?.leaderId === userProfile.id ||
+    (!divOrg && hqOrg?.leaderId === userProfile.id) ||
+    userProfile.role === 'EXECUTIVE' ||
+    userProfile.role === 'CEO'
+  );
+
+  // 실질적 HQ 중간 승인 단계: HQ와 DIVISION 모두 존재할 때만
+  const hasHQInChain = !!hqOrg && !!divOrg;
 
   const canEdit = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
+  const canDelete = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
   const canRequestApproval = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
+  const canWithdraw = isOwner && goal.status === 'PENDING_APPROVAL';
   const canRequestCompletion = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
   const canRequestAbandon = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
   const canUpdateProgress = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
 
-  const canLeadApprove = isLead && (
-    // TASK: 팀원의 1차 승인
-    (goal.goalType === 'TASK' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) ||
-    // MAJOR: 팀원의 팀장 최종 승인
-    (goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR' && goal.status === 'PENDING_APPROVAL' && ownerIsMemberLike) ||
-    // 완료 확인 (TASK, MAJOR 모두)
-    (goal.status === 'COMPLETED' && !goal.leadApprovedBy && ownerIsMemberLike) ||
-    // 포기 승인
-    (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike)
+  // 팀장: PENDING_APPROVAL 목표 (팀원 것)
+  const canLeadApprove = iAmTeamLead && ownerIsMemberLike && (
+    (goal.status === 'PENDING_APPROVAL') ||
+    (goal.status === 'COMPLETED' && !goal.leadApprovedBy) ||
+    (goal.status === 'PENDING_ABANDON' && !goal.abandonLeadApprovedBy)  // 아직 포기 1차 미승인인 것만
   );
 
-  const canExecApprove = isExec && (
-    // TASK: 임원 최종 승인 (팀원 목표)
-    (goal.goalType === 'TASK' && goal.status === 'LEAD_APPROVED') ||
-    // TASK: 팀장의 과제업무 승인
-    (goal.goalType === 'TASK' && goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') ||
-    // MAJOR: 팀장의 주요업무 승인
-    (goal.goalType === 'GENERAL' && goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') ||
-    // 완료 최종 확인
-    (goal.status === 'COMPLETED' && !!goal.leadApprovedBy && ownerIsMemberLike) ||
-    (goal.status === 'COMPLETED' && ownerRole === 'TEAM_LEAD') ||
-    // 포기 승인
-    (goal.status === 'PENDING_ABANDON' && ownerRole === 'TEAM_LEAD')
+  // 본부장: LEAD_APPROVED 목표 중 hqApprovedBy 없는 것
+  const canHQApprove = iAmHQHead && (
+    (goal.status === 'LEAD_APPROVED' && !goal.hqApprovedBy) ||
+    (goal.status === 'COMPLETED' && !!goal.leadApprovedBy && !goal.hqApprovedBy)
   );
 
-  const canApprove = canLeadApprove || canExecApprove;
+  // 임원: 팀장 목표(PENDING_APPROVAL) 또는 최종 승인 대기(LEAD_APPROVED)
+  const canExecApprove = iAmExec && (
+    (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') ||
+    (goal.status === 'LEAD_APPROVED' && (!hasHQInChain || !!goal.hqApprovedBy)) ||
+    (goal.status === 'COMPLETED' && ownerRole === 'TEAM_LEAD' && !goal.approvedBy) ||
+    (goal.status === 'COMPLETED' && ownerIsMemberLike && !!goal.leadApprovedBy && !goal.approvedBy && (!hasHQInChain || !!goal.hqApprovedBy)) ||
+    (goal.status === 'PENDING_ABANDON' && ownerRole === 'TEAM_LEAD') ||
+    (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike && !!goal.abandonLeadApprovedBy)
+  );
 
-  const canReject = (isLead && ['PENDING_APPROVAL', 'COMPLETED'].includes(goal.status) && ownerIsMemberLike) ||
-    (isExec && ['LEAD_APPROVED', 'PENDING_APPROVAL', 'COMPLETED'].includes(goal.status));
+  const canApprove = canLeadApprove || canHQApprove || canExecApprove;
+
+  const canReject = (iAmTeamLead && ['PENDING_APPROVAL', 'COMPLETED'].includes(goal.status) && ownerIsMemberLike) ||
+    (iAmHQHead && ['LEAD_APPROVED', 'COMPLETED'].includes(goal.status)) ||
+    (iAmExec && ['LEAD_APPROVED', 'PENDING_APPROVAL', 'COMPLETED'].includes(goal.status));
 
   function getApproveLabel() {
-    if (isLead) {
-      if (goal!.goalType === 'TASK' && goal!.status === 'PENDING_APPROVAL') return '1차 승인';
-      if (goal!.goalType === 'GENERAL' && goal!.status === 'PENDING_APPROVAL') return '주요업무 승인';
+    if (iAmTeamLead) {
+      if (goal!.status === 'PENDING_APPROVAL') return '1차 승인';
       if (goal!.status === 'COMPLETED') return '완료 1차 확인';
-      if (goal!.status === 'PENDING_ABANDON') return '포기 승인';
+      if (goal!.status === 'PENDING_ABANDON') return '포기 1차 승인';
     }
-    if (isExec) {
+    if (iAmHQHead) {
+      if (goal!.status === 'LEAD_APPROVED') return '2차 승인 (본부)';
+      if (goal!.status === 'COMPLETED') return '완료 2차 확인';
+    }
+    if (iAmExec) {
       if (goal!.status === 'LEAD_APPROVED') return '최종 승인';
-      if (goal!.status === 'COMPLETED') return '완료 확인';
-      if (goal!.status === 'PENDING_ABANDON') return '포기 승인';
+      if (goal!.status === 'COMPLETED') return '완료 최종 확인';
+      if (goal!.status === 'PENDING_ABANDON') return '포기 최종 승인';
       return '승인';
     }
     return '승인';
@@ -336,16 +436,19 @@ export default function GoalDetailPage() {
   const completionStep = goal.status === 'COMPLETED'
     ? (!goal.leadApprovedBy && ownerIsMemberLike
         ? '팀장 1차 확인 대기'
-        : goal.leadApprovedBy && !goal.approvedBy && ownerIsMemberLike
-          ? '임원 최종 확인 대기'
-          : ownerRole === 'TEAM_LEAD' && !goal.approvedBy
-            ? '임원 확인 대기'
-            : null)
+        : goal.leadApprovedBy && !goal.hqApprovedBy && hasHQInChain && ownerIsMemberLike
+          ? '본부장 2차 확인 대기'
+          : goal.leadApprovedBy && !goal.approvedBy && ownerIsMemberLike
+            ? '임원 최종 확인 대기'
+            : ownerRole === 'TEAM_LEAD' && !goal.approvedBy
+              ? '임원 확인 대기'
+              : null)
     : null;
 
   const goalTypeBadge = getGoalTypeBadge(goal);
 
   return (
+    <>
     <div className="flex flex-col h-full">
       <Header title="목표 상세" showBack />
       <div className="flex-1 overflow-y-auto p-6">
@@ -357,6 +460,7 @@ export default function GoalDetailPage() {
           >
             <ArrowLeft className="h-4 w-4" /> 목록으로
           </button>
+
 
           <div className="rounded-xl border bg-white p-6 space-y-4">
             <div className="flex items-start justify-between gap-3">
@@ -422,11 +526,38 @@ export default function GoalDetailPage() {
               <Progress value={goal.progress} className="h-2" />
             </div>
 
-            {(canRequestApproval || canRequestCompletion || canRequestAbandon) && (
+            {(canEdit || canDelete || canRequestApproval || canWithdraw || canRequestCompletion || canRequestAbandon) && (
               <div className="flex gap-2 pt-2 border-t flex-wrap">
+                {canEdit && (
+                  <Button
+                    onClick={() => setShowEditForm(true)} disabled={actionLoading} size="sm" variant="outline"
+                    className="gap-1.5"
+                  >
+                    <Pencil className="h-4 w-4" /> 수정
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    onClick={handleDelete} disabled={actionLoading} size="sm" variant="outline"
+                    className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-4 w-4" /> 삭제
+                  </Button>
+                )}
                 {canRequestApproval && (
                   <Button onClick={requestApproval} disabled={actionLoading} size="sm" className="gap-1.5">
-                    <Send className="h-4 w-4" /> 승인 요청
+                    {goal.status === 'REJECTED'
+                      ? <><RefreshCw className="h-4 w-4" /> 재 승인요청</>
+                      : <><Send className="h-4 w-4" /> 승인 요청</>
+                    }
+                  </Button>
+                )}
+                {canWithdraw && (
+                  <Button
+                    onClick={withdrawApproval} disabled={actionLoading} size="sm" variant="outline"
+                    className="gap-1.5 text-orange-600 border-orange-300 hover:bg-orange-50"
+                  >
+                    <XCircle className="h-4 w-4" /> 승인 요청 회수
                   </Button>
                 )}
                 {canRequestCompletion && (
@@ -451,16 +582,16 @@ export default function GoalDetailPage() {
             {canApprove && (
               <div className="space-y-3 pt-2 border-t">
                 <div className="flex items-center gap-2">
-                  {isLead && goal.status === 'PENDING_APPROVAL' && goal.goalType === 'TASK' && (
+                  {iAmTeamLead && goal.status === 'PENDING_APPROVAL' && (
                     <span className="text-xs text-indigo-600 bg-indigo-50 rounded px-2 py-1">팀장 1차 승인 단계</span>
                   )}
-                  {isLead && goal.status === 'PENDING_APPROVAL' && goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR' && (
-                    <span className="text-xs text-green-600 bg-green-50 rounded px-2 py-1">주요업무 팀장 최종 승인</span>
+                  {iAmHQHead && goal.status === 'LEAD_APPROVED' && (
+                    <span className="text-xs text-purple-600 bg-purple-50 rounded px-2 py-1">본부장 2차 승인 단계</span>
                   )}
-                  {isExec && goal.status === 'LEAD_APPROVED' && (
+                  {iAmExec && goal.status === 'LEAD_APPROVED' && (
                     <span className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">임원 최종 승인 단계</span>
                   )}
-                  {isExec && goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD' && (
+                  {iAmExec && goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD' && (
                     <span className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">팀장 목표 승인</span>
                   )}
                 </div>
@@ -574,5 +705,25 @@ export default function GoalDetailPage() {
         </div>
       </div>
     </div>
+
+    {/* 수정 폼 모달 — showEditForm일 때만 마운트하고 open={true} 고정
+        (false→true 전환 방식 대신 조건부 마운트로 Dialog가 반드시 열림) */}
+    {showEditForm && goal.goalType !== 'GENERAL' && (
+      <TaskGoalForm
+        open={true}
+        onClose={() => setShowEditForm(false)}
+        onSave={() => { setShowEditForm(false); load(); }}
+        editGoal={goal}
+      />
+    )}
+    {showEditForm && goal.goalType === 'GENERAL' && (
+      <GeneralGoalForm
+        open={true}
+        onClose={() => setShowEditForm(false)}
+        onSave={() => { setShowEditForm(false); load(); }}
+        editGoal={goal}
+      />
+    )}
+    </>
   );
 }
