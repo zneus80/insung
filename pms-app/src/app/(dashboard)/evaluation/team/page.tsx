@@ -260,7 +260,9 @@ function TeamLeadEvalView() {
                           {weeklyTasks.map(wt => {
                             const weekKey = `${member.id}_w${wt.weekNumber}`;
                             const isWeekOpen = expandedWeeks[weekKey] ?? false;
-                            const doneCount = wt.items.filter(i => i.status === 'DONE').length;
+                            const hdItems = wt.hasDoneItems ?? [];
+                            const wdItems = wt.willDoItems ?? [];
+                            const totalCount = hdItems.length + wdItems.length;
                             return (
                               <div key={wt.id} className="rounded-lg border bg-gray-50 overflow-hidden">
                                 <button
@@ -272,7 +274,8 @@ function TeamLeadEvalView() {
                                     <span className="text-xs text-gray-400">
                                       {wt.weekStart.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} ~ {wt.weekEnd.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
                                     </span>
-                                    <span className="text-xs text-gray-400">업무 {wt.items.length}건 · 완료 {doneCount}건</span>
+                                    <span className="text-xs text-green-600 font-medium">실적 {hdItems.length}건</span>
+                                    <span className="text-xs text-gray-400">계획 {wdItems.length}건</span>
                                   </div>
                                   {isWeekOpen
                                     ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" />
@@ -280,24 +283,38 @@ function TeamLeadEvalView() {
                                 </button>
                                 {isWeekOpen && (
                                   <div className="border-t px-3 py-2 space-y-1.5 bg-white">
-                                    {wt.items.length === 0 ? (
+                                    {totalCount === 0 ? (
                                       <p className="text-xs text-gray-400">등록된 업무가 없습니다.</p>
-                                    ) : wt.items.map(item => (
-                                      <div key={item.id} className="flex items-start gap-2 py-1">
-                                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium mt-0.5 ${
-                                          item.status === 'DONE' ? 'bg-green-100 text-green-700' :
-                                          item.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
-                                          'bg-gray-100 text-gray-500'
-                                        }`}>
-                                          {item.status === 'DONE' ? '완료' : item.status === 'IN_PROGRESS' ? '진행' : '예정'}
-                                        </span>
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-xs text-gray-800">{item.title}</p>
-                                          {item.result && <p className="text-xs text-gray-500 mt-0.5">{item.result}</p>}
-                                        </div>
-                                        <span className="shrink-0 text-xs text-gray-400">{item.achievement}%</span>
-                                      </div>
-                                    ))}
+                                    ) : (
+                                      <>
+                                        {hdItems.length > 0 && (
+                                          <div>
+                                            <p className="text-[10px] font-bold text-green-700 mb-1">Has Done — 이번 주 실적</p>
+                                            {hdItems.map(item => (
+                                              <div key={item.id} className="flex items-start gap-2 py-1">
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="text-xs text-gray-800">{item.title}</p>
+                                                  {item.content && <p className="text-xs text-gray-500 mt-0.5">{item.content}</p>}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {wdItems.length > 0 && (
+                                          <div className={hdItems.length > 0 ? 'border-t pt-1.5' : ''}>
+                                            <p className="text-[10px] font-bold text-gray-600 mb-1">Will Do — 다음 주 계획</p>
+                                            {wdItems.map(item => (
+                                              <div key={item.id} className="flex items-start gap-2 py-1">
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="text-xs text-gray-800">{item.title}</p>
+                                                  {item.content && <p className="text-xs text-gray-500 mt-0.5">{item.content}</p>}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </>
+                                    )}
                                     {wt.summary && (
                                       <div className="border-t pt-1.5 mt-1.5">
                                         <p className="text-xs text-gray-500"><span className="font-semibold">종합 의견: </span>{wt.summary}</p>
