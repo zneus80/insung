@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { createGoal, updateGoal, getOrganizations, createNotification } from '@/lib/firestore';
+import { createGoal, updateGoal, getOrganizations, createNotification, addGoalHistory } from '@/lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,6 +27,7 @@ export default function TaskGoalForm({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [modifyComment, setModifyComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -42,6 +43,7 @@ export default function TaskGoalForm({
       // 폼이 닫힐 때 스냅샷 초기화
       openedStatusRef.current = null;
       setError('');
+      setModifyComment('');
       return;
     }
     if (editGoal) {
@@ -130,6 +132,14 @@ export default function TaskGoalForm({
           ...payload,
           status: 'PENDING_MODIFY',
         });
+        await addGoalHistory({
+          goalId: editGoal.id,
+          changedBy: userProfile.id,
+          changeType: 'STATUS_CHANGED',
+          previousStatus: editGoal.status,
+          newStatus: 'PENDING_MODIFY',
+          comment: modifyComment.trim() ? `수정 요청: ${modifyComment.trim()}` : '수정 요청',
+        });
       } else {
         // 신규 목표 또는 승인된 목표의 임시저장(새 DRAFT 생성)
         const newGoalId = await createGoal({
@@ -211,23 +221,57 @@ export default function TaskGoalForm({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {/* 승인된 목표 수정 시 — 기존 내용 읽기전용 표시 */}
+          {isApprovedEdit && editGoal && (
+            <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">현재 내용 (변경 불가)</p>
+              <div className="space-y-1">
+                <p className="text-xs text-gray-400">목표명</p>
+                <p className="text-sm font-medium text-gray-700">{editGoal.title}</p>
+              </div>
+              {editGoal.description && (
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-400">세부내용</p>
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap line-clamp-3">{editGoal.description}</p>
+                </div>
+              )}
+              <div className="space-y-1">
+                <p className="text-xs text-gray-400">추진기한</p>
+                <p className="text-sm text-gray-600">{editGoal.dueDate.toLocaleDateString('ko-KR')}</p>
+              </div>
+            </div>
+          )}
+
           {/* 목표명 */}
           <div className="space-y-1.5">
-            <Label>목표명 <span className="text-red-500">*</span></Label>
+            <Label>{isApprovedEdit ? '수정할 목표명' : '목표명'} <span className="text-red-500">*</span></Label>
             <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 신제품 라인 생산성 10% 향상" />
           </div>
 
           {/* 세부내용 */}
           <div className="space-y-1.5">
-            <Label>세부내용 <span className="text-red-500">*</span></Label>
-            <Textarea rows={10} value={description} onChange={e => setDescription(e.target.value)} placeholder="구체적인 실행 계획을 입력하세요" />
+            <Label>{isApprovedEdit ? '수정할 세부내용' : '세부내용'} <span className="text-red-500">*</span></Label>
+            <Textarea rows={isApprovedEdit ? 5 : 10} value={description} onChange={e => setDescription(e.target.value)} placeholder="구체적인 실행 계획을 입력하세요" />
           </div>
 
           {/* 추진기한 */}
           <div className="space-y-1.5">
-            <Label>추진기한 <span className="text-red-500">*</span></Label>
+            <Label>{isApprovedEdit ? '수정할 추진기한' : '추진기한'} <span className="text-red-500">*</span></Label>
             <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </div>
+
+          {/* 수정 요청 의견 (승인된 목표 수정 시) */}
+          {isApprovedEdit && (
+            <div className="space-y-1.5">
+              <Label>수정 요청 의견 <span className="text-gray-400 font-normal text-xs">(선택)</span></Label>
+              <Textarea
+                rows={2}
+                value={modifyComment}
+                onChange={e => setModifyComment(e.target.value)}
+                placeholder="수정을 요청하는 이유를 입력하세요"
+              />
+            </div>
+          )}
 
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>

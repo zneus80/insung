@@ -68,8 +68,18 @@ export default function GoalDetailPage() {
 
   const [newProgress, setNewProgress] = useState(0);
   const [progressComment, setProgressComment] = useState('');
+  // 반려 의견
   const [rejectComment, setRejectComment] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+  // 승인 의견 (E1)
+  const [approveComment, setApproveComment] = useState('');
+  const [showApproveInput, setShowApproveInput] = useState(false);
+  // 승인요청 의견 (요청자)
+  const [approvalRequestComment, setApprovalRequestComment] = useState('');
+  const [showApprovalRequestInput, setShowApprovalRequestInput] = useState(false);
+  // 포기요청 의견 (E3)
+  const [abandonComment, setAbandonComment] = useState('');
+  const [showAbandonInput, setShowAbandonInput] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
 
   async function load() {
@@ -123,8 +133,10 @@ export default function GoalDetailPage() {
         goalId: id, changedBy: userProfile.id,
         changeType: 'STATUS_CHANGED',
         previousStatus: goal.status, newStatus: 'PENDING_APPROVAL',
-        comment: '승인 요청',
+        comment: approvalRequestComment.trim() ? `승인 요청: ${approvalRequestComment.trim()}` : '승인 요청',
       });
+      setApprovalRequestComment('');
+      setShowApprovalRequestInput(false);
       toast.success('팀장에게 승인 요청을 보냈습니다.');
       await load();
     } finally { setActionLoading(false); }
@@ -155,9 +167,11 @@ export default function GoalDetailPage() {
         goalId: id, changedBy: userProfile.id,
         changeType: 'STATUS_CHANGED',
         previousStatus: goal.status, newStatus: 'PENDING_ABANDON',
-        comment: '포기 요청',
+        comment: abandonComment.trim() ? `포기 요청: ${abandonComment.trim()}` : '포기 요청',
       });
-      toast.success('팀장에게 포기 요청을 보냈습니다.');
+      setAbandonComment('');
+      setShowAbandonInput(false);
+      toast.success('포기 요청을 보냈습니다.');
       await load();
     } finally { setActionLoading(false); }
   }
@@ -282,8 +296,10 @@ export default function GoalDetailPage() {
         goalId: id, changedBy: userProfile.id,
         changeType: 'APPROVED',
         previousStatus: goal.status, newStatus,
-        comment: successMsg,
+        comment: approveComment.trim() ? `${successMsg} / 의견: ${approveComment.trim()}` : successMsg,
       });
+      setApproveComment('');
+      setShowApproveInput(false);
       toast.success(successMsg);
       await load();
     } finally { setActionLoading(false); }
@@ -382,7 +398,8 @@ export default function GoalDetailPage() {
   const canRequestApproval = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
   const canWithdraw = isOwner && goal.status === 'PENDING_APPROVAL';
   const canRequestCompletion = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
-  const canRequestAbandon = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
+  const canRequestAbandon = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status) && !showAbandonInput;
+  const canRequestModify = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
   const canUpdateProgress = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
 
   // 팀장: PENDING_APPROVAL 목표 (팀원 것)
@@ -526,61 +543,115 @@ export default function GoalDetailPage() {
               <Progress value={goal.progress} className="h-2" />
             </div>
 
-            {(canEdit || canDelete || canRequestApproval || canWithdraw || canRequestCompletion || canRequestAbandon) && (
-              <div className="flex gap-2 pt-2 border-t flex-wrap">
-                {canEdit && (
-                  <Button
-                    onClick={() => setShowEditForm(true)} disabled={actionLoading} size="sm" variant="outline"
-                    className="gap-1.5"
-                  >
-                    <Pencil className="h-4 w-4" /> 수정
-                  </Button>
+            {(canEdit || canDelete || canRequestApproval || canWithdraw || canRequestCompletion || canRequestAbandon || canRequestModify) && (
+              <div className="space-y-3 pt-2 border-t">
+                <div className="flex gap-2 flex-wrap">
+                  {canEdit && (
+                    <Button
+                      onClick={() => setShowEditForm(true)} disabled={actionLoading} size="sm" variant="outline"
+                      className="gap-1.5"
+                    >
+                      <Pencil className="h-4 w-4" /> 수정
+                    </Button>
+                  )}
+                  {canRequestModify && (
+                    <Button
+                      onClick={() => setShowEditForm(true)} disabled={actionLoading} size="sm" variant="outline"
+                      className="gap-1.5"
+                    >
+                      <Pencil className="h-4 w-4" /> 수정 요청
+                    </Button>
+                  )}
+                  {canDelete && (
+                    <Button
+                      onClick={handleDelete} disabled={actionLoading} size="sm" variant="outline"
+                      className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4" /> 삭제
+                    </Button>
+                  )}
+                  {canRequestApproval && (
+                    <Button
+                      onClick={() => setShowApprovalRequestInput(v => !v)}
+                      disabled={actionLoading} size="sm" className="gap-1.5"
+                    >
+                      {goal.status === 'REJECTED'
+                        ? <><RefreshCw className="h-4 w-4" /> 재 승인요청</>
+                        : <><Send className="h-4 w-4" /> 승인 요청</>
+                      }
+                    </Button>
+                  )}
+                  {canWithdraw && (
+                    <Button
+                      onClick={withdrawApproval} disabled={actionLoading} size="sm" variant="outline"
+                      className="gap-1.5 text-orange-600 border-orange-300 hover:bg-orange-50"
+                    >
+                      <XCircle className="h-4 w-4" /> 승인 요청 회수
+                    </Button>
+                  )}
+                  {canRequestCompletion && (
+                    <Button
+                      onClick={requestCompletion} disabled={actionLoading} size="sm"
+                      className="gap-1.5 bg-purple-600 hover:bg-purple-700"
+                    >
+                      <Flag className="h-4 w-4" /> 완료 요청
+                    </Button>
+                  )}
+                  {canRequestAbandon && (
+                    <Button
+                      onClick={() => setShowAbandonInput(v => !v)}
+                      disabled={actionLoading} variant="outline" size="sm"
+                      className="gap-1.5 text-orange-600 border-orange-300 hover:bg-orange-50"
+                    >
+                      <XCircle className="h-4 w-4" /> 포기 요청
+                    </Button>
+                  )}
+                </div>
+
+                {/* 승인요청 의견 입력 */}
+                {showApprovalRequestInput && (
+                  <div className="space-y-2 rounded-lg bg-gray-50 p-3">
+                    <p className="text-xs font-medium text-gray-600">승인 요청 의견 <span className="text-gray-400">(선택)</span></p>
+                    <Textarea
+                      placeholder="승인 요청 시 전달할 의견을 입력하세요"
+                      value={approvalRequestComment}
+                      onChange={e => setApprovalRequestComment(e.target.value)}
+                      rows={2}
+                    />
+                    <div className="flex gap-2">
+                      <Button onClick={requestApproval} disabled={actionLoading} size="sm" className="gap-1.5">
+                        <Send className="h-4 w-4" /> 요청 확정
+                      </Button>
+                      <Button onClick={() => { setShowApprovalRequestInput(false); setApprovalRequestComment(''); }} variant="outline" size="sm">취소</Button>
+                    </div>
+                  </div>
                 )}
-                {canDelete && (
-                  <Button
-                    onClick={handleDelete} disabled={actionLoading} size="sm" variant="outline"
-                    className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50"
-                  >
-                    <Trash2 className="h-4 w-4" /> 삭제
-                  </Button>
-                )}
-                {canRequestApproval && (
-                  <Button onClick={requestApproval} disabled={actionLoading} size="sm" className="gap-1.5">
-                    {goal.status === 'REJECTED'
-                      ? <><RefreshCw className="h-4 w-4" /> 재 승인요청</>
-                      : <><Send className="h-4 w-4" /> 승인 요청</>
-                    }
-                  </Button>
-                )}
-                {canWithdraw && (
-                  <Button
-                    onClick={withdrawApproval} disabled={actionLoading} size="sm" variant="outline"
-                    className="gap-1.5 text-orange-600 border-orange-300 hover:bg-orange-50"
-                  >
-                    <XCircle className="h-4 w-4" /> 승인 요청 회수
-                  </Button>
-                )}
-                {canRequestCompletion && (
-                  <Button
-                    onClick={requestCompletion} disabled={actionLoading} size="sm"
-                    className="gap-1.5 bg-purple-600 hover:bg-purple-700"
-                  >
-                    <Flag className="h-4 w-4" /> 완료 요청
-                  </Button>
-                )}
-                {canRequestAbandon && (
-                  <Button
-                    onClick={requestAbandon} disabled={actionLoading} variant="outline" size="sm"
-                    className="gap-1.5 text-orange-600 border-orange-300 hover:bg-orange-50"
-                  >
-                    <XCircle className="h-4 w-4" /> 포기 요청
-                  </Button>
+
+                {/* 포기요청 의견 입력 */}
+                {showAbandonInput && (
+                  <div className="space-y-2 rounded-lg bg-orange-50 border border-orange-200 p-3">
+                    <p className="text-xs font-medium text-orange-700">포기 요청 의견 <span className="text-orange-400">(선택)</span></p>
+                    <Textarea
+                      placeholder="포기 요청 사유를 입력하세요"
+                      value={abandonComment}
+                      onChange={e => setAbandonComment(e.target.value)}
+                      rows={2}
+                    />
+                    <div className="flex gap-2">
+                      <Button onClick={requestAbandon} disabled={actionLoading} size="sm"
+                        className="gap-1.5 bg-orange-500 hover:bg-orange-600">
+                        <XCircle className="h-4 w-4" /> 포기 요청 확정
+                      </Button>
+                      <Button onClick={() => { setShowAbandonInput(false); setAbandonComment(''); }} variant="outline" size="sm">취소</Button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
 
             {canApprove && (
               <div className="space-y-3 pt-2 border-t">
+                {/* 승인 단계 레이블 */}
                 <div className="flex items-center gap-2">
                   {iAmTeamLead && goal.status === 'PENDING_APPROVAL' && (
                     <span className="text-xs text-indigo-600 bg-indigo-50 rounded px-2 py-1">팀장 1차 승인 단계</span>
@@ -595,35 +666,69 @@ export default function GoalDetailPage() {
                     <span className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">팀장 목표 승인</span>
                   )}
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={approveGoal} disabled={actionLoading} size="sm"
-                    className="gap-1.5 bg-green-600 hover:bg-green-700"
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    {getApproveLabel()}
-                  </Button>
-                  {canReject && (
+
+                {/* 승인 의견 입력 (E1) */}
+                {showApproveInput ? (
+                  <div className="space-y-2 rounded-lg bg-green-50 border border-green-200 p-3">
+                    <p className="text-xs font-medium text-green-700">
+                      승인 의견 <span className="text-green-500">(선택)</span>
+                    </p>
+                    <Textarea
+                      placeholder="승인 의견을 입력하세요"
+                      value={approveComment}
+                      onChange={e => setApproveComment(e.target.value)}
+                      rows={2}
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={approveGoal} disabled={actionLoading} size="sm"
+                        className="gap-1.5 bg-green-600 hover:bg-green-700"
+                      >
+                        <CheckCircle2 className="h-4 w-4" /> {getApproveLabel()} 확정
+                      </Button>
+                      <Button onClick={() => { setShowApproveInput(false); setApproveComment(''); }} variant="outline" size="sm">취소</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
                     <Button
-                      onClick={() => setShowRejectInput(v => !v)} disabled={actionLoading}
-                      variant="outline" size="sm"
-                      className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50"
+                      onClick={() => setShowApproveInput(true)} disabled={actionLoading} size="sm"
+                      className="gap-1.5 bg-green-600 hover:bg-green-700"
                     >
-                      <XCircle className="h-4 w-4" /> 반려
+                      <CheckCircle2 className="h-4 w-4" />
+                      {getApproveLabel()}
                     </Button>
-                  )}
-                </div>
+                    {canReject && (
+                      <Button
+                        onClick={() => setShowRejectInput(v => !v)} disabled={actionLoading}
+                        variant="outline" size="sm"
+                        className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50"
+                      >
+                        <XCircle className="h-4 w-4" /> 반려
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {/* 반려 의견 입력 (E2) */}
                 {showRejectInput && (
-                  <div className="space-y-2">
+                  <div className="space-y-2 rounded-lg bg-red-50 border border-red-200 p-3">
+                    <p className="text-xs font-medium text-red-700">
+                      {iAmTeamLead ? '1차 반려 의견' : iAmHQHead ? '2차 반려 의견' : '최종 반려 의견'}
+                      <span className="text-red-400 ml-1">(필수)</span>
+                    </p>
                     <Textarea
                       placeholder="반려 사유를 입력하세요"
                       value={rejectComment}
                       onChange={e => setRejectComment(e.target.value)}
                       rows={3}
                     />
-                    <Button onClick={rejectGoal} disabled={actionLoading} size="sm" variant="destructive">
-                      반려 확정
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button onClick={rejectGoal} disabled={actionLoading} size="sm" variant="destructive">
+                        반려 확정
+                      </Button>
+                      <Button onClick={() => { setShowRejectInput(false); setRejectComment(''); }} variant="outline" size="sm">취소</Button>
+                    </div>
                   </div>
                 )}
               </div>
