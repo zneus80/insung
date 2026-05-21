@@ -65,7 +65,9 @@ export default function GoalCard({ goal, onEdit, onTrash, onWithdraw, onResubmit
         )}
 
         {/* ── 설명 ── */}
-        <p className="text-sm text-gray-500 line-clamp-2 mt-1 mb-3">{goal.description}</p>
+        {goal.description && (
+          <p className="text-sm text-gray-500 line-clamp-2 mt-1 mb-2">{goal.description}</p>
+        )}
 
         {/* ── 진행률 ── */}
         <div className="space-y-1 mb-3">
