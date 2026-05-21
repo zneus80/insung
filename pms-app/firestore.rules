@@ -163,15 +163,18 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && (
+        // 본인 문서 수정
         resource.data.userId == request.auth.uid
         ||
+        // 팀장·임원이 leadComments 추가 — 소유권·업무 데이터 변경 불가
         (
-          request.resource.data.userId        == resource.data.userId        &&
+          request.resource.data.userId         == resource.data.userId         &&
           request.resource.data.organizationId == resource.data.organizationId &&
-          request.resource.data.year          == resource.data.year          &&
-          request.resource.data.weekNumber    == resource.data.weekNumber    &&
-          request.resource.data.items         == resource.data.items         &&
-          request.resource.data.summary       == resource.data.summary
+          request.resource.data.year           == resource.data.year           &&
+          request.resource.data.weekNumber     == resource.data.weekNumber     &&
+          request.resource.data.hasDoneItems   == resource.data.hasDoneItems   &&
+          request.resource.data.willDoItems    == resource.data.willDoItems    &&
+          request.resource.data.summary        == resource.data.summary
         )
       );
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
