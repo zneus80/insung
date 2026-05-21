@@ -14,6 +14,7 @@ import {
   getProgressUpdates,
   getUser,
   getOrganizations,
+  createNotification,
   COLLECTIONS,
 } from '@/lib/firestore';
 import TaskGoalForm from '@/components/goals/TaskGoalForm';
@@ -298,6 +299,37 @@ export default function GoalDetailPage() {
         previousStatus: goal.status, newStatus,
         comment: approveComment.trim() ? `${successMsg} / 의견: ${approveComment.trim()}` : successMsg,
       });
+
+      // ── 결재 체인 알림: 승인 후 다음 결재자에게 알림 발송 ──
+      try {
+        const hqLeadId = hasHQInChain ? (hqOrg?.leaderId ?? null) : null;
+        const execId   = divOrg?.leaderId ?? (!divOrg ? hqOrg?.leaderId : null) ?? null;
+
+        let chainNotifyId: string | null = null;
+        let chainMsg = '';
+
+        if (iAmTeamLead && newStatus === 'LEAD_APPROVED') {
+          // 팀장 1차 승인 → HQ 있으면 본부장, 없으면 임원에게
+          chainNotifyId = hasHQInChain ? hqLeadId : execId;
+          chainMsg = `${goalOwner.name}님의 '${goal.title}' 목표 ${hasHQInChain ? '2차' : '최종'} 승인이 필요합니다.`;
+        } else if (iAmHQHead && goal.status === 'LEAD_APPROVED') {
+          // 본부장 2차 승인 → 임원에게
+          chainNotifyId = execId;
+          chainMsg = `${goalOwner.name}님의 '${goal.title}' 목표 최종 승인이 필요합니다.`;
+        }
+
+        if (chainNotifyId && chainNotifyId !== userProfile.id) {
+          await createNotification({
+            userId: chainNotifyId,
+            goalId: id,
+            goalTitle: goal.title,
+            type: 'GOAL_SUBMITTED',
+            message: chainMsg,
+            read: false,
+          });
+        }
+      } catch { /* 알림 실패는 조용히 처리 */ }
+
       setApproveComment('');
       setShowApproveInput(false);
       toast.success(successMsg);
