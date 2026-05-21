@@ -194,7 +194,7 @@ export default function TaskGoalForm({
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
-        className="max-w-3xl"
+        className="max-w-3xl [&>button:last-child]:hidden"
       >
         <DialogHeader>
           <div className="flex items-center justify-between">

@@ -70,16 +70,48 @@ function MyGoalsView() {
     if (!userProfile) return;
     setTeamLoading(true);
     try {
+      // 같은 조직 구성원 전체 조회 (팀장 포함)
+      const [orgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
+      const myOrg = orgs.find(o => o.id === userProfile!.organizationId);
+
+      // 같은 조직 + 조직 리더(leaderId)까지 포함 (팀장이 다른 org에 속하는 경우 대비)
+      const teamMemberIds = new Set(
+        allUsers
+          .filter(u => u.organizationId === userProfile!.organizationId && u.id !== userProfile!.id)
+          .map(u => u.id)
+      );
+      if (myOrg?.leaderId && myOrg.leaderId !== userProfile!.id) {
+        teamMemberIds.add(myOrg.leaderId);
+      }
+
       const list = await getGoalsByOrganization(userProfile.organizationId, year);
-      // DRAFT 제외, ABANDONED는 포기 승인된 것(approvedBy 있음)만 표시
-      const active = list.filter(g => g.userId !== userProfile!.id && g.status !== 'DRAFT' && (g.status !== 'ABANDONED' || !!g.approvedBy));
+
+      // 팀장이 다른 org인 경우 별도 조회
+      let extraGoals: Goal[] = [];
+      if (myOrg?.leaderId && myOrg.leaderId !== userProfile!.id) {
+        const leadUser = allUsers.find(u => u.id === myOrg!.leaderId);
+        if (leadUser && leadUser.organizationId !== userProfile!.organizationId) {
+          const leadGoals = await getGoalsByUser(leadUser.id, year);
+          extraGoals = leadGoals;
+        }
+      }
+
+      const combined = [...list, ...extraGoals];
+      // 자신 제외, DRAFT/PENDING_APPROVAL/LEAD_APPROVED 제외, ABANDONED는 승인된 것만 표시
+      const active = combined.filter(g =>
+        teamMemberIds.has(g.userId) &&
+        !['DRAFT', 'PENDING_APPROVAL', 'LEAD_APPROVED'].includes(g.status) &&
+        (g.status !== 'ABANDONED' || !!g.approvedBy)
+      );
       setTeamGoals(active);
 
       // 팀원 프로필 조회
       const uniqueIds = [...new Set(active.map(g => g.userId))];
-      const fetched = await Promise.all(uniqueIds.map(uid => getUser(uid)));
       const map: Record<string, User> = {};
-      uniqueIds.forEach((uid, i) => { if (fetched[i]) map[uid] = fetched[i]!; });
+      uniqueIds.forEach(uid => {
+        const u = allUsers.find(u => u.id === uid);
+        if (u) map[uid] = u;
+      });
       setTeamUsers(map);
 
       // 첫 번째 멤버 기본 펼침

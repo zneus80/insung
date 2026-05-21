@@ -18,7 +18,7 @@ import {
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Target, TrendingUp, CheckCircle, Clock, Users, ArrowRight, Building2, LayoutList, Bell } from 'lucide-react';
+import { Target, TrendingUp, CheckCircle, Clock, Users, ArrowRight, Building2, LayoutList, Bell, ChevronRight } from 'lucide-react';
 import GoalCard from '@/components/goals/GoalCard';
 import MileageCard from '@/components/mileage/MileageCard';
 import { OrgTreeNode, buildTree, findDescendantIds, avgProgress } from '@/components/goals/OrgGoalTree';
@@ -288,18 +288,22 @@ function ExecDashboard() {
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [treeNodes, setTreeNodes] = useState<ReturnType<typeof buildTree>>([]);
   const [orgSummaries, setOrgSummaries] = useState<OrgSummary[]>([]);
+  const [recentAnnouncements, setRecentAnnouncements] = useState<Announcement[]>([]);
+  const [expandedAnnouncementId, setExpandedAnnouncementId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userProfile) return;
     async function load() {
       try {
-        const [allUsers, allOrgs, allGoals, cGoal] = await Promise.all([
+        const [allUsers, allOrgs, allGoals, cGoal, announcements] = await Promise.all([
             getAllUsers(),
             getOrganizations(),
             getAllGoalsByYear(year),
             getAnnualGoal('company', year),
+            getAnnouncements(),
           ]);
           setCompanyGoal(cGoal);
+          setRecentAnnouncements(announcements.slice(0, 3));
 
           // 임원: 자신이 책임진 조직 산하만 / CEO: 전체
           const scopeOrgIds = userProfile!.role === 'EXECUTIVE'
@@ -362,6 +366,52 @@ function ExecDashboard() {
             <p className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">{companyGoal.content}</p>
           </div>
         )}
+
+        {/* 공지사항 위젯 */}
+        <div className="rounded-xl border bg-white overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b">
+            <div className="flex items-center gap-2">
+              <Bell className="h-4 w-4 text-gray-500" />
+              <span className="text-sm font-semibold text-gray-700">공지사항</span>
+            </div>
+            <Link href="/announcements" className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
+              전체보기 <ChevronRight className="h-3 w-3" />
+            </Link>
+          </div>
+          {loading ? (
+            <div className="px-5 py-4 space-y-2">
+              {[1, 2].map(i => <div key={i} className="h-8 animate-pulse rounded bg-gray-100" />)}
+            </div>
+          ) : recentAnnouncements.length === 0 ? (
+            <div className="px-5 py-6 text-center">
+              <p className="text-sm text-gray-400">등록된 공지사항이 없습니다.</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {recentAnnouncements.map(a => (
+                <div key={a.id}>
+                  <button
+                    className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors text-left"
+                    onClick={() => setExpandedAnnouncementId(prev => prev === a.id ? null : a.id)}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {a.isPinned && <span className="text-sm">📌</span>}
+                      <span className="text-sm font-medium text-gray-900 truncate">{a.title}</span>
+                    </div>
+                    <span className="text-xs text-gray-400 ml-3 shrink-0">
+                      {a.createdAt.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })}
+                    </span>
+                  </button>
+                  {expandedAnnouncementId === a.id && (
+                    <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{a.content}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* 조직 트리 상세 */}
         <div>
