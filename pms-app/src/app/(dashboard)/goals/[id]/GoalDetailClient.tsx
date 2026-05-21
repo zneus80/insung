@@ -411,15 +411,14 @@ export default function GoalDetailPage() {
   //   DIVISION 없는 HQ head(e.g. COMPANY→HQ→TEAM)는 최종 승인자(iAmExec)로 처리
   const iAmHQHead = !iAmTeamLead && !!divOrg && (hqOrg?.leaderId === userProfile.id);
 
-  // 최종 승인자: 팀장·본부장이 아닌 경우에만
+  // 최종 승인자: 팀장·본부장이 아닌 경우에만 (CEO는 승인 권한 없음)
   //   1) DIVISION leaderId 일치
   //   2) HQ leaderId 일치 + DIVISION 없음 (HQ가 최종 레벨인 구조)
-  //   3) role 기반 fallback (EXECUTIVE/CEO) — leaderId 미설정 환경
-  const iAmExec = !iAmTeamLead && !iAmHQHead && (
+  //   3) role 기반 fallback (EXECUTIVE만) — leaderId 미설정 환경
+  const iAmExec = !iAmTeamLead && !iAmHQHead && userProfile.role !== 'CEO' && (
     divOrg?.leaderId === userProfile.id ||
     (!divOrg && hqOrg?.leaderId === userProfile.id) ||
-    userProfile.role === 'EXECUTIVE' ||
-    userProfile.role === 'CEO'
+    userProfile.role === 'EXECUTIVE'
   );
 
   // 실질적 HQ 중간 승인 단계: HQ와 DIVISION 모두 존재할 때만
