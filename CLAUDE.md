@@ -1,10 +1,12 @@
 # 사내 평가 시스템 기획서
 
-- **버전**: Draft v0.6
+- **버전**: Draft v0.71
 - **기술 스택**: React / Next.js
 - **작성자**: —
-- **최종 수정**: 2025
-- **변경 이력**: v0.6 — 개선 및 추가 개발 사항 섹션 추가, 임원 평가결과확인 제거
+- **최종 수정**: 2026-05
+- **변경 이력**:
+  - v0.71 — E7 주간업무 Has Done/Will Do 개편, MemberInfoModal 전사 적용, HR 조직관리 멤버 펼쳐보기, 임원 대시보드 핵심목표업무 표시, 진행현황 목표 상세 링크 연결
+  - v0.6 — 개선 및 추가 개발 사항 섹션 추가, 임원 평가결과확인 제거
 
 ---
 
@@ -362,3 +364,33 @@ npm run build      # 정적 빌드 (Firebase Hosting 배포용)
 - 역할 체크는 반드시 `userProfile.role` 사용
 - 동적 라우트(`[id]`)는 `generateStaticParams`에 placeholder `{ id: '_' }` 포함 필요 (static export 조건)
 - Sidebar active 판별: `exact: true` 항목은 pathname 정확 일치만 적용 (trailingSlash 처리 포함)
+
+---
+
+## 개발 이력
+
+### v0.71 (2026-05) — 기능 보완
+
+#### E7. 주간업무 Has Done / Will Do 개편
+- `tasks/page.tsx` 전면 재작성: `SimpleItemForm` (제목+내용만), `WeeklyReport`, `TeamWeeklyView`, `OrgTasksView`
+- `WeeklyTask` 타입: `hasDoneItems` / `willDoItems` (기존 `items` 제거)
+- 이전 주 `willDoItems` → 이번 주 `hasDoneItems` 자동 이월
+- `editingKey` 패턴: `'hd-new'` / `'wd-new'` / `'hd-{uuid}'` / `'wd-{uuid}'`
+- Firestore 규칙 업데이트: `weeklyTasks` update 조건을 `hasDoneItems`/`willDoItems` 기준으로 수정 후 배포
+- 평가 페이지(`evaluation/page.tsx`, `evaluation/team/page.tsx`)도 동일 필드 기준으로 업데이트
+
+#### 전사 MemberInfoModal 적용
+- 앱 전체 사용자 이름 클릭 → 프로필 모달 (`MemberInfoModal` 컴포넌트)
+- 적용 파일: `admin/mileage`, `admin/users`, `evaluation`, `evaluation/result/all`, `mentoring/all`, `oneon1/[id]`, `tasks` (TeamWeeklyView·OrgTasksView), `OrgGoalTree`
+
+#### HR 조직관리 멤버 펼쳐보기
+- `admin/organizations/page.tsx`: 인원 수 클릭 → 구성원 카드 서브 행 토글
+- 카드 표시 항목: 아바타, 이름(MemberInfoModal), 직책, 역할, 초대대기 여부
+
+#### 임원 대시보드 핵심목표업무 표시
+- `dashboard/page.tsx`: `getAllOrgAnnualGoals(year)` fetch → `orgGoalMap` 생성
+- `OrgGoalTree.tsx` `OrgTreeNode`: `orgGoalMap` prop 추가, 조직 행 아래 초록 배지로 연간목표 표시
+
+#### 임원 진행현황 목표 상세 링크
+- `progress/leads/page.tsx`, `progress/members/page.tsx`: 목표 행 `<div>` → `<Link href="/goals/[id]">`
+- 기존 `goals/[id]` 상세 페이지의 진행 코멘트·임원 승인/반려 기능 그대로 활용
