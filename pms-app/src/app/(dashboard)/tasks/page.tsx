@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getWeeklyTask,
-  upsertWeeklyTask,
+  upsertWeeklyTaskSections,
   addLeadComment,
   getWeeklyTasksByUsersAndWeek,
   getUsersByOrganization,
@@ -15,13 +15,12 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, ChevronDown, X, Save, CheckCircle2,
+  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
 import type {
-  WeeklyTask, WeeklyTaskItem, WeeklyTaskStatus, WeeklyTaskCategory,
-  LeadCommentEntry, User, Organization,
+  WeeklyTask, SimpleTaskItem, LeadCommentEntry, User, Organization,
 } from '@/types';
 
 // ── 주차 유틸 ──────────────────────────────────────────────
@@ -56,33 +55,8 @@ function nextWeek(year: number, week: number) {
   return { year, week: week + 1 };
 }
 
-// ── 분류 설정 ──────────────────────────────────────────────
-const CATEGORY_OPTIONS: { value: WeeklyTaskCategory; label: string; color: string }[] = [
-  { value: 'CORE',     label: '핵심업무', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  { value: 'GENERAL',  label: '일반업무', color: 'bg-gray-100 text-gray-600 border-gray-200' },
-  { value: 'MEETING',  label: '회의/협업', color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  { value: 'TRAINING', label: '교육/개발', color: 'bg-green-100 text-green-700 border-green-200' },
-  { value: 'OTHER',    label: '기타',    color: 'bg-orange-100 text-orange-700 border-orange-200' },
-];
-const CATEGORY_MAP = Object.fromEntries(CATEGORY_OPTIONS.map(c => [c.value, c])) as Record<WeeklyTaskCategory, typeof CATEGORY_OPTIONS[0]>;
-
-// ── 상태 설정 ──────────────────────────────────────────────
-const STATUS_OPTIONS: { value: WeeklyTaskStatus; label: string; color: string }[] = [
-  { value: 'PLANNED',     label: '계획',   color: 'bg-gray-100 text-gray-500' },
-  { value: 'IN_PROGRESS', label: '진행 중', color: 'bg-blue-100 text-blue-700' },
-  { value: 'DONE',        label: '완료',   color: 'bg-green-100 text-green-700' },
-];
-const STATUS_MAP = Object.fromEntries(STATUS_OPTIONS.map(s => [s.value, s])) as Record<WeeklyTaskStatus, typeof STATUS_OPTIONS[0]>;
-
-// ── 기본 빈 아이템 ─────────────────────────────────────────
-const EMPTY_ITEM = (): Omit<WeeklyTaskItem, 'id'> => ({
-  category: 'GENERAL',
-  title: '',
-  content: '',
-  result: '',
-  achievement: 0,
-  status: 'PLANNED',
-});
+// ── 빈 간단 아이템 ─────────────────────────────────────────
+const EMPTY_SIMPLE = (): Omit<SimpleTaskItem, 'id'> => ({ title: '', content: '' });
 
 // ── 메인 라우터 ────────────────────────────────────────────
 export default function TasksPage() {
@@ -320,166 +294,40 @@ function WeekNav({ year, week, start, end, isCurrentWeek, saveStatus, onPrev, on
   );
 }
 
-// ── 업무 추가/수정 폼 (인라인) ─────────────────────────────
-function ItemForm({
+// ── 간단 업무 폼 ──────────────────────────────────────────
+function SimpleItemForm({
   value, onChange, onSave, onCancel, isNew,
 }: {
-  value: Omit<WeeklyTaskItem, 'id'>;
-  onChange: (v: Omit<WeeklyTaskItem, 'id'>) => void;
+  value: Omit<SimpleTaskItem, 'id'>;
+  onChange: (v: Omit<SimpleTaskItem, 'id'>) => void;
   onSave: () => void;
   onCancel: () => void;
   isNew: boolean;
 }) {
-  const set = (patch: Partial<Omit<WeeklyTaskItem, 'id'>>) => {
-    let next = { ...value, ...patch };
-
-    // 상태 변경 → 달성률 자동 조정
-    if (patch.status !== undefined) {
-      if (patch.status === 'PLANNED') {
-        next.achievement = 0;
-      } else if (patch.status === 'DONE') {
-        next.achievement = 100;
-      }
-    }
-
-    // 달성률 변경 → 상태 자동 조정
-    if (patch.achievement !== undefined) {
-      if (patch.achievement === 100) {
-        next.status = 'DONE';
-      } else if (patch.achievement === 0) {
-        next.status = 'PLANNED';
-      } else if (next.status === 'PLANNED' || next.status === 'DONE') {
-        // 1~99 → 진행 중으로 전환
-        next.status = 'IN_PROGRESS';
-      }
-    }
-
-    onChange(next);
-  };
-
   return (
-    <div className="rounded-xl border-2 border-blue-200 bg-blue-50/30 p-5 space-y-4">
-      <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
-        {isNew ? '업무 추가' : '업무 수정'}
-      </p>
-
-      {/* 분류 + 상태 */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-600">업무 분류</label>
-          <div className="flex gap-1.5 flex-wrap">
-            {CATEGORY_OPTIONS.map(c => (
-              <button key={c.value} type="button"
-                onClick={() => set({ category: c.value })}
-                className={cn('rounded-full border px-3 py-1 text-xs font-medium transition-all',
-                  value.category === c.value ? c.color + ' ring-2 ring-offset-1 ring-blue-400' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
-                )}>
-                {c.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-600">상태</label>
-          <div className="flex gap-1.5 flex-wrap">
-            {STATUS_OPTIONS.map(s => (
-              <button key={s.value} type="button"
-                onClick={() => set({ status: s.value })}
-                className={cn('rounded-full px-3 py-1 text-xs font-medium transition-all',
-                  value.status === s.value ? s.color + ' ring-2 ring-offset-1 ring-blue-400' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                )}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* 업무명 */}
+    <div className="rounded-xl border-2 border-blue-200 bg-blue-50/30 p-4 space-y-3">
+      <p className="text-xs font-semibold text-blue-700">{isNew ? '업무 추가' : '업무 수정'}</p>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-gray-600">업무명 <span className="text-red-400">*</span></label>
         <input
           type="text"
           value={value.title}
-          onChange={e => set({ title: e.target.value })}
+          onChange={e => onChange({ ...value, title: e.target.value })}
           placeholder="업무명을 입력하세요"
           className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
         />
       </div>
-
-      {/* 업무 내용 + 실적/결과 */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-600">업무 내용</label>
-          <textarea
-            rows={3}
-            value={value.content}
-            onChange={e => set({ content: e.target.value })}
-            placeholder="업무 내용을 상세히 기술하세요"
-            className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-600">
-            실적 / 결과
-            {value.status === 'PLANNED' && (
-              <span className="ml-2 text-gray-300 font-normal">(계획 상태에서는 입력 불가)</span>
-            )}
-          </label>
-          <textarea
-            rows={3}
-            disabled={value.status === 'PLANNED'}
-            value={value.status === 'PLANNED' ? '' : value.result}
-            onChange={e => set({ result: e.target.value })}
-            placeholder={value.status === 'PLANNED' ? '-' : '이번 주 실적 및 결과를 기록하세요'}
-            className={cn(
-              'w-full resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none placeholder:text-gray-300',
-              value.status === 'PLANNED'
-                ? 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed'
-                : 'border-gray-200 focus:ring-2 focus:ring-blue-500'
-            )}
-          />
-        </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-gray-600">업무 상세내용</label>
+        <textarea
+          rows={3}
+          value={value.content}
+          onChange={e => onChange({ ...value, content: e.target.value })}
+          placeholder="업무 상세내용을 입력하세요"
+          className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
+        />
       </div>
-
-      {/* 달성률 */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-gray-600">달성률</label>
-          <span className="text-sm font-bold text-blue-600">{value.achievement}%</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="range" min={0} max={100} step={5}
-            value={value.achievement}
-            onChange={e => set({ achievement: Number(e.target.value) })}
-            className="flex-1 accent-blue-600"
-          />
-          <div className="flex gap-1">
-            {[0, 25, 50, 75, 100].map(v => (
-              <button key={v} type="button"
-                onClick={() => set({ achievement: v })}
-                className={cn('rounded px-1.5 py-0.5 text-xs transition-colors',
-                  value.achievement === v ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                )}>
-                {v}%
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-          <div
-            className={cn('h-full rounded-full transition-all',
-              value.achievement >= 100 ? 'bg-green-500' :
-              value.achievement >= 75 ? 'bg-blue-500' :
-              value.achievement >= 50 ? 'bg-yellow-500' : 'bg-red-400'
-            )}
-            style={{ width: `${value.achievement}%` }}
-          />
-        </div>
-      </div>
-
-      <div className="flex justify-end gap-2 pt-1">
+      <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>취소</Button>
         <Button size="sm" onClick={onSave} disabled={!value.title.trim()}>
           {isNew ? '추가' : '저장'}
@@ -494,43 +342,47 @@ function WeeklyReport({ year, week, onWeekChange }: {
   year: number; week: number; onWeekChange: (y: number, w: number) => void;
 }) {
   const { userProfile } = useAuth();
-  const [items, setItems] = useState<WeeklyTaskItem[]>([]);
+  const [hasDoneItems, setHasDoneItems] = useState<SimpleTaskItem[]>([]);
+  const [willDoItems, setWillDoItems] = useState<SimpleTaskItem[]>([]);
   const [summary, setSummary] = useState('');
   const [leadComments, setLeadComments] = useState<LeadCommentEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [summarySaving, setSummarySaving] = useState(false);
-  const [summarySaved, setSummarySaved] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);   // null = 닫힘, 'new' = 추가 중
-  const [editDraft, setEditDraft] = useState<Omit<WeeklyTaskItem, 'id'>>(EMPTY_ITEM());
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Omit<SimpleTaskItem, 'id'>>(EMPTY_SIMPLE());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const today = getISOWeek(new Date());
   const { start, end } = getWeekRange(year, week);
   const isCurrentWeek = year === today.year && week === today.week;
 
-  // 주차 변경 시 로드 (데이터 없으면 이전 주 미완료 업무 자동 이월)
   useEffect(() => {
     if (!userProfile) return;
     setLoading(true);
-    setEditingId(null);
+    setEditingKey(null);
     (async () => {
       const wt = await getWeeklyTask(userProfile.id, year, week);
       if (wt) {
-        setItems(wt.items ?? []);
+        setHasDoneItems(wt.hasDoneItems ?? []);
+        setWillDoItems(wt.willDoItems ?? []);
         setSummary(wt.summary ?? '');
         setLeadComments(wt.leadComments ?? []);
       } else {
+        // Auto-carry: prev week's willDoItems → this week's hasDoneItems
         const prev = prevWeek(year, week);
         const prevWt = await getWeeklyTask(userProfile.id, prev.year, prev.week);
-        const carryItems = (prevWt?.items ?? []).filter(i => i.status !== 'DONE');
-        if (carryItems.length > 0) {
-          const newItems = carryItems.map(i => ({ ...i, id: crypto.randomUUID() }));
-          setItems(newItems);
-          await upsertWeeklyTask(userProfile.id, year, week, userProfile.organizationId, start, end, newItems, '');
-          toast.success(`이전 주 미완료 업무 ${newItems.length}개를 불러왔습니다.`);
+        const carried = (prevWt?.willDoItems ?? []).map(i => ({ ...i, id: crypto.randomUUID() }));
+        if (carried.length > 0) {
+          setHasDoneItems(carried);
+          await upsertWeeklyTaskSections(
+            userProfile.id, year, week,
+            userProfile.organizationId, start, end,
+            carried, [], '',
+          );
+          toast.success(`지난 주 계획 ${carried.length}개를 이번 주 실적으로 불러왔습니다.`);
         } else {
-          setItems([]);
+          setHasDoneItems([]);
         }
+        setWillDoItems([]);
         setSummary('');
         setLeadComments([]);
       }
@@ -538,76 +390,135 @@ function WeeklyReport({ year, week, onWeekChange }: {
     })();
   }, [userProfile, year, week]);
 
-  const scheduleSave = useCallback((newItems: WeeklyTaskItem[], newSummary: string) => {
+  const scheduleSave = useCallback((hd: SimpleTaskItem[], wd: SimpleTaskItem[], sum: string) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setSaveStatus('saving');
     timerRef.current = setTimeout(async () => {
       if (!userProfile) return;
       try {
-        await upsertWeeklyTask(userProfile.id, year, week, userProfile.organizationId, start, end, newItems, newSummary);
+        await upsertWeeklyTaskSections(
+          userProfile.id, year, week,
+          userProfile.organizationId, start, end,
+          hd, wd, sum,
+        );
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2500);
       } catch { setSaveStatus('idle'); }
     }, 700);
   }, [userProfile, year, week, start, end]);
 
-  function openNew() {
-    setEditDraft(EMPTY_ITEM());
-    setEditingId('new');
+  function openNew(section: 'hd' | 'wd') {
+    setEditDraft(EMPTY_SIMPLE());
+    setEditingKey(`${section}-new`);
   }
 
-  function openEdit(item: WeeklyTaskItem) {
+  function openEdit(section: 'hd' | 'wd', item: SimpleTaskItem) {
     const { id, ...rest } = item;
     setEditDraft(rest);
-    setEditingId(id);
+    setEditingKey(`${section}-${id}`);
   }
 
   function saveItem() {
-    if (!editDraft.title.trim()) return;
-    let newItems: WeeklyTaskItem[];
-    if (editingId === 'new') {
-      newItems = [...items, { ...editDraft, id: crypto.randomUUID() }];
+    if (!editDraft.title.trim() || !editingKey) return;
+    const isHd = editingKey.startsWith('hd-');
+    const idPart = editingKey.slice(3);
+    if (isHd) {
+      const newItems = idPart === 'new'
+        ? [...hasDoneItems, { ...editDraft, id: crypto.randomUUID() }]
+        : hasDoneItems.map(i => i.id === idPart ? { ...editDraft, id: i.id } : i);
+      setHasDoneItems(newItems);
+      setEditingKey(null);
+      scheduleSave(newItems, willDoItems, summary);
     } else {
-      newItems = items.map(i => i.id === editingId ? { ...editDraft, id: i.id } : i);
-    }
-    setItems(newItems);
-    setEditingId(null);
-    scheduleSave(newItems, summary);
-  }
-
-  function deleteItem(id: string) {
-    const newItems = items.filter(i => i.id !== id);
-    setItems(newItems);
-    scheduleSave(newItems, summary);
-  }
-
-  function handleSummaryChange(v: string) {
-    setSummary(v);
-    setSummarySaved(false);
-  }
-
-  async function handleSummarySave() {
-    if (!userProfile) return;
-    setSummarySaving(true);
-    try {
-      await upsertWeeklyTask(userProfile.id, year, week, userProfile.organizationId, start, end, items, summary);
-      setSummarySaved(true);
-      setTimeout(() => setSummarySaved(false), 2500);
-    } catch {
-      toast.error('저장에 실패했습니다.');
-    } finally {
-      setSummarySaving(false);
+      const newItems = idPart === 'new'
+        ? [...willDoItems, { ...editDraft, id: crypto.randomUUID() }]
+        : willDoItems.map(i => i.id === idPart ? { ...editDraft, id: i.id } : i);
+      setWillDoItems(newItems);
+      setEditingKey(null);
+      scheduleSave(hasDoneItems, newItems, summary);
     }
   }
 
-  // 섹션 분리
-  const willDoItems  = items.filter(i => i.status !== 'DONE');
-  const hasDoneItems = items.filter(i => i.status === 'DONE');
-  const avgAchieve   = items.length ? Math.round(items.reduce((s, i) => s + i.achievement, 0) / items.length) : 0;
-  const doneCount    = hasDoneItems.length;
+  function deleteItem(section: 'hd' | 'wd', id: string) {
+    if (section === 'hd') {
+      const newItems = hasDoneItems.filter(i => i.id !== id);
+      setHasDoneItems(newItems);
+      scheduleSave(newItems, willDoItems, summary);
+    } else {
+      const newItems = willDoItems.filter(i => i.id !== id);
+      setWillDoItems(newItems);
+      scheduleSave(hasDoneItems, newItems, summary);
+    }
+  }
+
+  function renderSection(section: 'hd' | 'wd', items: SimpleTaskItem[], isGreen: boolean) {
+    const newKey = `${section}-new`;
+    const isAdding = editingKey === newKey;
+    return (
+      <div className="rounded-xl border bg-white overflow-hidden">
+        <div className={cn('px-4 py-2.5 border-b flex items-center gap-2', isGreen ? 'bg-green-50' : 'bg-gray-50')}>
+          <span className={cn('text-xs font-bold uppercase tracking-wide', isGreen ? 'text-green-700' : 'text-gray-700')}>
+            {isGreen ? 'Has Done — 이번 주 실적' : 'Will Do — 다음 주 계획'}
+          </span>
+          <span className={cn('text-xs', isGreen ? 'text-green-500' : 'text-gray-400')}>{items.length}건</span>
+        </div>
+        {items.length === 0 && !isAdding ? (
+          <div className="py-6 text-center">
+            <p className="text-sm text-gray-400">{isGreen ? '이번 주 실적이 없습니다.' : '다음 주 계획이 없습니다.'}</p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {items.map(item => {
+              const itemKey = `${section}-${item.id}`;
+              const isEditing = editingKey === itemKey;
+              return (
+                <div key={item.id}>
+                  {!isEditing ? (
+                    <div className={cn('flex items-start gap-3 px-4 py-3 group hover:bg-gray-50 transition-colors', isGreen && 'bg-green-50/20')}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 leading-snug">{item.title}</p>
+                        {item.content && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed whitespace-pre-wrap">{item.content}</p>}
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        <button onClick={() => openEdit(section, item)}
+                          className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={() => deleteItem(section, item.id)}
+                          className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4">
+                      <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew={false} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {isAdding && (
+              <div className="p-4">
+                <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew />
+              </div>
+            )}
+          </div>
+        )}
+        {!isAdding && (
+          <div className="border-t px-4 py-2.5">
+            <button onClick={() => openNew(section)}
+              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors">
+              <Plus className="h-4 w-4" /> 업무 추가
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="space-y-5 max-w-3xl">
       <WeekNav year={year} week={week} start={start} end={end}
         isCurrentWeek={isCurrentWeek} saveStatus={saveStatus}
         onPrev={() => { const p = prevWeek(year, week); onWeekChange(p.year, p.week); }}
@@ -617,247 +528,22 @@ function WeeklyReport({ year, week, onWeekChange }: {
       />
 
       {loading ? (
-        <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 animate-pulse rounded-xl bg-gray-100" />)}</div>
+        <div className="space-y-3">{[1, 2].map(i => <div key={i} className="h-36 animate-pulse rounded-xl bg-gray-100" />)}</div>
       ) : (
         <>
-          {/* 보고서 헤더 카드 */}
-          <div className="rounded-xl border bg-white px-6 py-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">
-                  {year}년 {week}주차 주간 업무 보고
-                </h2>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  {userProfile?.name} · {userProfile?.position ?? ''} · {fmtDate(start)} ~ {fmtDate(end)}
-                </p>
-              </div>
-              <div className="flex items-center gap-4 text-sm">
-                {items.length > 0 && (
-                  <>
-                    <div className="text-center">
-                      <p className="text-xs text-gray-400">업무 수</p>
-                      <p className="font-bold text-gray-900">{items.length}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-gray-400">완료</p>
-                      <p className="font-bold text-green-600">{doneCount}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-gray-400">평균 달성률</p>
-                      <p className={cn('font-bold', avgAchieve >= 80 ? 'text-green-600' : avgAchieve >= 50 ? 'text-blue-600' : 'text-orange-500')}>
-                        {avgAchieve}%
-                      </p>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-            {/* 전체 달성률 바 */}
-            {items.length > 0 && (
-              <div className="mt-3">
-                <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                  <div
-                    className={cn('h-full rounded-full transition-all',
-                      avgAchieve >= 80 ? 'bg-green-500' : avgAchieve >= 50 ? 'bg-blue-500' : 'bg-orange-400'
-                    )}
-                    style={{ width: `${avgAchieve}%` }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ── Has Done 섹션 ── */}
-          {hasDoneItems.length > 0 && (
-            <div className="rounded-xl border bg-white overflow-hidden">
-              <div className="px-4 py-2.5 bg-green-50 border-b flex items-center gap-2">
-                <span className="text-xs font-bold text-green-700 uppercase tracking-wide">Has Done</span>
-                <span className="text-xs text-green-500">{hasDoneItems.length}건</span>
-              </div>
-              {/* 테이블 헤더 */}
-              <div className="grid grid-cols-[80px_1fr_1fr_90px] gap-0 bg-green-50/50 border-b text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                <div className="px-3 py-2">분류</div>
-                <div className="px-3 py-2">업무내용</div>
-                <div className="px-3 py-2">실적/결과</div>
-                <div className="px-3 py-2 text-center">달성률</div>
-              </div>
-              <div className="divide-y">
-                {hasDoneItems.map(item => {
-                  const cat = CATEGORY_MAP[item.category];
-                  return (
-                    <div key={item.id} className="grid grid-cols-[80px_1fr_1fr_90px] gap-0 items-start bg-green-50/20">
-                      <div className="px-3 py-3">
-                        <span className={cn('rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap opacity-70', cat.color)}>
-                          {cat.label}
-                        </span>
-                      </div>
-                      <div className="px-3 py-3">
-                        <p className="text-sm font-medium text-gray-600 leading-snug line-through decoration-gray-300">{item.title}</p>
-                        {item.content && <p className="text-xs text-gray-400 mt-0.5 leading-relaxed whitespace-pre-wrap">{item.content}</p>}
-                      </div>
-                      <div className="px-3 py-3">
-                        {item.result
-                          ? <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{item.result}</p>
-                          : <p className="text-xs text-gray-300 italic">미작성</p>
-                        }
-                      </div>
-                      <div className="px-3 py-3 text-center">
-                        <p className="text-sm font-bold text-green-600">100%</p>
-                        <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                          <div className="h-full rounded-full bg-green-500 w-full" />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ── Will Do 섹션 ── */}
-          <div className="rounded-xl border bg-white overflow-hidden">
-            <div className="px-4 py-2.5 bg-gray-50 border-b flex items-center gap-2">
-              <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Will Do</span>
-              <span className="text-xs text-gray-400">{willDoItems.length}건</span>
-            </div>
-            {/* 테이블 헤더 */}
-            <div className="grid grid-cols-[80px_1fr_1fr_90px_72px_72px] gap-0 bg-gray-50 border-b text-xs font-semibold text-gray-400 uppercase tracking-wide">
-              <div className="px-3 py-2">분류</div>
-              <div className="px-3 py-2">업무내용</div>
-              <div className="px-3 py-2">실적/결과</div>
-              <div className="px-3 py-2 text-center">달성률</div>
-              <div className="px-3 py-2 text-center">상태</div>
-              <div className="px-3 py-2" />
-            </div>
-
-            {willDoItems.length === 0 && editingId !== 'new' ? (
-              <div className="py-8 text-center">
-                <p className="text-sm text-gray-400">진행 중인 업무가 없습니다.</p>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {willDoItems.map(item => {
-                  const cat = CATEGORY_MAP[item.category];
-                  const st  = STATUS_MAP[item.status];
-                  const isEditing = editingId === item.id;
-                  return (
-                    <div key={item.id}>
-                      {!isEditing && (
-                        <div className="grid grid-cols-[80px_1fr_1fr_90px_72px_72px] gap-0 items-start hover:bg-gray-50 transition-colors group">
-                          <div className="px-3 py-3">
-                            <span className={cn('rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap', cat.color)}>
-                              {cat.label}
-                            </span>
-                          </div>
-                          <div className="px-3 py-3">
-                            <p className="text-sm font-medium text-gray-800 leading-snug">{item.title}</p>
-                            {item.content && <p className="text-xs text-gray-400 mt-0.5 leading-relaxed whitespace-pre-wrap">{item.content}</p>}
-                          </div>
-                          <div className="px-3 py-3">
-                            {item.status === 'PLANNED'
-                              ? <p className="text-sm text-gray-300">-</p>
-                              : item.result
-                                ? <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{item.result}</p>
-                                : <p className="text-xs text-gray-300 italic">미작성</p>
-                            }
-                          </div>
-                          <div className="px-3 py-3 text-center">
-                            <p className={cn('text-sm font-bold',
-                              item.achievement >= 80 ? 'text-green-600' :
-                              item.achievement >= 50 ? 'text-blue-600' : 'text-orange-500'
-                            )}>
-                              {item.achievement}%
-                            </p>
-                            <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                              <div className={cn('h-full rounded-full',
-                                item.achievement >= 80 ? 'bg-green-500' :
-                                item.achievement >= 50 ? 'bg-blue-500' : 'bg-orange-400'
-                              )} style={{ width: `${item.achievement}%` }} />
-                            </div>
-                          </div>
-                          <div className="px-3 py-3 text-center">
-                            <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', st.color)}>
-                              {st.label}
-                            </span>
-                          </div>
-                          <div className="px-3 py-3 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => openEdit(item)}
-                              className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button onClick={() => deleteItem(item.id)}
-                              className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {isEditing && (
-                        <div className="p-4">
-                          <ItemForm
-                            value={editDraft}
-                            onChange={setEditDraft}
-                            onSave={saveItem}
-                            onCancel={() => setEditingId(null)}
-                            isNew={false}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {editingId === 'new' && (
-                  <div className="p-4">
-                    <ItemForm
-                      value={editDraft}
-                      onChange={setEditDraft}
-                      onSave={saveItem}
-                      onCancel={() => setEditingId(null)}
-                      isNew
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {editingId !== 'new' && (
-              <div className="border-t px-4 py-2.5">
-                <button onClick={openNew}
-                  className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors">
-                  <Plus className="h-4 w-4" /> 업무 추가
-                </button>
-              </div>
-            )}
-          </div>
+          {renderSection('hd', hasDoneItems, true)}
+          {renderSection('wd', willDoItems, false)}
 
           {/* 종합 의견 */}
           <div className="rounded-xl border bg-white p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-gray-800">이번 주 종합 의견</h4>
-              {summarySaved && (
-                <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> 저장됨
-                </span>
-              )}
-            </div>
+            <h4 className="text-sm font-semibold text-gray-800">이번 주 종합 의견</h4>
             <textarea
               rows={4}
               value={summary}
-              onChange={e => handleSummaryChange(e.target.value)}
-              placeholder="이번 주 업무 전반에 대한 종합 의견, 이슈, 다음 주 계획 등을 자유롭게 작성하세요."
+              onChange={e => { setSummary(e.target.value); scheduleSave(hasDoneItems, willDoItems, e.target.value); }}
+              placeholder="이번 주 업무 전반에 대한 종합 의견, 이슈 등을 자유롭게 작성하세요."
               className="w-full resize-none rounded-lg border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300 leading-relaxed"
             />
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                onClick={handleSummarySave}
-                disabled={summarySaving}
-                className="gap-1.5"
-              >
-                <Save className="h-3.5 w-3.5" />
-                {summarySaving ? '저장 중...' : '저장'}
-              </Button>
-            </div>
           </div>
 
           {/* Comment 스레드 (읽기 전용) */}
@@ -959,9 +645,9 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
         <div className="space-y-3">
           {members.map(member => {
             const wt = tasksByUser[member.id];
-            const items = wt?.items ?? [];
-            const avgA = items.length ? Math.round(items.reduce((s, i) => s + i.achievement, 0) / items.length) : 0;
-            const doneCount = items.filter(i => i.status === 'DONE').length;
+            const hdItems = wt?.hasDoneItems ?? [];
+            const wdItems = wt?.willDoItems ?? [];
+            const hasAny = hdItems.length > 0 || wdItems.length > 0;
             const isOpen = expanded[member.id] ?? true;
 
             return (
@@ -978,17 +664,10 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
                     <span className="text-sm font-semibold text-gray-900">{member.name}</span>
                     {member.position && <span className="ml-2 text-xs text-gray-400">{member.position}</span>}
                   </div>
-                  {items.length > 0 ? (
+                  {hasAny ? (
                     <div className="flex items-center gap-4 text-xs shrink-0">
-                      <span className="text-gray-500">업무 {items.length}건</span>
-                      <span className="text-green-600 font-medium">완료 {doneCount}/{items.length}</span>
-                      <span className={cn('font-bold', avgA >= 80 ? 'text-green-600' : avgA >= 50 ? 'text-blue-600' : 'text-orange-500')}>
-                        달성률 {avgA}%
-                      </span>
-                      <div className="w-24 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                        <div className={cn('h-full rounded-full', avgA >= 80 ? 'bg-green-500' : avgA >= 50 ? 'bg-blue-500' : 'bg-orange-400')}
-                          style={{ width: `${avgA}%` }} />
-                      </div>
+                      <span className="text-green-600 font-medium">실적 {hdItems.length}건</span>
+                      <span className="text-gray-500">계획 {wdItems.length}건</span>
                     </div>
                   ) : (
                     <span className="text-xs text-gray-300 shrink-0">보고서 없음</span>
@@ -999,57 +678,42 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
                 {/* 상세 내용 */}
                 {isOpen && (
                   <div className="border-t">
-                    {items.length === 0 ? (
+                    {!hasAny ? (
                       <p className="px-5 py-4 text-sm text-gray-400 text-center">이번 주 보고서가 없습니다.</p>
                     ) : (
                       <>
-                        {/* 미니 테이블 */}
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="bg-gray-50 text-xs text-gray-500 uppercase">
-                                <th className="px-4 py-2 text-left font-semibold">분류</th>
-                                <th className="px-4 py-2 text-left font-semibold">업무명</th>
-                                <th className="px-4 py-2 text-left font-semibold">실적/결과</th>
-                                <th className="px-4 py-2 text-center font-semibold">달성률</th>
-                                <th className="px-4 py-2 text-center font-semibold">상태</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y">
-                              {items.map(item => {
-                                const cat = CATEGORY_MAP[item.category];
-                                const st  = STATUS_MAP[item.status];
-                                return (
-                                  <tr key={item.id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-2.5">
-                                      <span className={cn('rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap', cat.color)}>
-                                        {cat.label}
-                                      </span>
-                                    </td>
-                                    <td className="px-4 py-2.5">
-                                      <p className="font-medium text-gray-800">{item.title}</p>
-                                      {item.content && <p className="text-xs text-gray-400 mt-0.5">{item.content}</p>}
-                                    </td>
-                                    <td className="px-4 py-2.5 text-gray-600 text-xs whitespace-pre-wrap">
-                                      {item.result || <span className="text-gray-300 italic">미작성</span>}
-                                    </td>
-                                    <td className="px-4 py-2.5 text-center">
-                                      <p className={cn('font-bold text-sm',
-                                        item.achievement >= 80 ? 'text-green-600' :
-                                        item.achievement >= 50 ? 'text-blue-600' : 'text-orange-500'
-                                      )}>{item.achievement}%</p>
-                                    </td>
-                                    <td className="px-4 py-2.5 text-center">
-                                      <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', st.color)}>
-                                        {st.label}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                        {hdItems.length > 0 && (
+                          <div>
+                            <div className="px-4 py-2 bg-green-50 border-b flex items-center gap-2">
+                              <span className="text-xs font-bold text-green-700">Has Done — 이번 주 실적</span>
+                              <span className="text-xs text-green-500">{hdItems.length}건</span>
+                            </div>
+                            <div className="divide-y">
+                              {hdItems.map(item => (
+                                <div key={item.id} className="px-5 py-3 bg-green-50/20">
+                                  <p className="text-sm font-medium text-gray-800">{item.title}</p>
+                                  {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {wdItems.length > 0 && (
+                          <div>
+                            <div className="px-4 py-2 bg-gray-50 border-b flex items-center gap-2">
+                              <span className="text-xs font-bold text-gray-700">Will Do — 다음 주 계획</span>
+                              <span className="text-xs text-gray-400">{wdItems.length}건</span>
+                            </div>
+                            <div className="divide-y">
+                              {wdItems.map(item => (
+                                <div key={item.id} className="px-5 py-3">
+                                  <p className="text-sm font-medium text-gray-800">{item.title}</p>
+                                  {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
 
@@ -1161,12 +825,11 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
   const scopeOrgIdSet = new Set(orgs.map(o => o.id));
   const rootOrgs = orgs.filter(o => o.parentId === null || !scopeOrgIdSet.has(o.parentId!));
 
-  function renderOrg(org: Organization, depth = 0): React.ReactNode {
+  function renderOrg(org: Organization, depth = 0) {
     const orgUsers = users.filter(u => u.organizationId === org.id);
     const childOrgs = orgs.filter(o => o.parentId === org.id);
-    const allItems = orgUsers.flatMap(u => tasksByUser[u.id]?.items ?? []);
-    const avgA = allItems.length ? Math.round(allItems.reduce((s, i) => s + i.achievement, 0) / allItems.length) : 0;
-    const doneCount = allItems.filter(i => i.status === 'DONE').length;
+    const allHd = orgUsers.flatMap(u => tasksByUser[u.id]?.hasDoneItems ?? []);
+    const allWd = orgUsers.flatMap(u => tasksByUser[u.id]?.willDoItems ?? []);
     const isOpen = expanded[org.id] ?? true;
 
     return (
@@ -1178,16 +841,10 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
           <ChevronDown className={cn('h-4 w-4 text-gray-400 shrink-0 transition-transform', !isOpen && '-rotate-90')} />
           <span className="font-semibold text-gray-800 flex-1 text-sm">{org.name}</span>
           <span className="text-xs text-gray-400 shrink-0">{orgUsers.length}명</span>
-          {allItems.length > 0 && (
+          {(allHd.length > 0 || allWd.length > 0) && (
             <>
-              <span className="text-xs text-gray-500 shrink-0">{doneCount}/{allItems.length} 완료</span>
-              <span className={cn('text-xs font-bold shrink-0',
-                avgA >= 80 ? 'text-green-600' : avgA >= 50 ? 'text-blue-600' : 'text-orange-500'
-              )}>달성률 {avgA}%</span>
-              <div className="w-20 h-1.5 rounded-full bg-gray-100 overflow-hidden shrink-0">
-                <div className={cn('h-full rounded-full', avgA >= 80 ? 'bg-green-500' : avgA >= 50 ? 'bg-blue-500' : 'bg-orange-400')}
-                  style={{ width: `${avgA}%` }} />
-              </div>
+              <span className="text-xs text-green-600 font-medium shrink-0">실적 {allHd.length}건</span>
+              <span className="text-xs text-gray-500 shrink-0">계획 {allWd.length}건</span>
             </>
           )}
         </button>
@@ -1195,8 +852,10 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
         {isOpen && (
           <div className="ml-2 mt-0.5 mb-1 space-y-0.5">
             {orgUsers.map(member => {
-              const items = tasksByUser[member.id]?.items ?? [];
-              const memberAvg = items.length ? Math.round(items.reduce((s, i) => s + i.achievement, 0) / items.length) : 0;
+              const wt = tasksByUser[member.id];
+              const hdItems = wt?.hasDoneItems ?? [];
+              const wdItems = wt?.willDoItems ?? [];
+              const hasAny = hdItems.length > 0 || wdItems.length > 0;
               const isUserOpen = expanded[`u_${member.id}`] ?? false;
 
               return (
@@ -1212,65 +871,45 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
                       {member.name}
                       {member.position && <span className="ml-1 text-xs text-gray-400">{member.position}</span>}
                     </span>
-                    {items.length === 0 ? (
+                    {!hasAny ? (
                       <span className="text-xs text-gray-300">보고서 없음</span>
                     ) : (
                       <div className="flex items-center gap-3 text-xs shrink-0">
-                        <span className="text-gray-500">{items.length}건</span>
-                        <span className={cn('font-bold', memberAvg >= 80 ? 'text-green-600' : memberAvg >= 50 ? 'text-blue-600' : 'text-orange-500')}>
-                          {memberAvg}%
-                        </span>
-                        <div className="w-16 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                          <div className={cn('h-full rounded-full', memberAvg >= 80 ? 'bg-green-500' : memberAvg >= 50 ? 'bg-blue-500' : 'bg-orange-400')}
-                            style={{ width: `${memberAvg}%` }} />
-                        </div>
+                        <span className="text-green-600 font-medium">실적 {hdItems.length}건</span>
+                        <span className="text-gray-500">계획 {wdItems.length}건</span>
                       </div>
                     )}
                     <ChevronDown className={cn('h-3.5 w-3.5 text-gray-300 shrink-0 transition-transform', !isUserOpen && '-rotate-90')} />
                   </button>
 
-                  {isUserOpen && items.length > 0 && (
+                  {isUserOpen && hasAny && (
                     <div className="border-t">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="bg-gray-50 text-gray-500">
-                            <th className="px-3 py-1.5 text-left font-medium">분류</th>
-                            <th className="px-3 py-1.5 text-left font-medium">업무명</th>
-                            <th className="px-3 py-1.5 text-left font-medium">실적/결과</th>
-                            <th className="px-3 py-1.5 text-center font-medium">달성률</th>
-                            <th className="px-3 py-1.5 text-center font-medium">상태</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {items.map(item => {
-                            const cat = CATEGORY_MAP[item.category];
-                            const st  = STATUS_MAP[item.status];
-                            return (
-                              <tr key={item.id} className="hover:bg-gray-50">
-                                <td className="px-3 py-2">
-                                  <span className={cn('rounded-full border px-1.5 py-0.5 text-xs font-medium', cat.color)}>
-                                    {cat.label}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-2 text-gray-800 font-medium">{item.title}</td>
-                                <td className="px-3 py-2 text-gray-600 whitespace-pre-wrap">
-                                  {item.result || <span className="text-gray-300 italic">미작성</span>}
-                                </td>
-                                <td className="px-3 py-2 text-center">
-                                  <span className={cn('font-bold', item.achievement >= 80 ? 'text-green-600' : item.achievement >= 50 ? 'text-blue-600' : 'text-orange-500')}>
-                                    {item.achievement}%
-                                  </span>
-                                </td>
-                                <td className="px-3 py-2 text-center">
-                                  <span className={cn('rounded-full px-1.5 py-0.5 text-xs font-medium', st.color)}>
-                                    {st.label}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                      {hdItems.length > 0 && (
+                        <div>
+                          <div className="px-3 py-1.5 bg-green-50 border-b text-xs font-bold text-green-700">Has Done — 이번 주 실적</div>
+                          <div className="divide-y">
+                            {hdItems.map(item => (
+                              <div key={item.id} className="px-4 py-2 bg-green-50/20">
+                                <p className="text-xs font-medium text-gray-800">{item.title}</p>
+                                {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {wdItems.length > 0 && (
+                        <div>
+                          <div className="px-3 py-1.5 bg-gray-50 border-b text-xs font-bold text-gray-700">Will Do — 다음 주 계획</div>
+                          <div className="divide-y">
+                            {wdItems.map(item => (
+                              <div key={item.id} className="px-4 py-2">
+                                <p className="text-xs font-medium text-gray-800">{item.title}</p>
+                                {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
