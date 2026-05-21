@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getAllUsers, getAllMileages, setMileage } from '@/lib/firestore';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -164,7 +165,9 @@ function MileageContent() {
                 const tier = getTier(pts);
                 return (
                   <tr key={user.id} className={m ? tier.bg : ''}>
-                    <td className="px-4 py-3 font-medium text-gray-900">{user.name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      <MemberInfoModal userId={user.id} userName={user.name} />
+                    </td>
                     <td className="px-4 py-3 text-gray-500">{user.position ?? '-'}</td>
                     <td className="px-4 py-3">
                       {m ? (

@@ -20,6 +20,7 @@ import {
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
@@ -529,7 +530,7 @@ function ExecutiveEvalView() {
                     >
                       <div className="flex items-center gap-3">
                         <div>
-                          <p className="font-medium text-gray-900">{member.name}</p>
+                          <MemberInfoModal userId={member.id} userName={member.name} />
                           <p className="text-xs text-gray-400">
                             {member.role === 'TEAM_LEAD' ? '팀장' : '팀원'} {member.position && `· ${member.position}`}
                           </p>
