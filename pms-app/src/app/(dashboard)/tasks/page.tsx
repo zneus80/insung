@@ -508,17 +508,34 @@ function WeeklyReport({ year, week, onWeekChange }: {
   const { start, end } = getWeekRange(year, week);
   const isCurrentWeek = year === today.year && week === today.week;
 
-  // 주차 변경 시 로드
+  // 주차 변경 시 로드 (데이터 없으면 이전 주 미완료 업무 자동 이월)
   useEffect(() => {
     if (!userProfile) return;
     setLoading(true);
     setEditingId(null);
-    getWeeklyTask(userProfile.id, year, week).then(wt => {
-      setItems(wt?.items ?? []);
-      setSummary(wt?.summary ?? '');
-      setLeadComments(wt?.leadComments ?? []);
+    (async () => {
+      const wt = await getWeeklyTask(userProfile.id, year, week);
+      if (wt) {
+        setItems(wt.items ?? []);
+        setSummary(wt.summary ?? '');
+        setLeadComments(wt.leadComments ?? []);
+      } else {
+        const prev = prevWeek(year, week);
+        const prevWt = await getWeeklyTask(userProfile.id, prev.year, prev.week);
+        const carryItems = (prevWt?.items ?? []).filter(i => i.status !== 'DONE');
+        if (carryItems.length > 0) {
+          const newItems = carryItems.map(i => ({ ...i, id: crypto.randomUUID() }));
+          setItems(newItems);
+          await upsertWeeklyTask(userProfile.id, year, week, userProfile.organizationId, start, end, newItems, '');
+          toast.success(`이전 주 미완료 업무 ${newItems.length}개를 불러왔습니다.`);
+        } else {
+          setItems([]);
+        }
+        setSummary('');
+        setLeadComments([]);
+      }
       setLoading(false);
-    });
+    })();
   }, [userProfile, year, week]);
 
   const scheduleSave = useCallback((newItems: WeeklyTaskItem[], newSummary: string) => {
@@ -583,10 +600,11 @@ function WeeklyReport({ year, week, onWeekChange }: {
     }
   }
 
-  // 분류별 집계
-  const coreItems    = items.filter(i => i.category === 'CORE');
+  // 섹션 분리
+  const willDoItems  = items.filter(i => i.status !== 'DONE');
+  const hasDoneItems = items.filter(i => i.status === 'DONE');
   const avgAchieve   = items.length ? Math.round(items.reduce((s, i) => s + i.achievement, 0) / items.length) : 0;
-  const doneCount    = items.filter(i => i.status === 'DONE').length;
+  const doneCount    = hasDoneItems.length;
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -649,33 +667,34 @@ function WeeklyReport({ year, week, onWeekChange }: {
             )}
           </div>
 
-          {/* 업무 목록 */}
+          {/* ── Will Do 섹션 ── */}
           <div className="rounded-xl border bg-white overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 border-b flex items-center gap-2">
+              <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Will Do</span>
+              <span className="text-xs text-gray-400">{willDoItems.length}건</span>
+            </div>
             {/* 테이블 헤더 */}
-            <div className="grid grid-cols-[80px_1fr_1fr_90px_72px_72px] gap-0 bg-gray-50 border-b text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              <div className="px-3 py-2.5">분류</div>
-              <div className="px-3 py-2.5">업무내용</div>
-              <div className="px-3 py-2.5">실적/결과</div>
-              <div className="px-3 py-2.5 text-center">달성률</div>
-              <div className="px-3 py-2.5 text-center">상태</div>
-              <div className="px-3 py-2.5" />
+            <div className="grid grid-cols-[80px_1fr_1fr_90px_72px_72px] gap-0 bg-gray-50 border-b text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              <div className="px-3 py-2">분류</div>
+              <div className="px-3 py-2">업무내용</div>
+              <div className="px-3 py-2">실적/결과</div>
+              <div className="px-3 py-2 text-center">달성률</div>
+              <div className="px-3 py-2 text-center">상태</div>
+              <div className="px-3 py-2" />
             </div>
 
-            {/* 업무 행 */}
-            {items.length === 0 && editingId !== 'new' ? (
-              <div className="py-12 text-center">
-                <p className="text-sm text-gray-400">등록된 업무가 없습니다.</p>
-                <p className="text-xs text-gray-300 mt-1">아래 버튼으로 업무를 추가하세요</p>
+            {willDoItems.length === 0 && editingId !== 'new' ? (
+              <div className="py-8 text-center">
+                <p className="text-sm text-gray-400">진행 중인 업무가 없습니다.</p>
               </div>
             ) : (
               <div className="divide-y">
-                {items.map(item => {
+                {willDoItems.map(item => {
                   const cat = CATEGORY_MAP[item.category];
                   const st  = STATUS_MAP[item.status];
                   const isEditing = editingId === item.id;
                   return (
                     <div key={item.id}>
-                      {/* 행 표시 모드 */}
                       {!isEditing && (
                         <div className="grid grid-cols-[80px_1fr_1fr_90px_72px_72px] gap-0 items-start hover:bg-gray-50 transition-colors group">
                           <div className="px-3 py-3">
@@ -726,7 +745,6 @@ function WeeklyReport({ year, week, onWeekChange }: {
                           </div>
                         </div>
                       )}
-                      {/* 행 편집 모드 */}
                       {isEditing && (
                         <div className="p-4">
                           <ItemForm
@@ -741,8 +759,6 @@ function WeeklyReport({ year, week, onWeekChange }: {
                     </div>
                   );
                 })}
-
-                {/* 새 업무 추가 폼 */}
                 {editingId === 'new' && (
                   <div className="p-4">
                     <ItemForm
@@ -757,7 +773,6 @@ function WeeklyReport({ year, week, onWeekChange }: {
               </div>
             )}
 
-            {/* 추가 버튼 */}
             {editingId !== 'new' && (
               <div className="border-t px-4 py-2.5">
                 <button onClick={openNew}
@@ -767,6 +782,53 @@ function WeeklyReport({ year, week, onWeekChange }: {
               </div>
             )}
           </div>
+
+          {/* ── Has Done 섹션 ── */}
+          {hasDoneItems.length > 0 && (
+            <div className="rounded-xl border bg-white overflow-hidden">
+              <div className="px-4 py-2.5 bg-green-50 border-b flex items-center gap-2">
+                <span className="text-xs font-bold text-green-700 uppercase tracking-wide">Has Done</span>
+                <span className="text-xs text-green-500">{hasDoneItems.length}건</span>
+              </div>
+              {/* 테이블 헤더 */}
+              <div className="grid grid-cols-[80px_1fr_1fr_90px] gap-0 bg-green-50/50 border-b text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                <div className="px-3 py-2">분류</div>
+                <div className="px-3 py-2">업무내용</div>
+                <div className="px-3 py-2">실적/결과</div>
+                <div className="px-3 py-2 text-center">달성률</div>
+              </div>
+              <div className="divide-y">
+                {hasDoneItems.map(item => {
+                  const cat = CATEGORY_MAP[item.category];
+                  return (
+                    <div key={item.id} className="grid grid-cols-[80px_1fr_1fr_90px] gap-0 items-start bg-green-50/20">
+                      <div className="px-3 py-3">
+                        <span className={cn('rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap opacity-70', cat.color)}>
+                          {cat.label}
+                        </span>
+                      </div>
+                      <div className="px-3 py-3">
+                        <p className="text-sm font-medium text-gray-600 leading-snug line-through decoration-gray-300">{item.title}</p>
+                        {item.content && <p className="text-xs text-gray-400 mt-0.5 leading-relaxed whitespace-pre-wrap">{item.content}</p>}
+                      </div>
+                      <div className="px-3 py-3">
+                        {item.result
+                          ? <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{item.result}</p>
+                          : <p className="text-xs text-gray-300 italic">미작성</p>
+                        }
+                      </div>
+                      <div className="px-3 py-3 text-center">
+                        <p className="text-sm font-bold text-green-600">100%</p>
+                        <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                          <div className="h-full rounded-full bg-green-500 w-full" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* 종합 의견 */}
           <div className="rounded-xl border bg-white p-5 space-y-3">
