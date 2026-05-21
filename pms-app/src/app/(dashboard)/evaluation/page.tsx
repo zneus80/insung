@@ -372,7 +372,13 @@ function ExecutiveEvalView() {
       ]);
       setAllOrgs(orgs);
 
-      const descIds = getDescendantOrgIds(userProfile.organizationId, orgs);
+      // 내가 leaderId인 모든 조직 → 각각 하위 탐색 → 합산 (복수 조직 담당 임원 대응)
+      const myLeadOrgs = orgs.filter(o => o.leaderId === userProfile.id);
+      const rootIds = myLeadOrgs.length > 0
+        ? myLeadOrgs.map(o => o.id)
+        : [userProfile.organizationId]; // fallback: leaderId 미설정 환경
+      const descIds = [...new Set(rootIds.flatMap(id => getDescendantOrgIds(id, orgs)))];
+
       const active = allUsers.filter(u => (u.role === 'MEMBER' || u.role === 'TEAM_LEAD') && u.isActive && descIds.includes(u.organizationId));
       setMembers(active);
 
@@ -405,9 +411,9 @@ function ExecutiveEvalView() {
       });
       setWeeklyTasksByMember(wtMap);
 
-      // 내 부문 쿼터 (CONFIRMED 된 것만)
+      // 내 담당 조직 쿼터 (CONFIRMED 된 것만, 복수 조직 중 첫 번째)
       const myQuota = allQuotas.find(q =>
-        q.organizationId === userProfile.organizationId && q.status === 'CONFIRMED'
+        rootIds.includes(q.organizationId) && q.status === 'CONFIRMED'
       );
       setQuotas(myQuota ?? null);
 

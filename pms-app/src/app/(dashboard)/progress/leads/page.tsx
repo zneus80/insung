@@ -46,7 +46,12 @@ function ProgressContent() {
         const [allUsers, allOrgs, allGoals] = await Promise.all([
           getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
         ]);
-        const descIds = findDescendantIds(userProfile!.organizationId, allOrgs);
+        // 내가 leaderId인 모든 조직 → 각각 하위 탐색 → 합산 (복수 조직 담당 임원 대응)
+        const myLeadOrgs = allOrgs.filter(o => o.leaderId === userProfile!.id);
+        const rootIds = myLeadOrgs.length > 0
+          ? myLeadOrgs.map(o => o.id)
+          : [userProfile!.organizationId]; // fallback: leaderId 미설정 환경
+        const descIds = [...new Set(rootIds.flatMap(id => findDescendantIds(id, allOrgs)))];
         const scopedUsers = allUsers.filter(u => u.isActive && descIds.includes(u.organizationId));
         const teamLeads = scopedUsers.filter(u => u.role === 'TEAM_LEAD');
         const teamMembers = scopedUsers.filter(u => u.role === 'MEMBER');
