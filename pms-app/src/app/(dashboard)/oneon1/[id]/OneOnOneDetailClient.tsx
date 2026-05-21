@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { Send, MessageSquare, Trash2 } from 'lucide-react';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getOneOnOne,
@@ -140,7 +141,12 @@ export default function OneOnOneDetailPage() {
             </div>
             <div>
               <p className="font-semibold text-gray-900">
-                {isLeader ? member?.name : leader?.name}
+                {(isLeader ? member : leader) && (
+                  <MemberInfoModal
+                    userId={(isLeader ? member : leader)!.id}
+                    userName={(isLeader ? member : leader)!.name}
+                  />
+                )}
                 <span className="ml-2 text-xs font-normal text-gray-400">
                   {isLeader ? '팀원' : '팀장'}
                 </span>
@@ -169,7 +175,7 @@ export default function OneOnOneDetailPage() {
                       <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-600 text-xs font-semibold shrink-0">
                         {asker?.name?.[0] ?? '?'}
                       </div>
-                      <span className="text-sm font-medium text-gray-800">{asker?.name}</span>
+                      {asker && <MemberInfoModal userId={asker.id} userName={asker.name} />}
                       <span className="text-xs text-gray-400">
                         {format(q.createdAt, 'MM.dd HH:mm', { locale: ko })}
                       </span>
@@ -193,7 +199,7 @@ export default function OneOnOneDetailPage() {
                         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-green-100 text-green-600 text-xs font-semibold shrink-0">
                           {answerer?.name?.[0] ?? '?'}
                         </div>
-                        <span className="text-sm font-medium text-gray-800">{answerer?.name}</span>
+                        {answerer && <MemberInfoModal userId={answerer.id} userName={answerer.name} />}
                         {q.answeredAt && (
                           <span className="text-xs text-gray-400">
                             {format(q.answeredAt, 'MM.dd HH:mm', { locale: ko })}

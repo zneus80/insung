@@ -6,6 +6,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { ChevronDown, ChevronRight, MessageSquareHeart } from 'lucide-react';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { cn } from '@/lib/utils';
 import type { User, Organization, MentoringForm } from '@/types';
 
@@ -143,7 +144,7 @@ function MentoringAllContent() {
             </div>
           ) : !selectedForm ? (
             <div className="max-w-2xl">
-              <h2 className="text-lg font-bold text-gray-900 mb-1">{selectedUser.name}</h2>
+              <h2 className="text-lg font-bold text-gray-900 mb-1"><MemberInfoModal userId={selectedUser.id} userName={selectedUser.name} /></h2>
               <p className="text-sm text-gray-500 mb-6">{selectedUser.position ?? ''}</p>
               <div className="rounded-xl border border-dashed bg-gray-50 p-12 text-center">
                 <p className="text-sm text-gray-400">아직 작성된 육성면담서가 없습니다.</p>
@@ -152,7 +153,7 @@ function MentoringAllContent() {
           ) : (
             <div className="max-w-2xl space-y-6">
               <div>
-                <h2 className="text-lg font-bold text-gray-900">{selectedUser.name}</h2>
+                <h2 className="text-lg font-bold text-gray-900"><MemberInfoModal userId={selectedUser.id} userName={selectedUser.name} /></h2>
                 <p className="text-sm text-gray-500">{selectedUser.position ?? ''} · {selectedYear}년 육성면담서</p>
                 <span className={cn('inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium', STATUS_COLOR[selectedForm.status])}>
                   {STATUS_LABEL[selectedForm.status]}
