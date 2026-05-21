@@ -10,6 +10,7 @@ import {
   upsertIndividualEvaluation,
   getIndividualEvaluationsByOrg,
   getUsersByOrganization,
+  getWeeklyTasksByUsersAndYear,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
@@ -19,7 +20,7 @@ import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, CheckCircle2, AlertCircle } from 'lucide-react';
 import type {
   Goal, SelfEvaluation, IndividualEvaluation,
-  EvaluationGrade, User, MentoringForm,
+  EvaluationGrade, User, MentoringForm, WeeklyTask,
 } from '@/types';
 
 const GRADES: EvaluationGrade[] = ['A', 'B', 'C', 'D', 'E'];
@@ -80,7 +81,9 @@ function TeamLeadEvalView() {
   const [selfEvals, setSelfEvals]         = useState<Record<string, SelfEvaluation>>({});
   const [indivEvals, setIndivEvals]       = useState<Record<string, IndividualEvaluation>>({});
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
+  const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [expanded, setExpanded]           = useState<Record<string, boolean>>({});
+  const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
   const [opinions, setOpinions]           = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
   const [loading, setLoading]             = useState(true);
   const [saving, setSaving]               = useState<string | null>(null);
@@ -101,15 +104,27 @@ function TeamLeadEvalView() {
       active.forEach(m => { gMap[m.id] = allGoals.filter(g => g.userId === m.id); });
       setGoalsByMember(gMap);
 
-      const seList = await getSelfEvaluationsByUsers(active.map(m => m.id), year);
+      const [seList, mfList, weeklyTasks] = await Promise.all([
+        getSelfEvaluationsByUsers(active.map(m => m.id), year),
+        getMentoringFormsByUsers(active.map(m => m.id), year),
+        getWeeklyTasksByUsersAndYear(active.map(m => m.id), year),
+      ]);
+
       const seMap: Record<string, SelfEvaluation> = {};
       seList.forEach(se => { seMap[se.userId] = se; });
       setSelfEvals(seMap);
 
-      const mfList = await getMentoringFormsByUsers(active.map(m => m.id), year);
       const mfMap: Record<string, MentoringForm> = {};
       mfList.forEach(mf => { mfMap[mf.userId] = mf; });
       setMentoringForms(mfMap);
+
+      const wtMap: Record<string, WeeklyTask[]> = {};
+      active.forEach(m => { wtMap[m.id] = []; });
+      weeklyTasks.forEach(wt => {
+        if (!wtMap[wt.userId]) wtMap[wt.userId] = [];
+        wtMap[wt.userId].push(wt);
+      });
+      setWeeklyTasksByMember(wtMap);
 
       const ieMap: Record<string, IndividualEvaluation> = {};
       evalList.forEach(ie => { ieMap[ie.userId] = ie; });
@@ -169,6 +184,7 @@ function TeamLeadEvalView() {
             const ie = indivEvals[member.id];
             const se = selfEvals[member.id];
             const goals = goalsByMember[member.id] ?? [];
+            const weeklyTasks = weeklyTasksByMember[member.id] ?? [];
             const summary = goalCountSummary(goals);
             const isOpen = expanded[member.id] ?? false;
             const isReviewed = ie?.status === 'LEAD_REVIEWED' || ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
@@ -227,6 +243,68 @@ function TeamLeadEvalView() {
                                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${st.color}`}>{st.label}</span>
                                 <span className="text-sm text-gray-700 flex-1">{g.title}</span>
                                 <span className="text-xs text-gray-400">{g.progress}%</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 주간 업무관리 내역 */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 mb-2">주간 업무관리 내역</p>
+                      {weeklyTasks.length === 0 ? (
+                        <p className="text-sm text-gray-400">등록된 주간 업무 내역이 없습니다.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {weeklyTasks.map(wt => {
+                            const weekKey = `${member.id}_w${wt.weekNumber}`;
+                            const isWeekOpen = expandedWeeks[weekKey] ?? false;
+                            const doneCount = wt.items.filter(i => i.status === 'DONE').length;
+                            return (
+                              <div key={wt.id} className="rounded-lg border bg-gray-50 overflow-hidden">
+                                <button
+                                  className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-100 transition-colors"
+                                  onClick={() => setExpandedWeeks(p => ({ ...p, [weekKey]: !isWeekOpen }))}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-semibold text-gray-700">{wt.weekNumber}주차</span>
+                                    <span className="text-xs text-gray-400">
+                                      {wt.weekStart.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} ~ {wt.weekEnd.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                                    </span>
+                                    <span className="text-xs text-gray-400">업무 {wt.items.length}건 · 완료 {doneCount}건</span>
+                                  </div>
+                                  {isWeekOpen
+                                    ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" />
+                                    : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
+                                </button>
+                                {isWeekOpen && (
+                                  <div className="border-t px-3 py-2 space-y-1.5 bg-white">
+                                    {wt.items.length === 0 ? (
+                                      <p className="text-xs text-gray-400">등록된 업무가 없습니다.</p>
+                                    ) : wt.items.map(item => (
+                                      <div key={item.id} className="flex items-start gap-2 py-1">
+                                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium mt-0.5 ${
+                                          item.status === 'DONE' ? 'bg-green-100 text-green-700' :
+                                          item.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
+                                          'bg-gray-100 text-gray-500'
+                                        }`}>
+                                          {item.status === 'DONE' ? '완료' : item.status === 'IN_PROGRESS' ? '진행' : '예정'}
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs text-gray-800">{item.title}</p>
+                                          {item.result && <p className="text-xs text-gray-500 mt-0.5">{item.result}</p>}
+                                        </div>
+                                        <span className="shrink-0 text-xs text-gray-400">{item.achievement}%</span>
+                                      </div>
+                                    ))}
+                                    {wt.summary && (
+                                      <div className="border-t pt-1.5 mt-1.5">
+                                        <p className="text-xs text-gray-500"><span className="font-semibold">종합 의견: </span>{wt.summary}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}

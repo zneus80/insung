@@ -1127,6 +1127,26 @@ export async function getWeeklyTasksByUsersAndWeek(
   return snaps.filter(s => s.exists()).map(s => toWeeklyTask(s));
 }
 
+export async function getWeeklyTasksByUsersAndYear(
+  userIds: string[], year: number
+): Promise<WeeklyTask[]> {
+  if (!userIds.length) return [];
+  // Firestore 'in' 쿼리 최대 30개 → chunk 처리
+  const chunks: string[][] = [];
+  for (let i = 0; i < userIds.length; i += 30) chunks.push(userIds.slice(i, i + 30));
+  const results = await Promise.all(
+    chunks.map(chunk =>
+      getDocs(query(
+        collection(db, COLLECTIONS.WEEKLY_TASKS),
+        where('userId', 'in', chunk),
+        where('year', '==', year),
+      ))
+    )
+  );
+  return results.flatMap(snap => snap.docs.map(d => toWeeklyTask(d)))
+    .sort((a, b) => a.weekNumber - b.weekNumber);
+}
+
 // ─── 알림 (Notification) ──────────────────────
 export async function createNotification(data: Omit<AppNotification, 'id' | 'createdAt'>) {
   await addDoc(collection(db, COLLECTIONS.NOTIFICATIONS), {
