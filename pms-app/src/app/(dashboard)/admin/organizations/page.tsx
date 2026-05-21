@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { getOrganizations, createOrganization, updateOrganization, deleteOrganization, getAllUsers } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -233,8 +233,8 @@ function OrganizationsContent() {
                 };
 
                 return (
-                  <>
-                    <tr key={org.id} className="hover:bg-gray-50">
+                  <React.Fragment key={org.id}>
+                    <tr className="hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
                           {prefix && (
@@ -323,7 +323,7 @@ function OrganizationsContent() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </tbody>
