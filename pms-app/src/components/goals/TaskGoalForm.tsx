@@ -67,10 +67,27 @@ export default function TaskGoalForm({
   async function sendApprovalNotification(goalId: string, goalTitle: string) {
     try {
       const orgs = await getOrganizations();
-      const myOrg = orgs.find(o => o.id === userProfile!.organizationId);
-      const parentOrg = myOrg?.parentId ? orgs.find(o => o.id === myOrg.parentId) : undefined;
-      const leadId = myOrg?.leaderId ?? null;
-      const execId = parentOrg?.leaderId ?? null;
+
+      // 조직 체인 탐색 (GoalDetailClient와 동일한 로직)
+      function getOrgChain(orgId: string) {
+        const chain: typeof orgs = [];
+        let cur = orgs.find(o => o.id === orgId);
+        while (cur) {
+          chain.push(cur);
+          cur = cur.parentId ? orgs.find(o => o.id === cur!.parentId) : undefined;
+        }
+        return chain;
+      }
+
+      const chain  = getOrgChain(userProfile!.organizationId);
+      const teamOrg = chain.find(o => o.type === 'TEAM');
+      const hqOrg   = chain.find(o => o.type === 'HEADQUARTERS');
+      const divOrg  = chain.find(o => o.type === 'DIVISION');
+
+      // 팀장 (1차 승인자)
+      const teamLeadId = teamOrg?.leaderId ?? null;
+      // 임원 (최종 승인자): DIVISION이 있으면 DIV leaderId, 없으면 HQ leaderId
+      const execId = divOrg?.leaderId ?? (!divOrg ? hqOrg?.leaderId : null) ?? null;
 
       const notifBase = {
         goalId,
@@ -81,14 +98,14 @@ export default function TaskGoalForm({
       };
 
       if (userProfile!.role === 'TEAM_LEAD') {
-        // 팀장 목표 → 임원에게
+        // 팀장 목표 → 임원에게 직접 (본부장 단계 없음)
         if (execId && execId !== userProfile!.id) {
           await createNotification({ userId: execId, ...notifBase });
         }
       } else {
-        // 팀원 목표 → 팀장에게
-        if (leadId && leadId !== userProfile!.id) {
-          await createNotification({ userId: leadId, ...notifBase });
+        // 팀원 목표 → 팀장에게 (1차 승인자)
+        if (teamLeadId && teamLeadId !== userProfile!.id) {
+          await createNotification({ userId: teamLeadId, ...notifBase });
         }
       }
     } catch {
