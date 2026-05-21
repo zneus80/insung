@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation } from '@/lib/firestore';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -402,7 +403,9 @@ function UsersContent() {
                 ))
               ) : filtered.map(user => (
                 <tr key={user.id} className={!user.isActive ? 'opacity-60' : ''}>
-                  <td className="px-4 py-3 font-medium text-gray-900">{user.name}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    <MemberInfoModal userId={user.id} userName={user.name} />
+                  </td>
                   <td className="px-4 py-3 text-gray-500">{user.email}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-1 flex-wrap">

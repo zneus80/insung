@@ -14,9 +14,13 @@ import {
   Star,
   Flag,
   LogOut,
-  BookOpen,
   FileText,
   MessageSquareHeart,
+  Bell,
+  Trophy,
+  CalendarClock,
+  HardDrive,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,7 +32,9 @@ interface NavItem {
   href: string;
   icon: React.ReactNode;
   roles?: UserRole[];
-  requireHrAdmin?: boolean;  // true면 isHrAdmin 사용자도 표시
+  requireHrAdmin?: boolean;
+  exact?: boolean;
+  group?: string;
 }
 
 const navItems: NavItem[] = [
@@ -38,101 +44,211 @@ const navItems: NavItem[] = [
     href: '/dashboard',
     icon: <LayoutDashboard className="h-5 w-5" />,
   },
-  // ── 팀원 / 팀장 전용 ────────────────────────────
   {
-    label: '목표관리',
+    label: '공지사항',
+    href: '/announcements',
+    icon: <Bell className="h-5 w-5" />,
+  },
+
+  // ── 팀원 전용 ────────────────────────────────
+  {
+    label: '핵심목표관리',
     href: '/goals',
     icon: <Target className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
+    roles: ['MEMBER'],
+  },
+
+  // ── 팀원·팀장 공통 ─────────────────────────
+  {
+    label: '주간 업무관리',
+    href: '/tasks',
+    icon: <ClipboardList className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
   {
-    label: 'CDP',
-    href: '/cdp',
-    icon: <BookOpen className="h-5 w-5" />,
+    label: '자기평가',
+    href: '/evaluation',
+    icon: <FileText className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
   },
-  // ── 진행현황 (팀원/팀장) ──────────────────────
   {
-    label: '진행 현황',
-    href: '/progress',
-    icon: <TrendingUp className="h-5 w-5" />,
+    label: '육성면담서',
+    href: '/mentoring',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
-    requireHrAdmin: true,  // HR관리자도 진행현황 접근
+    exact: true,
   },
-  // ── 1on1 (팀원·팀장·임원) ──────────────────────
+  {
+    label: '평가결과 확인',
+    href: '/evaluation/result',
+    icon: <CheckSquare className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
+  },
   {
     label: '1on1',
     href: '/oneon1',
     icon: <Users className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
-  // ── 승인 대기함 (팀장·임원) ────────────────────
+
+  // ── 팀장 전용 ────────────────────────────────
+  {
+    label: '핵심목표관리',
+    href: '/goals',
+    icon: <Target className="h-5 w-5" />,
+    roles: ['TEAM_LEAD'],
+  },
   {
     label: '승인 대기함',
     href: '/approvals',
     icon: <CheckSquare className="h-5 w-5" />,
     roles: ['TEAM_LEAD', 'EXECUTIVE'],
   },
-  // ── 평가 (연말 인사평가) ───────────────────────
   {
-    label: '평가',
-    href: '/performance',
-    icon: <FileText className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
+    label: '팀원 평가',
+    href: '/evaluation/team',
+    icon: <BarChart3 className="h-5 w-5" />,
+    roles: ['TEAM_LEAD'],
   },
-  // ── 육성면담서 ────────────────────────────────
+
+  // ── 임원 전용 ────────────────────────────────
   {
-    label: '육성면담서',
-    href: '/mentoring',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
+    label: '업무 진행사항',
+    href: '/progress/leads',
+    icon: <TrendingUp className="h-5 w-5" />,
+    roles: ['EXECUTIVE'],
   },
-  // ── 평가 관리 ──────────────────────────────────
   {
-    label: '평가 관리',
+    label: '평가등급확정',
     href: '/evaluation',
     icon: <BarChart3 className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
+    roles: ['EXECUTIVE'],
+    exact: true,
   },
-  // ── CEO / HR관리자 공통 ────────────────────────
+
+  // ── 최고관리자 전용 ───────────────────────────
   {
-    label: '조직평가 관리',
+    label: '진행현황',
+    href: '/progress',
+    icon: <TrendingUp className="h-5 w-5" />,
+    roles: ['CEO'],
+  },
+  {
+    label: '조직평가관리',
     href: '/evaluation/org',
     icon: <BarChart3 className="h-5 w-5" />,
     roles: ['CEO'],
-    requireHrAdmin: true,
   },
-  // ── HR관리자 전용 ──────────────────────────────
   {
-    label: '사용자 관리',
-    href: '/admin/users',
-    icon: <Users className="h-5 w-5" />,
+    label: '전사 평가결과확인',
+    href: '/evaluation/result/all',
+    icon: <CheckSquare className="h-5 w-5" />,
+    roles: ['CEO'],
+  },
+  {
+    label: '전사 육성면담서 확인',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    roles: ['CEO'],
+  },
+
+  // ── HR관리자 전용 — 전사 조회 ────────────────────────────
+  {
+    label: '전사 평가결과확인',
+    href: '/evaluation/result/all',
+    icon: <CheckSquare className="h-5 w-5" />,
     requireHrAdmin: true,
   },
+  {
+    label: '전사 육성면담서 확인',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+
+  // ── HR관리자 전용 — 기본정보입력 ─────────────────────
   {
     label: '조직 관리',
     href: '/admin/organizations',
     icon: <Building2 className="h-5 w-5" />,
     requireHrAdmin: true,
+    group: '기본정보입력',
+  },
+  {
+    label: '사용자 관리',
+    href: '/admin/users',
+    icon: <Users className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: '기본정보입력',
+  },
+  {
+    label: '마일리지 관리',
+    href: '/admin/mileage',
+    icon: <Star className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: '기본정보입력',
+  },
+  {
+    label: '포상 이력 관리',
+    href: '/admin/awards',
+    icon: <Trophy className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: '기본정보입력',
   },
   {
     label: '연간 목표 관리',
     href: '/admin/annual-goals',
     icon: <Flag className="h-5 w-5" />,
     requireHrAdmin: true,
+    group: '기본정보입력',
   },
+
+  // ── HR관리자 전용 — 인사평가 설정 ────────────────────
   {
-    label: '마일리지 관리',
-    href: '/admin/mileage',
-    icon: <Star className="h-5 w-5" />,
-    roles: ['CEO'],
+    label: '평가기간 관리',
+    href: '/admin/evaluation-period',
+    icon: <Flag className="h-5 w-5" />,
     requireHrAdmin: true,
+    group: '인사평가 설정',
   },
   {
-    label: '시스템 설정',
+    label: '평가이력 관리',
+    href: '/admin/evaluation-history',
+    icon: <BarChart3 className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: '인사평가 설정',
+  },
+  {
+    label: '조직평가인원관리',
+    href: '/evaluation/org',
+    icon: <BarChart3 className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: '인사평가 설정',
+  },
+  {
+    label: '개인평가등급 설정',
     href: '/admin/settings',
     icon: <Settings className="h-5 w-5" />,
     requireHrAdmin: true,
+    group: '인사평가 설정',
+  },
+
+  // ── HR관리자 전용 — 시스템 설정 ──────────────────────
+  {
+    label: '연도 전환 관리',
+    href: '/admin/year-transition',
+    icon: <CalendarClock className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: '시스템 설정',
+  },
+  {
+    label: '데이터 백업 관리',
+    href: '/admin/backup',
+    icon: <HardDrive className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: '시스템 설정',
   },
 ];
 
@@ -147,10 +263,12 @@ export default function Sidebar() {
   }
 
   const visibleItems = navItems.filter(item => {
-    const roleOk = !item.roles || (!!userProfile && item.roles.includes(userProfile.role));
-    const hrOk = !!item.requireHrAdmin && !!userProfile?.isHrAdmin;
-    // 역할 제한과 HR 제한이 모두 없으면 모두에게 표시
+    // 역할·HR 제한이 모두 없으면 전체 표시
     if (!item.roles && !item.requireHrAdmin) return true;
+    // 역할 조건: roles 배열이 있을 때만 체크
+    const roleOk = !!item.roles && !!userProfile && item.roles.includes(userProfile.role);
+    // HR 관리자 조건
+    const hrOk = !!item.requireHrAdmin && !!userProfile?.isHrAdmin;
     return roleOk || hrOk;
   });
 
@@ -165,28 +283,41 @@ export default function Sidebar() {
       </div>
 
       {/* 네비게이션 */}
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        {visibleItems.map((item) => {
-          const isActive =
-            pathname === item.href || pathname.startsWith(item.href + '/');
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-              )}
-            >
-              <span className={isActive ? 'text-blue-600' : 'text-gray-400'}>
-                {item.icon}
-              </span>
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 overflow-y-auto px-3 py-4">
+        {(() => {
+          const normalizedPath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+          let lastGroup: string | undefined = undefined;
+          return visibleItems.map((item) => {
+            const isActive = item.exact
+              ? normalizedPath === item.href
+              : normalizedPath === item.href || normalizedPath.startsWith(item.href + '/');
+            const showGroupHeader = item.group && item.group !== lastGroup;
+            if (item.group) lastGroup = item.group;
+            return (
+              <div key={item.label}>
+                {showGroupHeader && (
+                  <p className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                    {item.group}
+                  </p>
+                )}
+                <Link
+                  href={item.href}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  )}
+                >
+                  <span className={isActive ? 'text-blue-600' : 'text-gray-400'}>
+                    {item.icon}
+                  </span>
+                  {item.label}
+                </Link>
+              </div>
+            );
+          });
+        })()}
       </nav>
 
       {/* 하단: 역할 배지 + 로그아웃 */}

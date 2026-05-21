@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getAnnualGoal,
   setAnnualGoal,
@@ -28,7 +29,7 @@ export default function AnnualGoalsPage() {
 
 function AnnualGoalsContent() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
 
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
@@ -49,7 +50,7 @@ function AnnualGoalsContent() {
         getAnnualGoal('company', year),
         getAllOrgAnnualGoals(year),
       ]);
-      setOrgs(orgList.filter(o => o.type === 'DIVISION'));
+      setOrgs(orgList.filter(o => o.type === 'DIVISION' || o.type === 'HEADQUARTERS'));
       setCompanyGoal(cGoal);
       setOrgGoals(Object.fromEntries(oGoals.map(g => [g.organizationId!, g])));
     } finally {

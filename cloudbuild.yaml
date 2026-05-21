@@ -1,95 +1,59 @@
 # Google Cloud Build — Cloud Run 자동 배포
-#
-# 사전 준비:
-#   1. Cloud Build API 활성화
-#   2. Cloud Run API 활성화
-#   3. Artifact Registry 저장소 생성 (asia-northeast3)
-#   4. Secret Manager에 Firebase 환경변수 등록
-#   5. Cloud Build 서비스 계정에 Cloud Run Admin 권한 부여
-#
-# 트리거 설정:
-#   Cloud Build 콘솔 → 트리거 → main 브랜치 push 시 실행
+# NEXT_PUBLIC_* 변수는 .env.production 파일에 포함되어 있어 별도 설정 불필요
+# FIREBASE_SERVICE_ACCOUNT_KEY 만 Secret Manager에 등록하면 됨
 
 substitutions:
   _REGION: asia-northeast3
   _SERVICE_NAME: insung-pms
-  _REPO_NAME: insung-pms          # Artifact Registry 저장소 이름
+  _REPO_NAME: cloud-run-source-deploy
   _IMAGE: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO_NAME}/${_SERVICE_NAME}
 
 steps:
-  # 1. Docker 이미지 빌드 (Firebase 환경변수는 Secret Manager에서 주입)
+  # 1. Docker 이미지 빌드 (.env.production이 repo에 포함되어 자동으로 읽힘)
   - name: gcr.io/cloud-builders/docker
     id: build
-    entrypoint: bash
     args:
-      - -c
-      - |
-        docker build \
-          --build-arg NEXT_PUBLIC_FIREBASE_API_KEY=$$FIREBASE_API_KEY \
-          --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$$FIREBASE_AUTH_DOMAIN \
-          --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID=$$FIREBASE_PROJECT_ID \
-          --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$$FIREBASE_STORAGE_BUCKET \
-          --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$$FIREBASE_MESSAGING_SENDER_ID \
-          --build-arg NEXT_PUBLIC_FIREBASE_APP_ID=$$FIREBASE_APP_ID \
-          -t ${_IMAGE}:$SHORT_SHA \
-          -t ${_IMAGE}:latest \
-          -f pms-app/Dockerfile \
-          pms-app/
-    secretEnv:
-      - FIREBASE_API_KEY
-      - FIREBASE_AUTH_DOMAIN
-      - FIREBASE_PROJECT_ID
-      - FIREBASE_STORAGE_BUCKET
-      - FIREBASE_MESSAGING_SENDER_ID
-      - FIREBASE_APP_ID
+      - build
+      - '-t'
+      - '${_IMAGE}:$SHORT_SHA'
+      - '-t'
+      - '${_IMAGE}:latest'
+      - '-f'
+      - 'pms-app/Dockerfile'
+      - 'pms-app/'
 
   # 2. Artifact Registry에 이미지 푸시
   - name: gcr.io/cloud-builders/docker
     id: push
     args:
       - push
-      - --all-tags
-      - ${_IMAGE}
+      - '--all-tags'
+      - '${_IMAGE}'
     waitFor: [build]
 
-  # 3. Cloud Run에 배포
+  # 3. Cloud Run에 배포 (FIREBASE_SERVICE_ACCOUNT_KEY는 런타임 시크릿으로 주입)
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     id: deploy
     entrypoint: gcloud
     args:
       - run
       - deploy
-      - ${_SERVICE_NAME}
-      - --image=${_IMAGE}:$SHORT_SHA
-      - --region=${_REGION}
-      - --platform=managed
-      - --allow-unauthenticated
-      - --port=8080
-      - --memory=256Mi
-      - --cpu=1
-      - --min-instances=0
-      - --max-instances=10
+      - '${_SERVICE_NAME}'
+      - '--image=${_IMAGE}:$SHORT_SHA'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8080'
+      - '--memory=512Mi'
+      - '--cpu=1'
+      - '--min-instances=0'
+      - '--max-instances=10'
+      - '--update-secrets=FIREBASE_SERVICE_ACCOUNT_KEY=FIREBASE_SERVICE_ACCOUNT_KEY:latest'
     waitFor: [push]
 
-# Secret Manager에서 환경변수 가져오기
-availableSecrets:
-  secretManager:
-    - versionName: projects/$PROJECT_ID/secrets/FIREBASE_API_KEY/versions/latest
-      env: FIREBASE_API_KEY
-    - versionName: projects/$PROJECT_ID/secrets/FIREBASE_AUTH_DOMAIN/versions/latest
-      env: FIREBASE_AUTH_DOMAIN
-    - versionName: projects/$PROJECT_ID/secrets/FIREBASE_PROJECT_ID/versions/latest
-      env: FIREBASE_PROJECT_ID
-    - versionName: projects/$PROJECT_ID/secrets/FIREBASE_STORAGE_BUCKET/versions/latest
-      env: FIREBASE_STORAGE_BUCKET
-    - versionName: projects/$PROJECT_ID/secrets/FIREBASE_MESSAGING_SENDER_ID/versions/latest
-      env: FIREBASE_MESSAGING_SENDER_ID
-    - versionName: projects/$PROJECT_ID/secrets/FIREBASE_APP_ID/versions/latest
-      env: FIREBASE_APP_ID
-
 images:
-  - ${_IMAGE}:$SHORT_SHA
-  - ${_IMAGE}:latest
+  - '${_IMAGE}:$SHORT_SHA'
+  - '${_IMAGE}:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY

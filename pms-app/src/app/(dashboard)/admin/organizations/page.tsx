@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Plus, Pencil, Trash2, Users } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import type { Organization, User } from '@/types';
 
 type OrgType = Organization['type'];
@@ -85,6 +86,7 @@ function OrganizationsContent() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Organization | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [expandedOrgs, setExpandedOrgs] = useState<Record<string, boolean>>({});
 
   async function load() {
     try {
@@ -223,64 +225,105 @@ function OrganizationsContent() {
               ) : treeNodes.map(({ org, depth, prefix }) => {
                 const leader = users.find(u => u.id === org.leaderId);
                 const memberCount = memberCountMap[org.id] ?? 0;
+                const orgMembers = users.filter(u => u.organizationId === org.id);
+                const isExpanded = expandedOrgs[org.id] ?? false;
+
+                const ROLE_LABEL: Record<string, string> = {
+                  EXECUTIVE: '임원', TEAM_LEAD: '팀장', MEMBER: '팀원', CEO: '대표', HR_ADMIN: 'HR',
+                };
+
                 return (
-                  <tr key={org.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        {/* 트리 연결선 */}
-                        {prefix && (
-                          <span className="font-mono text-xs text-gray-300 select-none whitespace-pre">
-                            {prefix}
+                  <>
+                    <tr key={org.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          {prefix && (
+                            <span className="font-mono text-xs text-gray-300 select-none whitespace-pre">
+                              {prefix}
+                            </span>
+                          )}
+                          <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold
+                            ${org.type === 'COMPANY' ? 'bg-blue-100 text-blue-600' :
+                              org.type === 'DIVISION' ? 'bg-purple-100 text-purple-600' :
+                              org.type === 'HEADQUARTERS' ? 'bg-indigo-100 text-indigo-600' :
+                              'bg-green-100 text-green-600'}`}>
+                            {org.type === 'COMPANY' ? '사' : org.type === 'DIVISION' ? '부' : org.type === 'HEADQUARTERS' ? '본' : '팀'}
                           </span>
+                          <span className={`font-medium text-gray-900 ${depth === 0 ? 'text-base' : ''}`}>
+                            {org.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${TYPE_COLOR[org.type]}`}>
+                          {TYPE_LABEL[org.type]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">
+                        {leader ? (
+                          <span>
+                            {leader.name}
+                            {leader.position && <span className="text-gray-400"> · {leader.position}</span>}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">미지정</span>
                         )}
-                        {/* 조직 타입 아이콘 */}
-                        <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold
-                          ${org.type === 'COMPANY' ? 'bg-blue-100 text-blue-600' :
-                            org.type === 'DIVISION' ? 'bg-purple-100 text-purple-600' :
-                            org.type === 'HEADQUARTERS' ? 'bg-indigo-100 text-indigo-600' :
-                            'bg-green-100 text-green-600'}`}>
-                          {org.type === 'COMPANY' ? '사' : org.type === 'DIVISION' ? '부' : org.type === 'HEADQUARTERS' ? '본' : '팀'}
-                        </span>
-                        <span className={`font-medium text-gray-900 ${depth === 0 ? 'text-base' : ''}`}>
-                          {org.name}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${TYPE_COLOR[org.type]}`}>
-                        {TYPE_LABEL[org.type]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      {leader ? (
-                        <span>
-                          {leader.name}
-                          {leader.position && <span className="text-gray-400"> · {leader.position}</span>}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">미지정</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {memberCount > 0 ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                          <Users className="h-3 w-3" />{memberCount}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-gray-300">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1 justify-end">
-                        <button onClick={() => openEdit(org)} className="p-1.5 rounded hover:bg-gray-100" title="수정">
-                          <Pencil className="h-3.5 w-3.5 text-gray-400" />
-                        </button>
-                        <button onClick={() => setDeleteTarget(org)} className="p-1.5 rounded hover:bg-gray-100" title="삭제">
-                          <Trash2 className="h-3.5 w-3.5 text-red-400" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {memberCount > 0 ? (
+                          <button
+                            onClick={() => setExpandedOrgs(p => ({ ...p, [org.id]: !isExpanded }))}
+                            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                          >
+                            <Users className="h-3 w-3" />
+                            {memberCount}
+                            {isExpanded
+                              ? <ChevronUp className="h-3 w-3" />
+                              : <ChevronDown className="h-3 w-3" />}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1 justify-end">
+                          <button onClick={() => openEdit(org)} className="p-1.5 rounded hover:bg-gray-100" title="수정">
+                            <Pencil className="h-3.5 w-3.5 text-gray-400" />
+                          </button>
+                          <button onClick={() => setDeleteTarget(org)} className="p-1.5 rounded hover:bg-gray-100" title="삭제">
+                            <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr key={`${org.id}_members`} className="bg-blue-50/40">
+                        <td colSpan={5} className="px-4 py-3">
+                          <div className="flex flex-wrap gap-2">
+                            {orgMembers.map(u => (
+                              <div key={u.id} className="flex items-center gap-1.5 rounded-lg bg-white border border-blue-100 px-2.5 py-1.5">
+                                <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 shrink-0">
+                                  {u.name[0]}
+                                </div>
+                                <div className="text-xs">
+                                  <MemberInfoModal userId={u.id} userName={u.name} />
+                                  {u.position && <span className="ml-1 text-gray-400">{u.position}</span>}
+                                  {u.role && (
+                                    <span className="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
+                                      {ROLE_LABEL[u.role] ?? u.role}
+                                    </span>
+                                  )}
+                                  {!u.isActive && (
+                                    <span className="ml-1 rounded-full bg-yellow-100 px-1.5 py-0.5 text-[10px] text-yellow-600">초대대기</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 );
               })}
             </tbody>

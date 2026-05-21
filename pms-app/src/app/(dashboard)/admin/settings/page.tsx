@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, setDoc, Timestamp } from 'firebase/firestore';
 import { COLLECTIONS, getGradeQuotas, getActiveCycle } from '@/lib/firestore';
@@ -23,7 +24,7 @@ export default function SettingsPage() {
 }
 
 function SettingsContent() {
-  const year = new Date().getFullYear();
+  const { activeYear: year } = useActiveYear();
   const [cycle, setCycle] = useState<EvaluationCycle | null>(null);
   const [cycleForm, setCycleForm] = useState({
     goalStart: '', goalEnd: '', evalStart: '', evalEnd: '',

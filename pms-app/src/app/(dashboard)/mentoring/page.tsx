@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getMentoringForm, upsertMentoringForm } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
@@ -11,8 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
-  Save, Send, CheckCircle2, User, Briefcase, GraduationCap,
-  TrendingUp, MapPin, BookOpen, MessageSquare, ChevronRight, RefreshCw,
+  Save, Send, CheckCircle2, Briefcase,
+  TrendingUp, MapPin, MessageSquare, RefreshCw, Plus, X,
 } from 'lucide-react';
 import type { MentoringForm, JobRequestType } from '@/types';
 
@@ -20,23 +21,18 @@ const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
 
 const EMPTY_FORM: Omit<MentoringForm, 'id' | 'userId' | 'organizationId' | 'cycleYear' | 'createdAt' | 'updatedAt' | 'status' | 'submittedAt'> = {
   interviewDate: '', interviewerName: '',
-  lastSchoolMajor: '', familyInfo: '', commute: '', importantEvent: '',
   currentPosition: '', mainDuties: '', promotionDate: '', certifications: '', achievements: '',
   careerPlan: '',
   jobRequest: 'SATISFIED', jobRequestReason: '',
   desiredJob1: '', desiredJob2: '', jobChangeReason: '',
   desiredLocation1: '', desiredLocation2: '', locationChangeReason: '',
-  languageType: '', languagePurpose: '', additionalEducation: '',
   selfOpinion: '', interviewerOpinion: '',
 };
 
 // 연도가 바뀌어도 이어받을 필드 목록
-const CARRY_OVER_FIELDS = ['lastSchoolMajor', 'familyInfo', 'commute', 'currentPosition', 'promotionDate'] as const;
+const CARRY_OVER_FIELDS = ['currentPosition', 'promotionDate'] as const;
 
 const MOCK_PREV_FORM = {
-  lastSchoolMajor: '한국대학교 / 경영학과',
-  familyInfo: '배우자, 자녀 1명',
-  commute: '서울 마포구 (편도 45분)',
   currentPosition: '대리 / 영업1팀',
   promotionDate: '2023-03-01',
 };
@@ -51,7 +47,7 @@ const JOB_REQUEST_OPTIONS: { value: JobRequestType; label: string }[] = [
 
 export default function MentoringPage() {
   return (
-    <AuthGuard allowedRoles={['MEMBER', 'TEAM_LEAD']}>
+    <AuthGuard allowedRoles={['MEMBER', 'TEAM_LEAD', 'EXECUTIVE']}>
       <MentoringContent />
     </AuthGuard>
   );
@@ -59,19 +55,36 @@ export default function MentoringPage() {
 
 function MentoringContent() {
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
+  const { activeYear } = useActiveYear();
+  const YEAR_OPTIONS = [activeYear, activeYear - 1, activeYear - 2];
+  const [selectedYear, setSelectedYear] = useState(activeYear);
+  const year = selectedYear;
+  const isPastYear = selectedYear < activeYear;
+
   const [form, setForm] = useState(EMPTY_FORM);
   const [status, setStatus] = useState<MentoringForm['status']>('DRAFT');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [carriedOver, setCarriedOver] = useState(false); // 이전 데이터 불러왔는지 여부
+  // 자격증 개별 입력 목록
+  const [certList, setCertList] = useState<string[]>(['']);
 
   const set = (field: string, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
 
+  // certList → form.certifications 동기화
+  function updateCerts(list: string[]) {
+    setCertList(list);
+    setForm(prev => ({ ...prev, certifications: list.filter(Boolean).join('\n') }));
+  }
+
   const load = useCallback(async () => {
     if (!userProfile) return;
     setLoading(true);
+    setForm(EMPTY_FORM);
+    setStatus('DRAFT');
+    setCertList(['']);
+    setCarriedOver(false);
     try {
       if (IS_MOCK) {
         // 목업: 이전 폼 데이터 자동 세팅
@@ -84,6 +97,7 @@ function MentoringContent() {
           const { id, userId, organizationId, cycleYear, createdAt, updatedAt, status: s, submittedAt, ...rest } = record;
           setForm(rest);
           setStatus(s);
+          setCertList(record.certifications ? record.certifications.split('\n').filter(Boolean) : ['']);
         } else {
           // 현재 연도 폼 없으면 작년 폼에서 고정 필드 불러오기
           const prevRecord = await getMentoringForm(userProfile.id, year - 1);
@@ -106,7 +120,7 @@ function MentoringContent() {
 
   useEffect(() => { load(); }, [load]);
 
-  const isSubmitted = status === 'SUBMITTED';
+  const isSubmitted = status === 'SUBMITTED' || isPastYear;
 
   async function handleSave(submit: boolean) {
     if (!userProfile) return;
@@ -134,7 +148,7 @@ function MentoringContent() {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <Header title="육성면담서" />
+        <Header title="육성면담서" showBack />
         <div className="p-6 space-y-4">
           {[1,2,3,4].map(i => <div key={i} className="h-32 animate-pulse rounded-2xl bg-gray-100" />)}
         </div>
@@ -144,9 +158,35 @@ function MentoringContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="육성면담서" />
+      <Header title="육성면담서" showBack />
+
+      {/* 연도 선택 탭 */}
+      <div className="flex gap-1 border-b bg-white px-6 pt-3 shrink-0">
+        {YEAR_OPTIONS.map(y => (
+          <button
+            key={y}
+            onClick={() => setSelectedYear(y)}
+            className={`px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors ${
+              selectedYear === y
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {y}년
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-y-auto bg-gray-50">
         <div className="max-w-3xl mx-auto px-6 py-6 space-y-5">
+
+          {/* 이전 연도 이력 배너 */}
+          {isPastYear && (
+            <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
+              <span>📅</span>
+              <span>{selectedYear}년 이력 보기 중 — 수정·제출은 당해연도에만 가능합니다.</span>
+            </div>
+          )}
 
           {/* 상단 상태 배너 */}
           <div className="flex items-center justify-between">
@@ -169,66 +209,53 @@ function MentoringContent() {
           {carriedOver && !isSubmitted && (
             <div className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-2.5 text-xs text-blue-700">
               <RefreshCw className="h-3.5 w-3.5 shrink-0" />
-              최종학교/전공, 가족사항, 거주지, 현 직위, 승진일을 이전 저장 데이터로 자동 불러왔습니다. 내용을 확인하고 수정하세요.
+              현 직위, 승진일을 이전 저장 데이터로 자동 불러왔습니다. 내용을 확인하고 수정하세요.
             </div>
           )}
 
-          {/* ── 섹션 1: 기본 정보 ── */}
-          <SectionCard icon={<User className="h-4 w-4" />} title="기본 정보" color="blue">
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="면담일">
-                <Input type="date" value={form.interviewDate} disabled={isSubmitted}
-                  onChange={e => set('interviewDate', e.target.value)} />
-              </Field>
-              <Field label="면담자">
-                <Input placeholder="면담자 이름" value={form.interviewerName} disabled={isSubmitted}
-                  onChange={e => set('interviewerName', e.target.value)} />
-              </Field>
-            </div>
-          </SectionCard>
-
-          {/* ── 섹션 2: CDP 자기신고서 - 개인 기본사항 ── */}
-          <SectionCard icon={<GraduationCap className="h-4 w-4" />} title="I. CDP 자기신고서" subtitle="개인 기본사항" color="indigo">
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="최종학교 / 전공">
-                  <Input placeholder="예) 한국대학교 / 경영학과" value={form.lastSchoolMajor} disabled={isSubmitted}
-                    onChange={e => set('lastSchoolMajor', e.target.value)} />
-                </Field>
-                <Field label="가족사항">
-                  <Input placeholder="예) 배우자, 자녀 2명" value={form.familyInfo} disabled={isSubmitted}
-                    onChange={e => set('familyInfo', e.target.value)} />
-                </Field>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="거주지 (출퇴근 시간)">
-                  <Input placeholder="예) 서울 강남구 (편도 40분)" value={form.commute} disabled={isSubmitted}
-                    onChange={e => set('commute', e.target.value)} />
-                </Field>
-                <Field label="현 직위 승진일">
-                  <Input type="date" value={form.promotionDate} disabled={isSubmitted}
-                    onChange={e => set('promotionDate', e.target.value)} />
-                </Field>
-              </div>
-              <Field label="개인적으로 중요했던 Event">
-                <Textarea placeholder="올해 개인적으로 중요했던 사건이나 경험을 기술하세요."
-                  value={form.importantEvent} disabled={isSubmitted} rows={3}
-                  className="resize-none" onChange={e => set('importantEvent', e.target.value)} />
-              </Field>
-            </div>
-          </SectionCard>
-
-          {/* ── 섹션 3: 직무 정보 ── */}
+          {/* ── 섹션 1: 직무 정보 ── */}
           <SectionCard icon={<Briefcase className="h-4 w-4" />} title="직무 정보" color="violet">
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <Field label="직위 / 직책">
+                <Field label="직책">
                   <Input placeholder="예) 대리 / 영업팀" value={form.currentPosition} disabled={isSubmitted}
                     onChange={e => set('currentPosition', e.target.value)} />
                 </Field>
                 <Field label="직무관련 보유자격증">
-                  <Input placeholder="예) 정보처리기사, TOEIC 850" value={form.certifications} disabled={isSubmitted}
-                    onChange={e => set('certifications', e.target.value)} />
+                  <div className="space-y-2">
+                    {certList.map((cert, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <Input
+                          placeholder={`자격증 ${idx + 1}`}
+                          value={cert}
+                          disabled={isSubmitted}
+                          onChange={e => {
+                            const next = [...certList];
+                            next[idx] = e.target.value;
+                            updateCerts(next);
+                          }}
+                        />
+                        {!isSubmitted && certList.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => updateCerts(certList.filter((_, i) => i !== idx))}
+                            className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {!isSubmitted && (
+                      <button
+                        type="button"
+                        onClick={() => updateCerts([...certList, ''])}
+                        className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> 자격증 추가
+                      </button>
+                    )}
+                  </div>
                 </Field>
               </div>
               <Field label="주요 담당업무">
@@ -244,7 +271,7 @@ function MentoringContent() {
             </div>
           </SectionCard>
 
-          {/* ── 섹션 4: 경력개발 계획 ── */}
+          {/* ── 경력개발 계획 ── */}
           <SectionCard icon={<TrendingUp className="h-4 w-4" />} title="경력개발 계획" color="emerald">
             <Field label="희망 Position 및 경력개발 방향"
               hint="향후 3~5년 이내의 희망 Position 및 경력개발 방향에 대하여 기술하세요.">
@@ -254,7 +281,7 @@ function MentoringContent() {
             </Field>
           </SectionCard>
 
-          {/* ── 섹션 5: 현 직무 요청사항 ── */}
+          {/* ── 현 직무 요청사항 ── */}
           <SectionCard icon={<MapPin className="h-4 w-4" />} title="현 직무에 관한 요청사항" color="orange">
             <div className="space-y-4">
               {/* 라디오 버튼 */}
@@ -325,33 +352,8 @@ function MentoringContent() {
             </div>
           </SectionCard>
 
-          {/* ── 섹션 6: 교육지원 요청 ── */}
-          <SectionCard icon={<BookOpen className="h-4 w-4" />} title="교육 지원 요청사항" color="teal">
-            <div className="space-y-4">
-              <div className="rounded-xl bg-teal-50 border border-teal-100 p-4 space-y-3">
-                <p className="text-xs font-semibold text-teal-700">어학 교육</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="어학 종류">
-                    <Input placeholder="예) 영어, 중국어" value={form.languageType} disabled={isSubmitted}
-                      onChange={e => set('languageType', e.target.value)} />
-                  </Field>
-                  <Field label="교육 목적">
-                    <Input placeholder="예) 해외영업 역량 강화" value={form.languagePurpose} disabled={isSubmitted}
-                      onChange={e => set('languagePurpose', e.target.value)} />
-                  </Field>
-                </div>
-              </div>
-              <Field label="기타 희망 교육"
-                hint="자격증 취득을 위한 교육, 꼭 필요한 전문교육 등을 기술하세요.">
-                <Textarea placeholder="예) PMP 자격증 취득 과정, 리더십 코칭 프로그램 등"
-                  value={form.additionalEducation} disabled={isSubmitted} rows={3}
-                  className="resize-none" onChange={e => set('additionalEducation', e.target.value)} />
-              </Field>
-            </div>
-          </SectionCard>
-
-          {/* ── 섹션 7: II. 종합의견 ── */}
-          <SectionCard icon={<MessageSquare className="h-4 w-4" />} title="II. 종합의견" color="gray">
+          {/* ── 종합의견 ── */}
+          <SectionCard icon={<MessageSquare className="h-4 w-4" />} title="종합의견" color="gray">
             <Field label="작성자 종합의견"
               hint="CDP, 5S와 6E 작성 내용들을 종합한 1년간의 자기평가와 함께 회사에 대한 요청사항 등을 자유롭게 기술하세요.">
               <Textarea placeholder="본인의 1년간 성과와 성장에 대한 자기평가, 회사에 대한 요청사항 등을 자유롭게 작성하세요."
@@ -362,15 +364,21 @@ function MentoringContent() {
 
           {/* ── 버튼 영역 ── */}
           {!isSubmitted ? (
-            <div className="flex gap-3 pb-6">
-              <Button variant="outline" onClick={() => handleSave(false)} disabled={saving} className="flex-1 gap-2 h-11">
-                <Save className="h-4 w-4" />
-                {saving ? '저장 중...' : '임시저장'}
-              </Button>
-              <Button onClick={() => handleSave(true)} disabled={saving} className="flex-1 gap-2 h-11 bg-blue-600 hover:bg-blue-700">
-                <Send className="h-4 w-4" />
-                {saving ? '제출 중...' : '제출하기'}
-              </Button>
+            <div className="space-y-3 pb-6">
+              <div className="flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-700">
+                <span className="mt-0.5 shrink-0">⚠️</span>
+                <p>제출 후에는 내용 수정이 어렵습니다. 제출 전 모든 항목을 꼼꼼히 확인해 주세요. 수정이 필요한 경우 담당 HR 관리자에게 문의하세요.</p>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" onClick={() => handleSave(false)} disabled={saving} className="flex-1 gap-2 h-11">
+                  <Save className="h-4 w-4" />
+                  {saving ? '저장 중...' : '임시저장'}
+                </Button>
+                <Button onClick={() => handleSave(true)} disabled={saving} className="flex-1 gap-2 h-11 bg-blue-600 hover:bg-blue-700">
+                  <Send className="h-4 w-4" />
+                  {saving ? '제출 중...' : '제출하기'}
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-5 py-4 text-sm text-green-700 mb-6">

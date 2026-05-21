@@ -150,14 +150,85 @@ service cloud.firestore {
       allow update: if true; // 초대 수락 시 usedAt 업데이트
     }
 
-    // CDP (docId = userId_year)
-    match /cdps/{docId} {
+    // 알림
+    match /notifications/{id} {
+      allow get: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // 주간 업무 (docId = userId_year_Wnn)
+    match /weeklyTasks/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        // 본인 문서 수정
+        resource.data.userId == request.auth.uid
+        ||
+        // 팀장·임원이 leadComments 추가 — 소유권·업무 데이터 변경 불가
+        (
+          request.resource.data.userId         == resource.data.userId         &&
+          request.resource.data.organizationId == resource.data.organizationId &&
+          request.resource.data.year           == resource.data.year           &&
+          request.resource.data.weekNumber     == resource.data.weekNumber     &&
+          request.resource.data.hasDoneItems   == resource.data.hasDoneItems   &&
+          request.resource.data.willDoItems    == resource.data.willDoItems    &&
+          request.resource.data.summary        == resource.data.summary
+        )
+      );
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // 연말 평가 (docId = userId_year)
+    match /yearEndEvals/{docId} {
       allow read: if isAuthenticated() && (
         docId.matches('^' + request.auth.uid + '_.*') ||
         isLead() || isExec() || isCeo() || isHrAdmin()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // 평가 기간 설정 (HR관리자·CEO가 설정, 전체가 읽기)
+    match /evaluationPeriods/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isHrAdmin() || isCeo();
+    }
+
+    // 육성면담서 (docId = userId_year)
+    match /mentoringForms/{docId} {
+      allow read: if isAuthenticated() && (
+        docId.matches('^' + request.auth.uid + '_.*') ||
+        isLead() || isExec() || isCeo() || isHrAdmin()
+      );
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // 공지사항 (전체 읽기, HR관리자만 쓰기)
+    match /announcements/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isHrAdmin();
+    }
+
+    // 포상 이력 (전체 읽기, HR관리자만 쓰기)
+    match /awards/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isHrAdmin();
+    }
+
+    // 시스템 설정 (전체 읽기, HR관리자만 쓰기)
+    match /systemSettings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isHrAdmin();
+    }
+
+    // 데이터 백업 (HR관리자만 읽기·쓰기·삭제)
+    match /backups/{id} {
+      allow read: if isHrAdmin();
+      allow create: if isHrAdmin();
+      allow delete: if isHrAdmin();
     }
   }
 }

@@ -3,10 +3,12 @@ import { cn } from '@/lib/utils';
 
 interface MileageCardProps {
   points: number;
+  submitTds?: number;
+  instructTds?: number;
   className?: string;
 }
 
-export default function MileageCard({ points, className }: MileageCardProps) {
+export default function MileageCard({ points, submitTds, instructTds, className }: MileageCardProps) {
   const tier = getTier(points);
   const progress = getTierProgress(points);
   const remaining = getPointsToNextTier(points);
@@ -33,6 +35,20 @@ export default function MileageCard({ points, className }: MileageCardProps) {
           <p className="text-xs text-gray-400">점</p>
         </div>
       </div>
+
+      {/* TDS 구분 표기 */}
+      {(submitTds !== undefined || instructTds !== undefined) && (
+        <div className="flex gap-3">
+          <div className="flex-1 rounded-lg bg-white/50 px-3 py-2 text-center">
+            <p className="text-xs text-gray-500">제출 TDS</p>
+            <p className={`text-base font-bold ${tier.color}`}>{(submitTds ?? 0).toLocaleString()}</p>
+          </div>
+          <div className="flex-1 rounded-lg bg-white/50 px-3 py-2 text-center">
+            <p className="text-xs text-gray-500">지시 TDS</p>
+            <p className={`text-base font-bold ${tier.color}`}>{(instructTds ?? 0).toLocaleString()}</p>
+          </div>
+        </div>
+      )}
 
       {/* 진행 바 */}
       <div className="space-y-1">
