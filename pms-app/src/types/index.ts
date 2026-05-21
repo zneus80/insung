@@ -483,6 +483,12 @@ export interface LeadCommentEntry {
   createdAt: Date;
 }
 
+export interface SimpleTaskItem {
+  id: string;
+  title: string;
+  content: string;
+}
+
 export interface WeeklyTask {
   id: string;                  // `${userId}_${year}_W${weekNumber}`
   userId: string;
@@ -491,7 +497,9 @@ export interface WeeklyTask {
   weekNumber: number;
   weekStart: Date;
   weekEnd: Date;
-  items: WeeklyTaskItem[];
+  items: WeeklyTaskItem[];          // 구형 포맷 (호환성 유지)
+  hasDoneItems: SimpleTaskItem[];   // Has Done — 이번 주 실적
+  willDoItems: SimpleTaskItem[];    // Will Do — 다음 주 계획
   summary: string;             // 이번 주 종합 의견
   leadComments: LeadCommentEntry[];  // 팀장 Comment (누적 스레드)
   updatedAt: Date;

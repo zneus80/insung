@@ -21,7 +21,7 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -1064,7 +1064,9 @@ function toWeeklyTask(snap: { id: string; data(): DocumentData }): WeeklyTask {
     weekNumber: d.weekNumber,
     weekStart: fromTimestamp(d.weekStart) ?? new Date(),
     weekEnd:   fromTimestamp(d.weekEnd)   ?? new Date(),
-    items: (d.items ?? []) as WeeklyTaskItem[],
+    items:        (d.items         ?? []) as WeeklyTaskItem[],
+    hasDoneItems: (d.hasDoneItems  ?? []) as SimpleTaskItem[],
+    willDoItems:  (d.willDoItems   ?? []) as SimpleTaskItem[],
     summary:      d.summary ?? '',
     leadComments,
     updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
@@ -1093,6 +1095,23 @@ export async function upsertWeeklyTask(
     items, summary,
     updatedAt: serverTimestamp(),
   }, { merge: true });  // leadComment는 덮어쓰지 않도록 merge
+}
+
+export async function upsertWeeklyTaskSections(
+  userId: string, year: number, week: number,
+  orgId: string, weekStart: Date, weekEnd: Date,
+  hasDoneItems: SimpleTaskItem[],
+  willDoItems: SimpleTaskItem[],
+  summary = '',
+): Promise<void> {
+  const docId = weeklyTaskDocId(userId, year, week);
+  await setDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, docId), {
+    userId, organizationId: orgId, year, weekNumber: week,
+    weekStart: Timestamp.fromDate(weekStart),
+    weekEnd:   Timestamp.fromDate(weekEnd),
+    hasDoneItems, willDoItems, summary,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 }
 
 export async function addLeadComment(
