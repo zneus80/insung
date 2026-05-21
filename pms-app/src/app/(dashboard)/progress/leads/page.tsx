@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
@@ -193,14 +194,16 @@ function ProgressContent() {
                                   {goals.length === 0 ? (
                                     <p className="text-xs text-gray-400">등록된 목표가 없습니다.</p>
                                   ) : goals.map(goal => (
-                                    <div key={goal.id} className="flex items-center gap-3 rounded-lg bg-white border px-3 py-2">
-                                      <GoalStatusBadge status={goal.status} />
-                                      <span className="text-sm text-gray-700 flex-1 truncate">{goal.title}</span>
-                                      <div className="flex items-center gap-2 min-w-[72px]">
-                                        <Progress value={goal.progress} className="h-1.5 flex-1" />
-                                        <span className="text-xs text-gray-500 w-8 text-right">{goal.progress}%</span>
+                                    <Link key={goal.id} href={`/goals/${goal.id}`}>
+                                      <div className="flex items-center gap-3 rounded-lg bg-white border px-3 py-2 hover:shadow-sm hover:border-blue-200 transition-all cursor-pointer">
+                                        <GoalStatusBadge status={goal.status} />
+                                        <span className="text-sm text-gray-700 flex-1 truncate">{goal.title}</span>
+                                        <div className="flex items-center gap-2 min-w-[72px]">
+                                          <Progress value={goal.progress} className="h-1.5 flex-1" />
+                                          <span className="text-xs text-gray-500 w-8 text-right">{goal.progress}%</span>
+                                        </div>
                                       </div>
-                                    </div>
+                                    </Link>
                                   ))}
                                 </div>
                               )}
