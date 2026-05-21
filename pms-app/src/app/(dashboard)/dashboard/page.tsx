@@ -14,6 +14,7 @@ import {
   getOrganizations,
   getAllGoalsByYear,
   getAnnualGoal,
+  getAllOrgAnnualGoals,
   getAnnouncements,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
@@ -288,6 +289,7 @@ function ExecDashboard() {
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [treeNodes, setTreeNodes] = useState<ReturnType<typeof buildTree>>([]);
   const [orgSummaries, setOrgSummaries] = useState<OrgSummary[]>([]);
+  const [orgGoalMap, setOrgGoalMap] = useState<Record<string, AnnualGoal>>({});
   const [recentAnnouncements, setRecentAnnouncements] = useState<Announcement[]>([]);
   const [expandedAnnouncementId, setExpandedAnnouncementId] = useState<string | null>(null);
 
@@ -295,15 +297,20 @@ function ExecDashboard() {
     if (!userProfile) return;
     async function load() {
       try {
-        const [allUsers, allOrgs, allGoals, cGoal, announcements] = await Promise.all([
+        const [allUsers, allOrgs, allGoals, cGoal, orgGoals, announcements] = await Promise.all([
             getAllUsers(),
             getOrganizations(),
             getAllGoalsByYear(year),
             getAnnualGoal('company', year),
+            getAllOrgAnnualGoals(year),
             getAnnouncements(),
           ]);
           setCompanyGoal(cGoal);
           setRecentAnnouncements(announcements.slice(0, 3));
+
+          const goMap: Record<string, AnnualGoal> = {};
+          orgGoals.forEach(og => { if (og.organizationId) goMap[og.organizationId] = og; });
+          setOrgGoalMap(goMap);
 
           // 임원: 자신이 책임진 조직 산하만 / CEO: 전체
           const scopeOrgIds = userProfile!.role === 'EXECUTIVE'
@@ -426,7 +433,7 @@ function ExecDashboard() {
             <div className="rounded-xl border bg-white p-4 space-y-1">
               {treeNodes.length === 0
                 ? <p className="text-center text-sm text-gray-400 py-8">표시할 데이터가 없습니다.</p>
-                : treeNodes.map(node => <OrgTreeNode key={node.org.id} node={node} />)}
+                : treeNodes.map(node => <OrgTreeNode key={node.org.id} node={node} orgGoalMap={orgGoalMap} />)}
             </div>
           )}
         </div>
