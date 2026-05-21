@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { getUser, getMileage, getOrganizations, getAllIndividualEvaluations, getAwardsByUser } from '@/lib/firestore';
 import { getTier } from '@/lib/mileage-tier';
 import type { User, Mileage, Organization, IndividualEvaluation, Award } from '@/types';
@@ -83,7 +84,7 @@ export default function MemberInfoModal({ userId, userName }: Props) {
         {userName}
       </span>
 
-      {open && (
+      {open && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* 배경 오버레이 */}
           <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
@@ -209,7 +210,7 @@ export default function MemberInfoModal({ userId, userName }: Props) {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
     </>
   );
 }
