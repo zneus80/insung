@@ -45,7 +45,7 @@ function PersonalProgressView({ goals, loading }: { goals: Goal[]; loading: bool
           <div className="rounded-xl border bg-white p-4 hover:shadow-sm transition-shadow space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="font-medium text-gray-900 truncate">{goal.title}</span>
-              <GoalStatusBadge status={goal.status} />
+              <GoalStatusBadge goal={goal} />
             </div>
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-gray-500">
@@ -112,7 +112,7 @@ function ExecProgressSection({
                   <p className="text-sm text-gray-400 py-2">등록된 목표가 없습니다.</p>
                 ) : goals.map(goal => (
                   <div key={goal.id} className="flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">
-                    <GoalStatusBadge status={goal.status} />
+                    <GoalStatusBadge goal={goal} />
                     <span className="text-sm text-gray-700 flex-1 truncate">{goal.title}</span>
                     <div className="flex items-center gap-2 min-w-[80px]">
                       <Progress value={goal.progress} className="h-1.5 flex-1" />

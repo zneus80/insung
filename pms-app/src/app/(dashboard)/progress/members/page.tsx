@@ -157,7 +157,7 @@ function ProgressMembersContent() {
                                   ) : goals.map(goal => (
                                     <Link key={goal.id} href={`/goals/${goal.id}`}>
                                       <div className="flex items-center gap-3 rounded-lg bg-white border px-3 py-2 hover:shadow-sm hover:border-blue-200 transition-all cursor-pointer">
-                                        <GoalStatusBadge status={goal.status} />
+                                        <GoalStatusBadge goal={goal} />
                                         <span className="text-sm text-gray-700 flex-1 truncate">{goal.title}</span>
                                         <div className="flex items-center gap-2 min-w-[72px]">
                                           <Progress value={goal.progress} className="h-1.5 flex-1" />

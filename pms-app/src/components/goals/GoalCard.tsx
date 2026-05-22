@@ -53,7 +53,7 @@ export default function GoalCard({ goal, onEdit, onTrash, onWithdraw, onResubmit
             )}
           </div>
 
-          <GoalStatusBadge status={goal.status} />
+          <GoalStatusBadge goal={goal} />
         </div>
 
         {/* ── 제목 ── */}

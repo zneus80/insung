@@ -1,10 +1,10 @@
 import { cn } from '@/lib/utils';
-import type { GoalStatus } from '@/types';
+import type { Goal, GoalStatus } from '@/types';
 
 const STATUS_MAP: Record<GoalStatus, { label: string; className: string }> = {
   DRAFT:            { label: '임시저장',   className: 'bg-gray-100 text-gray-600' },
   PENDING_APPROVAL: { label: '승인요청',   className: 'bg-yellow-100 text-yellow-700' },
-  LEAD_APPROVED:    { label: '팀장 승인',  className: 'bg-blue-100 text-blue-700' },
+  LEAD_APPROVED:    { label: '1차 승인',   className: 'bg-blue-100 text-blue-700' },
   APPROVED:         { label: '최종 승인',  className: 'bg-green-100 text-green-700' },
   IN_PROGRESS:      { label: '진행 중',    className: 'bg-blue-100 text-blue-700' },
   COMPLETED:        { label: '완료 요청',  className: 'bg-purple-100 text-purple-700' },
@@ -14,8 +14,27 @@ const STATUS_MAP: Record<GoalStatus, { label: string; className: string }> = {
   ABANDONED:        { label: '포기',       className: 'bg-gray-100 text-gray-500' },
 };
 
-export default function GoalStatusBadge({ status }: { status: GoalStatus }) {
-  const { label, className } = STATUS_MAP[status] ?? STATUS_MAP.DRAFT;
+interface Props {
+  /** Goal 전체를 넘기면 leadApprovedBy/hqApprovedBy 기반 세부 라벨 표시 */
+  goal?: Pick<Goal, 'status' | 'leadApprovedBy' | 'hqApprovedBy' | 'approvedBy'>;
+  /** Goal 없이 status만 받는 경우(레거시·이력 표시 등) */
+  status?: GoalStatus;
+}
+
+export default function GoalStatusBadge({ goal, status }: Props) {
+  const st = (goal?.status ?? status ?? 'DRAFT') as GoalStatus;
+  const base = STATUS_MAP[st] ?? STATUS_MAP.DRAFT;
+  let label = base.label;
+  const className = base.className;
+
+  // LEAD_APPROVED 세부 라벨링 — 누가 승인했는지에 따라
+  if (goal && st === 'LEAD_APPROVED') {
+    if (goal.hqApprovedBy && goal.leadApprovedBy) label = '본부 2차 승인';
+    else if (goal.hqApprovedBy) label = '본부 1차 승인';
+    else if (goal.leadApprovedBy) label = '팀장 1차 승인';
+    else label = '1차 승인';
+  }
+
   return (
     <span className={cn('inline-block rounded-full px-2.5 py-0.5 text-xs font-medium', className)}>
       {label}

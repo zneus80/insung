@@ -313,14 +313,20 @@ function OrgEvaluationContent() {
       const rows = confirmedEvals.map(ie => {
         const user = userMap[ie.userId];
         const se = selfEvalMap[ie.userId];
-        const goodPoints = se?.goalEvals.map(g => `[${g.goalTitle}] ${g.good}`).join(' / ') ?? '';
-        const regretPoints = se?.goalEvals.map(g => `[${g.goalTitle}] ${g.regret}`).join(' / ') ?? '';
+        // 종합 의견 (구버전 good/regret 데이터도 호환)
+        const comments = se?.goalEvals.map(g => {
+          const legacy = [
+            g.good ? `잘된 점: ${g.good}` : '',
+            g.regret ? `아쉬운 점: ${g.regret}` : '',
+          ].filter(Boolean).join(' / ');
+          const text = g.comment || legacy || '';
+          return `[${g.goalTitle}] ${text}`;
+        }).join(' // ') ?? '';
         return {
           '소속': orgMap[user?.organizationId ?? ''] ?? '',
           '이름': user?.name ?? ie.userId,
           '직책': user?.position ?? '',
-          '자기평가_잘된점': goodPoints,
-          '자기평가_아쉬운점': regretPoints,
+          '자기평가_종합의견': comments,
           '팀장의견_등급': ie.leadGrade ?? '',
           '팀장의견_내용': ie.leadComment ?? '',
           '임원확정_등급': ie.execGrade ?? '',

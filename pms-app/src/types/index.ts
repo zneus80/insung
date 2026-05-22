@@ -103,6 +103,21 @@ export interface Goal {
   abandonLeadApprovedBy?: string;   // 팀장 포기 1차 승인
   abandonLeadApprovedAt?: Date;
 
+  // 완료 승인 정보 (초기 목표 승인 필드와 분리 — leadApprovedBy 등은 최초 등록 승인용)
+  completionLeadApprovedBy?: string;   // 팀장 완료 1차 확인
+  completionLeadApprovedAt?: Date;
+  completionHqApprovedBy?: string;     // 본부장 완료 2차 확인
+  completionHqApprovedAt?: Date;
+  completionExecApprovedBy?: string;   // 임원 완료 최종 확인
+  completionExecApprovedAt?: Date;
+
+  // 본인 휴지통 표시 — 설정 시 본인의 My 목표 목록에서는 숨김, 팀장·임원은 계속 확인 가능
+  trashedAt?: Date;
+
+  // 소프트 삭제(인사평가 기록 보존용) — 본인 화면(휴지통 포함)에서는 완전히 숨김
+  // 단, 평가 페이지(팀원평가·평가등급확정)에서는 인사평가 자료로 계속 표시
+  softDeletedAt?: Date;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -144,6 +159,9 @@ export interface OneOnOne {
   title?: string;                // 대화 주제 (선택)
   lastMessageAt?: Date;          // 마지막 메시지 시각 (목록 정렬용)
   lastMessagePreview?: string;   // 마지막 메시지 미리보기
+  // 본인 화면에서만 숨김 (상대방은 별도로 숨겨야 함)
+  // 양쪽 모두 hidden 이어도 데이터는 보존 (감사·이력 목적)
+  hiddenFor?: string[];          // userId 목록
   createdAt: Date;
   updatedAt: Date;
 }
@@ -170,8 +188,10 @@ export type EvaluationGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 export interface SelfEvalGoalEntry {
   goalId: string;
   goalTitle: string;
-  good: string;     // 잘된 점
-  regret: string;   // 아쉬운 점
+  comment: string;  // 종합 의견 (v0.75~)
+  // 구버전 호환 (v0.75 미만에서 작성된 데이터) — 신규 입력은 모두 comment 에 저장
+  good?: string;    // (legacy) 잘된 점
+  regret?: string;  // (legacy) 아쉬운 점
 }
 
 export type SelfEvalStatus = 'DRAFT' | 'SUBMITTED';
@@ -247,12 +267,18 @@ export interface IndividualEvaluation {
 // ─────────────────────────────────────────────
 // 연간 목표 (회사 / 조직)
 // ─────────────────────────────────────────────
+export interface AnnualGoalItem {
+  id: string;
+  content: string;
+}
+
 export interface AnnualGoal {
   id: string;
   type: 'company' | 'org';
   year: number;
   organizationId?: string;   // org 타입일 때만
-  content: string;
+  content: string;            // legacy 단일 목표 (호환성 유지)
+  items?: AnnualGoalItem[];   // 복수 목표 (v0.75+)
   updatedBy: string;
   updatedAt: Date;
 }
@@ -427,15 +453,18 @@ export interface Award {
 // ─────────────────────────────────────────────
 // 평가 사이클
 // ─────────────────────────────────────────────
+// v0.75: 평가기간 관리(/admin/evaluation-period) 의 startDate/endDate 와 통합.
+//        목표 수립 시작/마감 필드는 더 이상 사용하지 않음.
 export interface EvaluationCycle {
   id: string;
   year: number;
-  goalStartDate: Date;    // 목표 수립 시작
-  goalEndDate: Date;      // 목표 수립 마감
-  evalStartDate: Date;    // 평가 시작
-  evalEndDate: Date;      // 평가 마감
+  evalStartDate: Date;       // 평가 시작
+  evalEndDate: Date;         // 평가 마감
   isActive: boolean;
   createdAt: Date;
+  // 구버전 호환 (사용하지 않음, 일부 코드 호환을 위해 optional 로 유지)
+  goalStartDate?: Date;
+  goalEndDate?: Date;
 }
 
 

@@ -15,6 +15,22 @@ import { cn } from '@/lib/utils';
 import { ChevronDown, ChevronRight, Building2, Users } from 'lucide-react';
 import type { User, Organization, OrganizationEvaluation, IndividualEvaluation } from '@/types';
 
+// 조직 평가등급 표시 대상:
+// DIVISION(부문/공장) 타입이거나, 상위 조직에 DIVISION이 없는 단독 팀/본부
+function isGradeTarget(org: Organization, allOrgs: Organization[]): boolean {
+  if (org.type === 'COMPANY') return false;
+  if (org.type === 'DIVISION') return true;
+  // 상위 체인에 DIVISION이 있으면 표시 안 함
+  let parentId = org.parentId;
+  while (parentId) {
+    const parent = allOrgs.find(o => o.id === parentId);
+    if (!parent) break;
+    if (parent.type === 'DIVISION') return false;
+    parentId = parent.parentId;
+  }
+  return true; // 상위에 DIVISION 없음 → 단독 조직으로 등급 표시
+}
+
 const GRADE_STYLE: Record<string, string> = {
   S: 'bg-yellow-100 text-yellow-700',
   A: 'bg-blue-100 text-blue-700',
@@ -171,8 +187,8 @@ function OrgEvalCard({
         <span className="text-sm text-gray-400 shrink-0">
           <Users className="h-3.5 w-3.5 inline mr-1" />{orgMembers.length}명
         </span>
-        {/* 조직 평가등급 — DIVISION(부문/공장)만 표시 */}
-        {org.type === 'DIVISION' && (
+        {/* 조직 평가등급 — DIVISION 또는 상위 DIVISION 없는 단독 조직 표시 */}
+        {isGradeTarget(org, allOrgs) && (
           orgEval?.grade ? (
             <span className={cn('rounded-full px-3 py-0.5 text-sm font-bold shrink-0', GRADE_STYLE[orgEval.grade])}>
               조직 {orgEval.grade}등급

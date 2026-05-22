@@ -9,8 +9,10 @@ import {
   getPendingGoalsByOrganizations,
   getOneOnOnesByMember,
   getOneOnOnesByLeader,
+  hideOneOnOneForUser,
   getMileage,
   getAllUsers,
+  getUser,
   getOrganizations,
   getAllGoalsByYear,
   getAnnualGoal,
@@ -19,10 +21,11 @@ import {
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Target, TrendingUp, CheckCircle, Clock, Users, ArrowRight, Building2, LayoutList, Bell, ChevronRight } from 'lucide-react';
+import { Target, TrendingUp, CheckCircle, Clock, Users, ArrowRight, Building2, LayoutList, Bell, ChevronRight, Trash2 } from 'lucide-react';
 import GoalCard from '@/components/goals/GoalCard';
 import MileageCard from '@/components/mileage/MileageCard';
-import { OrgTreeNode, buildTree, findDescendantIds, avgProgress } from '@/components/goals/OrgGoalTree';
+import { OrgTreeNode, buildTree, findDescendantIds, avgProgress } from '@/components/goals/OrgGoalTree'; // findDescendantIds: ExecDashboard에서 사용
+import { filterMyActionableGoals } from '@/lib/approval-filters';
 import type { Goal, OneOnOne, Mileage, User, AnnualGoal, Organization, Announcement } from '@/types';
 
 export default function DashboardPage() {
@@ -43,6 +46,7 @@ function MemberDashboard() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [upcomingMeetings, setUpcomingMeetings] = useState<OneOnOne[]>([]);
+  const [meetingPartners, setMeetingPartners] = useState<Record<string, string>>({});
   const [myMileage, setMyMileage] = useState<Mileage | null>(null);
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [orgGoal, setOrgGoal] = useState<AnnualGoal | null>(null);
@@ -54,7 +58,34 @@ function MemberDashboard() {
     if (!userProfile) return;
     async function load() {
       try {
-        const [goalList, meetings, mileage, cGoal, oGoal, announcements, allOrgs] = await Promise.all([
+        // 팀장: 조직 정보를 먼저 조회해서 승인대기 범위 계산 (승인대기함과 동일 로직)
+        let pendingCount = 0;
+        if (userProfile!.role === 'TEAM_LEAD') {
+          const allOrgs = await getOrganizations();
+          const myLedOrgs = allOrgs.filter(o => o.leaderId === userProfile!.id);
+          const rootIdSet = new Set<string>([userProfile!.organizationId]);
+          myLedOrgs.forEach(o => rootIdSet.add(o.id));
+          // 각 루트의 하위 조직 ID 전체 수집
+          function getDescendantIds(orgId: string): string[] {
+            const ids: string[] = [orgId];
+            allOrgs.filter(o => o.parentId === orgId).forEach(child => {
+              ids.push(...getDescendantIds(child.id));
+            });
+            return ids;
+          }
+          const scopeOrgIds = [...new Set([...rootIdSet].flatMap(id => getDescendantIds(id)))];
+          const [pending, allUsers] = await Promise.all([
+            getPendingGoalsByOrganizations(scopeOrgIds),
+            getAllUsers(),
+          ]);
+          // 승인대기함과 동일한 필터 사용 (공유 유틸)
+          const usersMap = Object.fromEntries(allUsers.map(u => [u.id, u]));
+          pendingCount = filterMyActionableGoals(
+            pending, allOrgs, usersMap, userProfile!.id, userProfile!.role,
+          ).length;
+        }
+
+        const [goalList, meetings, mileage, cGoal, oGoal, announcements] = await Promise.all([
           getGoalsByUser(userProfile!.id, year),
           userProfile!.role === 'TEAM_LEAD'
             ? getOneOnOnesByLeader(userProfile!.id)
@@ -63,28 +94,27 @@ function MemberDashboard() {
           getAnnualGoal('company', year),
           getAnnualGoal('org', year, userProfile!.organizationId),
           getAnnouncements(),
-          userProfile!.role === 'TEAM_LEAD' ? getOrganizations() : Promise.resolve([] as Organization[]),
         ]);
 
-        // 팀장: 승인대기함과 동일한 범위(leaderId 등록 조직 + 소속 조직 하위 전체)로 조회
-        let pending: Goal[] = [];
-        if (userProfile!.role === 'TEAM_LEAD') {
-          const myLedOrgs = allOrgs.filter(o => o.leaderId === userProfile!.id);
-          const rootIdSet = new Set<string>([userProfile!.organizationId]);
-          myLedOrgs.forEach(o => rootIdSet.add(o.id));
-          const scopeOrgIds = [...new Set(
-            [...rootIdSet].flatMap(id => findDescendantIds(id, allOrgs))
-          )];
-          pending = await getPendingGoalsByOrganizations(scopeOrgIds);
-        }
-
         setGoals(goalList);
-        setPendingCount(pending.length);
+        setPendingCount(pendingCount);
         setUpcomingMeetings(meetings.slice(0, 3));
         setMyMileage(mileage);
         setCompanyGoal(cGoal);
         setOrgGoal(oGoal);
         setRecentAnnouncements(announcements.slice(0, 3));
+
+        // 1on1 상대방 이름 조회 (역할에 따라 leader 또는 member)
+        const shownMeetings = meetings.slice(0, 3);
+        const partnerIds = [...new Set(shownMeetings.map(m =>
+          userProfile!.role === 'TEAM_LEAD' ? m.memberId : m.leaderId
+        ))];
+        if (partnerIds.length > 0) {
+          const partners = await Promise.all(partnerIds.map(id => getUser(id)));
+          const partnerMap: Record<string, string> = {};
+          partners.forEach(p => { if (p) partnerMap[p.id] = p.name; });
+          setMeetingPartners(partnerMap);
+        }
       } catch (e: any) {
         console.error('대시보드 로드 실패:', e);
       } finally {
@@ -225,7 +255,7 @@ function MemberDashboard() {
             ) : recentGoals.length === 0 ? (
               <div className="rounded-xl border border-dashed bg-gray-50 p-8 text-center">
                 <p className="text-sm text-gray-400">아직 목표가 없습니다.</p>
-                <Link href="/goals/new" className="mt-2 inline-block text-sm text-blue-600 hover:underline">
+                <Link href="/goals?new=1" className="mt-2 inline-block text-sm text-blue-600 hover:underline">
                   첫 목표 등록하기 →
                 </Link>
               </div>
@@ -249,17 +279,37 @@ function MemberDashboard() {
                 <p className="text-sm text-gray-400">진행 중인 1on1이 없습니다.</p>
               </div>
             ) : (
-              upcomingMeetings.map(m => (
-                <Link key={m.id} href={`/oneon1/${m.id}`}>
-                  <div className="rounded-xl border bg-white p-4 hover:shadow-sm transition-shadow cursor-pointer">
-                    <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4 text-blue-500" />
-                      <span className="text-sm font-medium text-gray-900">1on1</span>
-                      {m.title && <span className="text-xs text-gray-400">· {m.title}</span>}
-                    </div>
+              upcomingMeetings.map(m => {
+                const partnerId = userProfile!.role === 'TEAM_LEAD' ? m.memberId : m.leaderId;
+                const partnerName = meetingPartners[partnerId] ?? '상대방';
+                return (
+                  <div key={m.id} className="group rounded-xl border bg-white p-4 hover:shadow-sm transition-shadow relative">
+                    <Link href={`/oneon1/${m.id}`} className="block">
+                      <div className="flex items-center gap-2 cursor-pointer">
+                        <Users className="h-4 w-4 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-900">{partnerName}</span>
+                      </div>
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (!confirm('이 대화방을 본인 화면에서 삭제하시겠습니까?\n(상대방 화면에서는 그대로 표시되며, 본인이 다시 보려면 상대방이 새 대화를 시작해야 합니다)')) return;
+                        try {
+                          await hideOneOnOneForUser(m.id, userProfile!.id);
+                          setUpcomingMeetings(prev => prev.filter(x => x.id !== m.id));
+                        } catch {}
+                      }}
+                      className="absolute top-2 right-2 p-1.5 rounded-md text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                      aria-label="대화방 삭제"
+                      title="이 대화방 삭제"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                </Link>
-              ))
+                );
+              })
             )}
 
             {/* 승인 대기 알림 (팀장) */}
@@ -303,31 +353,53 @@ function ExecDashboard() {
   const [orgGoalMap, setOrgGoalMap] = useState<Record<string, AnnualGoal>>({});
   const [recentAnnouncements, setRecentAnnouncements] = useState<Announcement[]>([]);
   const [expandedAnnouncementId, setExpandedAnnouncementId] = useState<string | null>(null);
+  const [execPendingCount, setExecPendingCount] = useState(0);
+  const [upcomingMeetings, setUpcomingMeetings] = useState<OneOnOne[]>([]);
 
   useEffect(() => {
     if (!userProfile) return;
     async function load() {
       try {
-        const [allUsers, allOrgs, allGoals, cGoal, orgGoals, announcements] = await Promise.all([
+        const [allUsers, allOrgs, allGoals, cGoal, orgGoals, announcements, meetings] = await Promise.all([
             getAllUsers(),
             getOrganizations(),
             getAllGoalsByYear(year),
             getAnnualGoal('company', year),
             getAllOrgAnnualGoals(year),
             getAnnouncements(),
+            getOneOnOnesByLeader(userProfile!.id),
           ]);
           setCompanyGoal(cGoal);
           setRecentAnnouncements(announcements.slice(0, 3));
+          setUpcomingMeetings(meetings.slice(0, 3));
 
           const goMap: Record<string, AnnualGoal> = {};
           orgGoals.forEach(og => { if (og.organizationId) goMap[og.organizationId] = og; });
           setOrgGoalMap(goMap);
 
-          // 임원: 자신이 책임진 조직 산하만 / CEO: 전체
-          const scopeOrgIds = userProfile!.role === 'EXECUTIVE'
-            ? allOrgs.filter(o => o.leaderId === userProfile!.id)
-                .flatMap(o => findDescendantIds(o.id, allOrgs))
-            : allOrgs.map(o => o.id);
+          // 임원: 자신이 속한 조직(본부 또는 부문) 산하 / CEO: 전체
+          // root = userProfile.organizationId + leaderId 등록된 조직들
+          // 본부장(EXECUTIVE): 본부 + 산하 / 부문장(EXECUTIVE): 부문 + 산하
+          let scopeOrgIds: string[];
+          if (userProfile!.role === 'CEO') {
+            scopeOrgIds = allOrgs.map(o => o.id);
+          } else if (userProfile!.role === 'EXECUTIVE') {
+            const ledRootIds = allOrgs.filter(o => o.leaderId === userProfile!.id).map(o => o.id);
+            const rootIdSet = new Set<string>([userProfile!.organizationId, ...ledRootIds]);
+            scopeOrgIds = [...new Set(
+              [...rootIdSet].flatMap(id => findDescendantIds(id, allOrgs))
+            )];
+          } else {
+            scopeOrgIds = [];
+          }
+
+          // 임원 승인대기 카운트: 승인대기함과 동일한 공유 필터 사용
+          const pendingGoals = await getPendingGoalsByOrganizations(scopeOrgIds);
+          const usersMap = Object.fromEntries(allUsers.map(u => [u.id, u]));
+          const execPending = filterMyActionableGoals(
+            pendingGoals, allOrgs, usersMap, userProfile!.id, userProfile!.role,
+          );
+          setExecPendingCount(execPending.length);
 
           const scopeUsers = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
           const scopeGoals = allGoals.filter(g => new Set(scopeUsers.map(u => u.id)).has(g.userId));
@@ -429,6 +501,34 @@ function ExecDashboard() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* 요약 카드: 승인대기 + 1on1 */}
+        <div className="grid grid-cols-2 gap-3">
+          <Link href="/approvals">
+            <div className={`rounded-xl border px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer ${execPendingCount > 0 ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-white'}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <Clock className={`h-4 w-4 ${execPendingCount > 0 ? 'text-orange-500' : 'text-gray-400'}`} />
+                <span className={`text-sm font-semibold ${execPendingCount > 0 ? 'text-orange-700' : 'text-gray-600'}`}>승인 대기</span>
+              </div>
+              <p className={`text-2xl font-bold ${execPendingCount > 0 ? 'text-orange-700' : 'text-gray-400'}`}>
+                {execPendingCount}<span className="text-sm font-normal ml-1">건</span>
+              </p>
+              <p className={`text-xs mt-1 ${execPendingCount > 0 ? 'text-orange-500' : 'text-gray-400'}`}>처리 필요한 목표</p>
+            </div>
+          </Link>
+          <Link href="/oneon1">
+            <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer">
+              <div className="flex items-center gap-2 mb-1">
+                <Users className="h-4 w-4 text-blue-500" />
+                <span className="text-sm font-semibold text-gray-600">예정된 1on1</span>
+              </div>
+              <p className="text-2xl font-bold text-gray-400">
+                {upcomingMeetings.length}<span className="text-sm font-normal ml-1">건</span>
+              </p>
+              <p className="text-xs text-gray-400 mt-1">진행 중인 면담</p>
+            </div>
+          </Link>
         </div>
 
         {/* 조직 트리 상세 */}

@@ -187,6 +187,11 @@ export async function getGoalsByUser(userId: string, year?: number): Promise<Goa
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
     approvedAt: fromTimestamp(d.data().approvedAt),
     leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
+    trashedAt: fromTimestamp(d.data().trashedAt),
+    softDeletedAt: fromTimestamp(d.data().softDeletedAt),
+    completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
+    completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
+    completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
   } as Goal));
   return goals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
@@ -203,6 +208,11 @@ export async function getAllGoalsByYear(year: number): Promise<Goal[]> {
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
     approvedAt: fromTimestamp(d.data().approvedAt),
     leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
+    trashedAt: fromTimestamp(d.data().trashedAt),
+    softDeletedAt: fromTimestamp(d.data().softDeletedAt),
+    completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
+    completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
+    completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
   } as Goal));
   return goals.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
@@ -219,6 +229,11 @@ export async function getGoalsByOrganization(orgId: string, year?: number): Prom
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
     approvedAt: fromTimestamp(d.data().approvedAt),
     leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
+    trashedAt: fromTimestamp(d.data().trashedAt),
+    softDeletedAt: fromTimestamp(d.data().softDeletedAt),
+    completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
+    completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
+    completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
   } as Goal));
   return goals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
@@ -240,6 +255,11 @@ export async function getGoalsByOrganizations(orgIds: string[], year?: number): 
       updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
       approvedAt: fromTimestamp(d.data().approvedAt),
       leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
+    trashedAt: fromTimestamp(d.data().trashedAt),
+    softDeletedAt: fromTimestamp(d.data().softDeletedAt),
+    completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
+    completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
+    completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
     } as Goal)));
   }
   return results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -264,6 +284,11 @@ export async function getPendingGoalsByOrganizations(orgIds: string[]): Promise<
       updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
       approvedAt: fromTimestamp(data.approvedAt),
       leadApprovedAt: fromTimestamp(data.leadApprovedAt),
+      trashedAt: fromTimestamp(data.trashedAt),
+      softDeletedAt: fromTimestamp(data.softDeletedAt),
+      completionLeadApprovedAt: fromTimestamp(data.completionLeadApprovedAt),
+      completionHqApprovedAt: fromTimestamp(data.completionHqApprovedAt),
+      completionExecApprovedAt: fromTimestamp(data.completionExecApprovedAt),
     } as Goal;
   }
 
@@ -289,6 +314,11 @@ export async function getPendingGoalsByOrganizations(orgIds: string[]): Promise<
           updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
           approvedAt: fromTimestamp(data.approvedAt),
           leadApprovedAt: fromTimestamp(data.leadApprovedAt),
+      trashedAt: fromTimestamp(data.trashedAt),
+      softDeletedAt: fromTimestamp(data.softDeletedAt),
+      completionLeadApprovedAt: fromTimestamp(data.completionLeadApprovedAt),
+      completionHqApprovedAt: fromTimestamp(data.completionHqApprovedAt),
+      completionExecApprovedAt: fromTimestamp(data.completionExecApprovedAt),
           hqApprovedAt: fromTimestamp(data.hqApprovedAt),
         } as Goal;
       }));
@@ -461,10 +491,19 @@ export async function getAllIndividualEvaluations(year: number): Promise<Individ
 function mapOneOnOne(id: string, d: DocumentData): OneOnOne {
   return {
     ...d, id,
+    hiddenFor: (d.hiddenFor as string[] | undefined) ?? [],
     lastMessageAt: fromTimestamp(d.lastMessageAt),
     createdAt: fromTimestamp(d.createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
   } as OneOnOne;
+}
+
+/** 본인 화면에서만 1on1 대화방 숨김 (상대방은 별도 처리). 데이터는 보존됨 */
+export async function hideOneOnOneForUser(oneOnOneId: string, userId: string) {
+  await updateDoc(doc(db, COLLECTIONS.ONE_ON_ONES, oneOnOneId), {
+    hiddenFor: arrayUnion(userId),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function createOneOnOne(data: Omit<OneOnOne, 'id' | 'createdAt' | 'updatedAt'>) {
@@ -489,6 +528,8 @@ export async function getOneOnOnesByMember(memberId: string): Promise<OneOnOne[]
     where('memberId', '==', memberId),
   ));
   return snap.docs.map(d => mapOneOnOne(d.id, d.data()))
+    // 본인 화면에서 숨김 처리한 대화방은 제외
+    .filter(o => !(o.hiddenFor ?? []).includes(memberId))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
@@ -498,6 +539,8 @@ export async function getOneOnOnesByLeader(leaderId: string): Promise<OneOnOne[]
     where('leaderId', '==', leaderId),
   ));
   return snap.docs.map(d => mapOneOnOne(d.id, d.data()))
+    // 본인 화면에서 숨김 처리한 대화방은 제외
+    .filter(o => !(o.hiddenFor ?? []).includes(leaderId))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
@@ -622,21 +665,31 @@ export async function getGradeQuotas() {
 }
 
 // ─── 평가 사이클 ──────────────────────────────
+// v0.75: evaluationPeriods 컬렉션과 통합. 평가기간 관리에서 설정한 startDate/endDate 를
+//        evalStartDate/evalEndDate 로 매핑하여 반환.
 export async function getActiveCycle(): Promise<EvaluationCycle | null> {
-  const snap = await getDocs(query(
-    collection(db, COLLECTIONS.EVALUATION_CYCLES),
-    where('isActive', '==', true)
-  ));
+  // evaluationPeriods 에서 최근 연도 + 미공개(active) 우선, 없으면 최신
+  const snap = await getDocs(collection(db, 'evaluationPeriods'));
   if (snap.empty) return null;
-  const d = snap.docs[0];
+  // year 내림차순 정렬, isPublished=false 인 것 우선
+  const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as any))
+    .sort((a, b) => {
+      // 미공개(active) 우선, 그 후 연도 내림차순
+      const aActive = !a.isPublished ? 1 : 0;
+      const bActive = !b.isPublished ? 1 : 0;
+      if (aActive !== bActive) return bActive - aActive;
+      return (b.year ?? 0) - (a.year ?? 0);
+    });
+  const d = docs[0];
+  const evalStart = fromTimestamp(d.startDate) ?? new Date();
+  const evalEnd = fromTimestamp(d.endDate) ?? new Date();
   return {
-    ...d.data(),
     id: d.id,
-    goalStartDate: fromTimestamp(d.data().goalStartDate) ?? new Date(),
-    goalEndDate: fromTimestamp(d.data().goalEndDate) ?? new Date(),
-    evalStartDate: fromTimestamp(d.data().evalStartDate) ?? new Date(),
-    evalEndDate: fromTimestamp(d.data().evalEndDate) ?? new Date(),
-    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+    year: d.year,
+    evalStartDate: evalStart,
+    evalEndDate: evalEnd,
+    isActive: !d.isPublished,
+    createdAt: fromTimestamp(d.updatedAt) ?? new Date(),
   } as EvaluationCycle;
 }
 
@@ -688,16 +741,21 @@ export async function getAnnualGoal(type: 'company' | 'org', year: number, orgId
 export async function setAnnualGoal(
   type: 'company' | 'org',
   year: number,
-  data: { content: string; updatedBy: string; organizationId?: string }
+  data: { content?: string; items?: { id: string; content: string }[]; updatedBy: string; organizationId?: string }
 ) {
   const id = annualGoalDocId(type, year, data.organizationId);
+  // items 가 있으면 content 는 items 첫 항목 또는 합쳐서 저장 (legacy 호환)
+  const content = data.content ?? (data.items && data.items.length > 0
+    ? data.items.map(i => i.content).filter(Boolean).join('\n')
+    : '');
   await setDoc(doc(db, COLLECTIONS.ANNUAL_GOALS, id), {
     type, year,
     ...(data.organizationId ? { organizationId: data.organizationId } : {}),
-    content: data.content,
+    content,
+    ...(data.items !== undefined ? { items: data.items } : {}),
     updatedBy: data.updatedBy,
     updatedAt: serverTimestamp(),
-  });
+  }, { merge: true });
 }
 
 export async function getAllOrgAnnualGoals(year: number): Promise<AnnualGoal[]> {

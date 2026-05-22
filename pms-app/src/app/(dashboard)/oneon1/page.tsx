@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { Plus, MessageCircle } from 'lucide-react';
+import { Plus, MessageCircle, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getOneOnOnesByMember, getOneOnOnesByLeader, getAllUsers } from '@/lib/firestore';
+import { getOneOnOnesByMember, getOneOnOnesByLeader, getAllUsers, hideOneOnOneForUser } from '@/lib/firestore';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import Header from '@/components/layout/Header';
 import type { OneOnOne, User } from '@/types';
@@ -72,29 +73,51 @@ export default function OneOnOnePage() {
               const counterpart = users[isLead ? room.memberId : room.leaderId];
               const lastAt = room.lastMessageAt ?? room.createdAt;
               return (
-                <Link key={room.id} href={`/oneon1/${room.id}`}>
-                  <div className="flex items-center gap-4 rounded-xl border bg-white p-4 hover:shadow-sm transition-shadow cursor-pointer">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 font-semibold text-sm">
-                      {counterpart?.name?.[0] ?? '?'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-gray-900 truncate">
-                          {counterpart?.name ?? '알 수 없음'}
-                          {room.title && (
-                            <span className="ml-2 text-xs text-gray-400 font-normal">· {room.title}</span>
-                          )}
-                        </span>
-                        <span className="text-xs text-gray-400 shrink-0">
-                          {formatDistanceToNow(lastAt, { addSuffix: true, locale: ko })}
-                        </span>
+                <div key={room.id} className="group relative">
+                  <Link href={`/oneon1/${room.id}`}>
+                    <div className="flex items-center gap-4 rounded-xl border bg-white p-4 hover:shadow-sm transition-shadow cursor-pointer">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 font-semibold text-sm">
+                        {counterpart?.name?.[0] ?? '?'}
                       </div>
-                      <p className="text-sm text-gray-500 truncate mt-0.5">
-                        {room.lastMessagePreview ?? '아직 메시지가 없습니다.'}
-                      </p>
+                      <div className="flex-1 min-w-0 pr-10">
+                        <div className="flex items-baseline gap-2 min-w-0">
+                          <span className="font-medium text-gray-900 truncate">
+                            {counterpart?.name ?? '알 수 없음'}
+                          </span>
+                          {room.title && (
+                            <span className="text-xs text-gray-400 font-normal truncate">· {room.title}</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500 truncate mt-0.5">
+                          <span className="text-xs text-gray-400 mr-1.5">
+                            {formatDistanceToNow(lastAt, { addSuffix: true, locale: ko })}
+                          </span>
+                          {room.lastMessagePreview ?? '아직 메시지가 없습니다.'}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </Link>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!confirm('이 대화방을 본인 화면에서 삭제하시겠습니까?\n(상대방 화면에는 그대로 유지됩니다)')) return;
+                      try {
+                        await hideOneOnOneForUser(room.id, userProfile!.id);
+                        setRooms(prev => prev.filter(x => x.id !== room.id));
+                        toast.success('대화방을 삭제했습니다.');
+                      } catch {
+                        toast.error('삭제 중 오류가 발생했습니다.');
+                      }
+                    }}
+                    className="absolute top-1/2 right-3 -translate-y-1/2 p-1.5 rounded-md text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                    aria-label="대화방 삭제"
+                    title="이 대화방 삭제"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               );
             })}
           </div>

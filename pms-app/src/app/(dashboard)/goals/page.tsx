@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Plus, Target, Trash2, Users, ChevronDown, ChevronRight, Calendar, Building2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory, createNotification } from '@/lib/firestore';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -39,6 +41,9 @@ export default function GoalsPage() {
 
 function MyGoalsView() {
   const { userProfile } = useAuth();
+  const { activeYear: year } = useActiveYear();
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   const [myGoals, setMyGoals] = useState<Goal[]>([]);
   const [teamGoals, setTeamGoals] = useState<Goal[]>([]);
@@ -53,7 +58,15 @@ function MyGoalsView() {
   const [activeTab, setActiveTab] = useState('my');
   const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
 
-  const year = new Date().getFullYear();
+  // 대시보드 등 외부에서 ?new=1 로 진입 시 목표 추가 모달 자동 오픈
+  useEffect(() => {
+    if (searchParams?.get('new') === '1') {
+      setFormOpen(true);
+      setEditGoal(undefined);
+      // URL 정리 (히스토리에 ?new=1 남기지 않음)
+      router.replace('/goals');
+    }
+  }, [searchParams, router]);
 
   const loadMy = useCallback(async () => {
     if (!userProfile) return;
@@ -99,11 +112,13 @@ function MyGoalsView() {
       for (const g of [...list, ...leadGoals]) {
         if (!seenIds.has(g.id)) { seenIds.add(g.id); combined.push(g); }
       }
-      // 자신 제외, DRAFT/PENDING_APPROVAL/LEAD_APPROVED 제외, ABANDONED는 승인된 것만 표시
+      // 핵심목표관리 팀 목표 탭: 진행 중인 목표만 표시
+      // 포기(ABANDONED)·반려(REJECTED)·휴지통(trashedAt) 모두 숨김 (인사평가는 별도 페이지에서 처리)
+      const VISIBLE_STATUSES = new Set<string>(['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'PENDING_ABANDON']);
       const active = combined.filter(g =>
         teamMemberIds.has(g.userId) &&
-        !['DRAFT', 'PENDING_APPROVAL', 'LEAD_APPROVED'].includes(g.status) &&
-        (g.status !== 'ABANDONED' || !!g.approvedBy)
+        VISIBLE_STATUSES.has(g.status) &&
+        !g.trashedAt
       );
       setTeamGoals(active);
 
@@ -128,9 +143,15 @@ function MyGoalsView() {
     if (activeTab === 'team' && teamGoals.length === 0 && !teamLoading) loadTeam();
   }, [activeTab]);
 
-  // 포기 승인됨(approvedBy 있음)은 목표함에 표시, 직접 삭제한 것만 휴지통
-  const myActive = myGoals.filter(g => g.status !== 'ABANDONED' || !!g.approvedBy);
-  const trashGoals = myGoals.filter(g => g.status === 'ABANDONED' && !g.approvedBy);
+  // 소프트 삭제된 목표는 본인 화면(휴지통 포함)에서 완전히 숨김 (평가 페이지에서는 계속 표시)
+  const visibleMyGoals = myGoals.filter(g => !g.softDeletedAt);
+  // 휴지통: 본인이 trashedAt 설정한 목표 (또는 구버전 호환: ABANDONED && !approvedBy && !leadApprovedBy)
+  const trashGoals = visibleMyGoals.filter(g =>
+    !!g.trashedAt || (g.status === 'ABANDONED' && !g.approvedBy && !g.leadApprovedBy)
+  );
+  const trashIds = new Set(trashGoals.map(g => g.id));
+  // 내 목표함: 휴지통에 없는 항목 (포기 확정 ABANDONED+approvedBy 는 인사평가용으로 계속 표시)
+  const myActive = visibleMyGoals.filter(g => !trashIds.has(g.id));
 
   // 전체 진행률 계산 — 포기됨(ABANDONED) 제외
   const myProgressGoals = myActive.filter(g => g.status !== 'ABANDONED');
@@ -161,9 +182,16 @@ function MyGoalsView() {
   function handleSave() { loadMy(); if (activeTab === 'team') loadTeam(); }
 
   async function handleTrash(goal: Goal) {
-    if (!confirm('이 목표를 휴지통으로 이동하시겠습니까?')) return;
+    const isFinalAbandoned = goal.status === 'ABANDONED' && !!goal.approvedBy;
+    const message = isFinalAbandoned
+      ? '포기 확정된 목표를 휴지통으로 이동합니다.\n\n' +
+        '※ 인사평가 기록 보존을 위해 복구는 불가능하며 영구 삭제만 가능합니다.\n' +
+        '※ 팀장·임원 화면에는 인사평가 자료로 계속 표시됩니다.\n\n계속하시겠습니까?'
+      : '이 목표를 휴지통으로 이동하시겠습니까?\n(팀장·임원 화면에는 인사평가 자료로 계속 표시됩니다)';
+    if (!confirm(message)) return;
     try {
-      await updateGoal(goal.id, { status: 'ABANDONED' });
+      // 상태는 그대로 유지 (포기 확정·반려 정보 보존 — 인사평가용)
+      await updateGoal(goal.id, { trashedAt: new Date() });
       toast.success('휴지통으로 이동했습니다.');
       loadMy();
     } catch { toast.error('오류가 발생했습니다.'); }
@@ -204,17 +232,58 @@ function MyGoalsView() {
   }
 
   async function handleRestore(goalId: string) {
+    const target = myGoals.find(g => g.id === goalId);
+    // 포기 확정 목표는 인사평가 기록 보존을 위해 복구 불가 (영구 삭제만 가능)
+    if (target?.status === 'ABANDONED' && !!target.approvedBy) {
+      toast.error('포기 확정된 목표는 인사평가 기록 보존을 위해 복구할 수 없습니다.');
+      return;
+    }
     if (!confirm('목표를 복구하시겠습니까? 임시저장 상태로 복원됩니다.')) return;
-    await updateGoal(goalId, { status: 'DRAFT' });
-    setPreviewGoal(null);
-    loadMy();
+    try {
+      // trashedAt 해제(null 저장) + 상태를 DRAFT 로 복원
+      await updateGoal(goalId, {
+        status: 'DRAFT',
+        trashedAt: null as any,
+      });
+      if (userProfile) {
+        await addGoalHistory({
+          goalId, changedBy: userProfile.id,
+          changeType: 'STATUS_CHANGED',
+          previousStatus: target?.status ?? 'ABANDONED', newStatus: 'DRAFT',
+          comment: '휴지통에서 복구',
+        });
+      }
+      toast.success('임시저장 상태로 복구되었습니다.');
+      setPreviewGoal(null);
+      loadMy();
+    } catch {
+      toast.error('복구 중 오류가 발생했습니다.');
+    }
   }
 
   async function handlePermanentDelete(goalId: string) {
-    if (!confirm('목표를 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
-    await deleteGoal(goalId);
-    setPreviewGoal(null);
-    loadMy();
+    const target = myGoals.find(g => g.id === goalId);
+    const isFinalAbandoned = target?.status === 'ABANDONED' && !!target.approvedBy;
+    const message = isFinalAbandoned
+      ? '본인 화면에서 완전히 제거합니다.\n\n' +
+        '※ 인사평가 자료는 보존되어 팀장·임원의 평가 화면에는 계속 표시됩니다.\n\n계속하시겠습니까?'
+      : '목표를 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.';
+    if (!confirm(message)) return;
+    try {
+      if (isFinalAbandoned) {
+        // 포기 확정 목표는 소프트 삭제(인사평가 기록 보존)
+        await updateGoal(goalId, { softDeletedAt: new Date() });
+        toast.success('본인 화면에서 제거되었습니다. (평가 자료는 보존됩니다)');
+      } else {
+        // 임시저장·반려 목표는 Firestore에서 완전 삭제
+        await deleteGoal(goalId);
+        toast.success('목표가 영구 삭제되었습니다.');
+      }
+      setPreviewGoal(null);
+      loadMy();
+    } catch {
+      toast.error('삭제 중 오류가 발생했습니다.');
+    }
   }
 
   return (
@@ -269,14 +338,21 @@ function MyGoalsView() {
                 <EmptyState icon={<Target className="h-10 w-10" />} label="등록된 목표가 없습니다." />
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {myActive.map(g => (
-                    <GoalCard key={g.id} goal={g}
-                      onEdit={['DRAFT', 'REJECTED'].includes(g.status) ? handleEdit : undefined}
-                      onTrash={['DRAFT', 'REJECTED'].includes(g.status) ? handleTrash : undefined}
-                      onWithdraw={g.status === 'PENDING_APPROVAL' ? handleWithdraw : undefined}
-                      onResubmit={g.status === 'REJECTED' ? handleResubmit : undefined}
-                    />
-                  ))}
+                  {myActive.map(g => {
+                    // 휴지통 이동 가능 상태: 임시저장 / 반려 / 포기 확정 (ABANDONED + approvedBy)
+                    const canTrash =
+                      g.status === 'DRAFT' ||
+                      g.status === 'REJECTED' ||
+                      (g.status === 'ABANDONED' && !!g.approvedBy);
+                    return (
+                      <GoalCard key={g.id} goal={g}
+                        onEdit={['DRAFT', 'REJECTED'].includes(g.status) ? handleEdit : undefined}
+                        onTrash={canTrash ? handleTrash : undefined}
+                        onWithdraw={g.status === 'PENDING_APPROVAL' ? handleWithdraw : undefined}
+                        onResubmit={g.status === 'REJECTED' ? handleResubmit : undefined}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </div>}
@@ -386,7 +462,7 @@ function MyGoalsView() {
               <Trash2 className="h-4 w-4 text-gray-500" /> 휴지통
             </DialogTitle>
           </DialogHeader>
-          <p className="text-xs text-gray-400 mb-3">삭제된 목표가 보관됩니다.</p>
+          <p className="text-xs text-gray-400 mb-3">삭제된 목표를 클릭하면 복구 또는 영구 삭제할 수 있습니다.</p>
           {trashGoals.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-gray-400">
               <Trash2 className="h-10 w-10 mb-2 opacity-20" />
@@ -395,58 +471,83 @@ function MyGoalsView() {
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {trashGoals.map(g => (
-                <GoalCard key={g.id} goal={g} />
+                <GoalCard
+                  key={g.id}
+                  goal={g}
+                  onClick={() => { setTrashOpen(false); setPreviewGoal(g); }}
+                />
               ))}
             </div>
           )}
         </DialogContent>
       </Dialog>
-      {/* 휴지통 목표 미리보기 팝업 */}
-      <Dialog open={!!previewGoal} onOpenChange={v => { if (!v) setPreviewGoal(null); }}>
+      {/* 휴지통 목표 미리보기 팝업 — 복구 / 영구 삭제 */}
+      <Dialog open={!!previewGoal} onOpenChange={v => {
+        if (!v) {
+          setPreviewGoal(null);
+          // 모달 닫힐 때 휴지통 다시 열기 (사용자가 다른 항목 처리할 수 있도록)
+          if (trashGoals.length > 0) setTrashOpen(true);
+        }
+      }}>
         <DialogContent className="max-w-md">
           {previewGoal && (
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 flex-wrap">
+                  <Trash2 className="h-4 w-4 text-gray-400" />
                   {previewGoal.title}
-                  <GoalStatusBadge status={previewGoal.status} />
+                  <GoalStatusBadge goal={previewGoal} />
                 </DialogTitle>
               </DialogHeader>
-              <div className="space-y-3 py-1">
-                {previewGoal.description && (
-                  <p className="text-sm text-gray-600 whitespace-pre-wrap">{previewGoal.description}</p>
-                )}
-                <div className="flex items-center gap-1.5 text-sm text-gray-400">
-                  <Calendar className="h-3.5 w-3.5" />
-                  추진기한: {format(previewGoal.dueDate, 'yyyy년 MM월 dd일', { locale: ko })}
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm text-gray-500">
-                    <span>진행률</span>
-                    <span className="font-medium">{previewGoal.progress}%</span>
-                  </div>
-                  <Progress value={previewGoal.progress} className="h-1.5" />
-                </div>
-              </div>
-              <div className="flex justify-between gap-2 pt-1">
-                <Button
-                  size="sm" variant="outline"
-                  className="gap-1.5 text-red-500 border-red-300 hover:bg-red-50"
-                  onClick={() => handlePermanentDelete(previewGoal.id)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> 영구 삭제
-                </Button>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setPreviewGoal(null)}>닫기</Button>
-                  <Button
-                    size="sm"
-                    className="gap-1.5 bg-blue-600 hover:bg-blue-700"
-                    onClick={() => handleRestore(previewGoal.id)}
-                  >
-                    복구
-                  </Button>
-                </div>
-              </div>
+              {(() => {
+                const isFinalAbandoned = previewGoal.status === 'ABANDONED' && !!previewGoal.approvedBy;
+                return (
+                  <>
+                    <p className="text-xs text-gray-400">
+                      {isFinalAbandoned
+                        ? '포기 확정된 목표는 복구할 수 없습니다. 영구 삭제 시에도 인사평가 자료로 팀장·임원 화면에는 계속 표시됩니다.'
+                        : '휴지통에 보관된 목표입니다. 복구하면 임시저장 상태로 돌아가고, 영구 삭제는 되돌릴 수 없습니다.'}
+                    </p>
+                    <div className="space-y-3 py-1">
+                      {previewGoal.description && (
+                        <p className="text-sm text-gray-600 whitespace-pre-wrap">{previewGoal.description}</p>
+                      )}
+                      <div className="flex items-center gap-1.5 text-sm text-gray-400">
+                        <Calendar className="h-3.5 w-3.5" />
+                        추진기한: {format(previewGoal.dueDate, 'yyyy년 MM월 dd일', { locale: ko })}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-sm text-gray-500">
+                          <span>진행률</span>
+                          <span className="font-medium">{previewGoal.progress}%</span>
+                        </div>
+                        <Progress value={previewGoal.progress} className="h-1.5" />
+                      </div>
+                    </div>
+                    <div className="flex justify-between gap-2 pt-2 border-t mt-2">
+                      <Button
+                        size="sm" variant="outline"
+                        className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50"
+                        onClick={() => handlePermanentDelete(previewGoal.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> 영구 삭제
+                      </Button>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setPreviewGoal(null)}>닫기</Button>
+                        {!isFinalAbandoned && (
+                          <Button
+                            size="sm"
+                            className="gap-1.5 bg-blue-600 hover:bg-blue-700"
+                            onClick={() => handleRestore(previewGoal.id)}
+                          >
+                            복구
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )}
         </DialogContent>
@@ -458,6 +559,7 @@ function MyGoalsView() {
 // ── 임원 / CEO 전용 전체 목표 뷰 ─────────────────────────────
 function OrgGoalsView() {
   const { userProfile } = useAuth();
+  const { activeYear: year } = useActiveYear();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [userMap, setUserMap] = useState<Record<string, User>>({});
@@ -465,7 +567,6 @@ function OrgGoalsView() {
   const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set());
   const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
 
-  const year = new Date().getFullYear();
   const isCeo = userProfile?.role === 'CEO';
 
   useEffect(() => {

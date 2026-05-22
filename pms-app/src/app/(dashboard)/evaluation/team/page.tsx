@@ -14,6 +14,7 @@ import {
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
+import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -162,12 +163,22 @@ function TeamLeadEvalView() {
     } finally { setSaving(null); }
   }
 
-  const goalCountSummary = (goals: Goal[]) => ({
-    total: goals.length,
-    completed: goals.filter(g => g.status === 'COMPLETED').length,
-    abandoned: goals.filter(g => g.status === 'ABANDONED').length,
-    inProgress: goals.filter(g => g.status === 'IN_PROGRESS').length,
-  });
+  const goalCountSummary = (goals: Goal[]) => {
+    // 인사평가 대상 목표만 카운트 (반려·미확정 포기·제안 단계 제외)
+    const visible = goals.filter(g => (
+      g.status === 'APPROVED' ||
+      g.status === 'IN_PROGRESS' ||
+      g.status === 'COMPLETED' ||
+      g.status === 'PENDING_ABANDON' ||
+      (g.status === 'ABANDONED' && !!g.approvedBy)
+    ));
+    return {
+      total: visible.length,
+      completed: visible.filter(g => g.status === 'COMPLETED').length,
+      abandoned: visible.filter(g => g.status === 'ABANDONED').length, // 포기 확정만
+      inProgress: visible.filter(g => g.status === 'IN_PROGRESS' || g.status === 'APPROVED').length,
+    };
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -229,104 +240,41 @@ function TeamLeadEvalView() {
                 {/* 펼친 내용 */}
                 {isOpen && (
                   <div className="border-t px-5 py-5 space-y-5">
-                    {/* 업무 목록 */}
+                    {/* 업무 목록 — 인사평가에 의미 있는 상태만 (반려·미확정 포기·제안 단계 제외) */}
                     <div>
                       <p className="text-xs font-semibold text-gray-500 mb-2">업무 목록</p>
-                      {goals.length === 0 ? (
-                        <p className="text-sm text-gray-400">등록된 목표가 없습니다.</p>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {goals.map(g => {
-                            const st = GOAL_STATUS_LABEL[g.status] ?? { label: g.status, color: 'bg-gray-100 text-gray-500' };
-                            return (
-                              <div key={g.id} className="flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">
-                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${st.color}`}>{st.label}</span>
-                                <span className="text-sm text-gray-700 flex-1">{g.title}</span>
-                                <span className="text-xs text-gray-400">{g.progress}%</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                      {(() => {
+                        const visibleGoals = goals.filter(g => (
+                          g.status === 'APPROVED' ||
+                          g.status === 'IN_PROGRESS' ||
+                          g.status === 'COMPLETED' ||
+                          g.status === 'PENDING_ABANDON' ||
+                          (g.status === 'ABANDONED' && !!g.approvedBy)
+                        ));
+                        if (visibleGoals.length === 0) {
+                          return <p className="text-sm text-gray-400">표시할 목표가 없습니다.</p>;
+                        }
+                        return (
+                          <div className="space-y-1.5">
+                            {visibleGoals.map(g => {
+                              const st = GOAL_STATUS_LABEL[g.status] ?? { label: g.status, color: 'bg-gray-100 text-gray-500' };
+                              return (
+                                <div key={g.id} className="flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">
+                                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${st.color}`}>{st.label}</span>
+                                  <span className="text-sm text-gray-700 flex-1">{g.title}</span>
+                                  <span className="text-xs text-gray-400">{g.progress}%</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
                     </div>
 
-                    {/* 주간 업무관리 내역 */}
+                    {/* 주간 업무관리 내역 — 52주 카드 그리드 */}
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 mb-2">주간 업무관리 내역</p>
-                      {weeklyTasks.length === 0 ? (
-                        <p className="text-sm text-gray-400">등록된 주간 업무 내역이 없습니다.</p>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {weeklyTasks.map(wt => {
-                            const weekKey = `${member.id}_w${wt.weekNumber}`;
-                            const isWeekOpen = expandedWeeks[weekKey] ?? false;
-                            const hdItems = wt.hasDoneItems ?? [];
-                            const wdItems = wt.willDoItems ?? [];
-                            const totalCount = hdItems.length + wdItems.length;
-                            return (
-                              <div key={wt.id} className="rounded-lg border bg-gray-50 overflow-hidden">
-                                <button
-                                  className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-100 transition-colors"
-                                  onClick={() => setExpandedWeeks(p => ({ ...p, [weekKey]: !isWeekOpen }))}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-semibold text-gray-700">{wt.weekNumber}주차</span>
-                                    <span className="text-xs text-gray-400">
-                                      {wt.weekStart.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} ~ {wt.weekEnd.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
-                                    </span>
-                                    <span className="text-xs text-green-600 font-medium">실적 {hdItems.length}건</span>
-                                    <span className="text-xs text-gray-400">계획 {wdItems.length}건</span>
-                                  </div>
-                                  {isWeekOpen
-                                    ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" />
-                                    : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
-                                </button>
-                                {isWeekOpen && (
-                                  <div className="border-t px-3 py-2 space-y-1.5 bg-white">
-                                    {totalCount === 0 ? (
-                                      <p className="text-xs text-gray-400">등록된 업무가 없습니다.</p>
-                                    ) : (
-                                      <>
-                                        {hdItems.length > 0 && (
-                                          <div>
-                                            <p className="text-[10px] font-bold text-green-700 mb-1">Has Done — 이번 주 실적</p>
-                                            {hdItems.map(item => (
-                                              <div key={item.id} className="flex items-start gap-2 py-1">
-                                                <div className="flex-1 min-w-0">
-                                                  <p className="text-xs text-gray-800">{item.title}</p>
-                                                  {item.content && <p className="text-xs text-gray-500 mt-0.5">{item.content}</p>}
-                                                </div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        )}
-                                        {wdItems.length > 0 && (
-                                          <div className={hdItems.length > 0 ? 'border-t pt-1.5' : ''}>
-                                            <p className="text-[10px] font-bold text-gray-600 mb-1">Will Do — 다음 주 계획</p>
-                                            {wdItems.map(item => (
-                                              <div key={item.id} className="flex items-start gap-2 py-1">
-                                                <div className="flex-1 min-w-0">
-                                                  <p className="text-xs text-gray-800">{item.title}</p>
-                                                  {item.content && <p className="text-xs text-gray-500 mt-0.5">{item.content}</p>}
-                                                </div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </>
-                                    )}
-                                    {wt.summary && (
-                                      <div className="border-t pt-1.5 mt-1.5">
-                                        <p className="text-xs text-gray-500"><span className="font-semibold">종합 의견: </span>{wt.summary}</p>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                      <p className="text-xs font-semibold text-gray-500 mb-2">주간 업무관리 내역 ({year}년)</p>
+                      <WeeklyTasksGrid tasks={weeklyTasks} year={year} />
                     </div>
 
                     {/* 자기평가 내용 */}
@@ -334,21 +282,22 @@ function TeamLeadEvalView() {
                       <div>
                         <p className="text-xs font-semibold text-gray-500 mb-2">자기평가 (팀원 작성)</p>
                         <div className="space-y-3">
-                          {se.goalEvals.map(ge => (
-                            <div key={ge.goalId} className="rounded-lg border bg-gray-50 p-4 space-y-2">
-                              <p className="text-sm font-medium text-gray-800">{ge.goalTitle}</p>
-                              <div className="grid grid-cols-2 gap-3">
+                          {se.goalEvals.map(ge => {
+                            const legacy = [
+                              ge.good ? `[잘된 점]\n${ge.good}` : '',
+                              ge.regret ? `[아쉬운 점]\n${ge.regret}` : '',
+                            ].filter(Boolean).join('\n\n');
+                            const text = ge.comment || legacy || '—';
+                            return (
+                              <div key={ge.goalId} className="rounded-lg border bg-gray-50 p-4 space-y-2">
+                                <p className="text-sm font-medium text-gray-800">{ge.goalTitle}</p>
                                 <div>
-                                  <p className="text-xs font-semibold text-green-600 mb-1">잘된 점</p>
-                                  <p className="text-sm text-gray-600 whitespace-pre-wrap">{ge.good || '—'}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-semibold text-orange-500 mb-1">아쉬운 점</p>
-                                  <p className="text-sm text-gray-600 whitespace-pre-wrap">{ge.regret || '—'}</p>
+                                  <p className="text-xs font-semibold text-blue-600 mb-1">종합 의견</p>
+                                  <p className="text-sm text-gray-600 whitespace-pre-wrap">{text}</p>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}

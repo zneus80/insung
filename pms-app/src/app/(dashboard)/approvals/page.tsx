@@ -13,6 +13,11 @@ import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import type { Goal, User as AppUser, Organization } from '@/types';
+import {
+  getDescendantOrgIds as sharedGetDescendantOrgIds,
+  getOrgChain as sharedGetOrgChain,
+  getMyApprovalRole as sharedGetMyApprovalRole,
+} from '@/lib/approval-filters';
 
 export default function ApprovalsPage() {
   return (
@@ -22,67 +27,11 @@ export default function ApprovalsPage() {
   );
 }
 
-// ── 유틸 ────────────────────────────────────────────────────
-
-/** orgId 기준으로 자신 + 모든 하위 조직 ID 반환 */
-function getDescendantOrgIds(orgId: string, orgs: Organization[]): string[] {
-  const result: string[] = [orgId];
-  for (const child of orgs.filter(o => o.parentId === orgId)) {
-    result.push(...getDescendantOrgIds(child.id, orgs));
-  }
-  return result;
-}
-
-/**
- * orgId 기준으로 상위 조직 체인 반환 (자신 포함, 아래→위 순서)
- * 예: [TEAM, HEADQUARTERS, DIVISION, COMPANY]
- */
-function getOrgChain(orgId: string, allOrgs: Organization[]): Organization[] {
-  const chain: Organization[] = [];
-  let current = allOrgs.find(o => o.id === orgId);
-  while (current) {
-    chain.push(current);
-    current = current.parentId ? allOrgs.find(o => o.id === current!.parentId) : undefined;
-  }
-  return chain;
-}
-
-/**
- * 현재 사용자가 특정 목표의 결재 체인에서 담당하는 역할 반환
- *
- * 조직 계층: COMPANY > DIVISION(부문/공장) > HEADQUARTERS(본부) > TEAM(팀)
- *
- * - TEAM_LEAD  : 목표 소유자의 팀 조직 leaderId가 나일 때
- * - HQ_HEAD    : 목표 소유자의 팀 상위 본부 leaderId가 나일 때
- * - EXEC       : 목표 소유자의 부문 leaderId가 나이거나, EXECUTIVE/CEO 역할일 때
- */
-function getMyApprovalRole(
-  goal: Goal,
-  allOrgs: Organization[],
-  userId: string,
-  userRole: string,
-): 'TEAM_LEAD' | 'HQ_HEAD' | 'EXEC' | null {
-  if (!goal?.organizationId) return null;
-  const chain = getOrgChain(goal.organizationId, allOrgs);
-  const teamOrg = chain.find(o => o.type === 'TEAM');
-  const hqOrg   = chain.find(o => o.type === 'HEADQUARTERS');
-  const divOrg  = chain.find(o => o.type === 'DIVISION');
-
-  // 팀장 판단은 항상 먼저
-  if (teamOrg?.leaderId === userId) return 'TEAM_LEAD';
-
-  // DIVISION head → 항상 최종 승인자(EXEC)
-  if (divOrg?.leaderId === userId) return 'EXEC';
-
-  // HQ head 판단:
-  //   - DIVISION이 있으면 → 중간 승인자(HQ_HEAD)
-  //   - DIVISION이 없으면 → 최종 승인자(EXEC) ← e.g. COMPANY→HQ→TEAM 구조
-  if (hqOrg?.leaderId === userId) return divOrg ? 'HQ_HEAD' : 'EXEC';
-
-  // role 기반 fallback (leaderId 미설정 환경)
-  if (userRole === 'EXECUTIVE' || userRole === 'CEO') return 'EXEC';
-  return null;
-}
+// ── 유틸 ──────────────────────────────────────────────
+// 공유 유틸(src/lib/approval-filters.ts) 사용 — 대시보드 카운트와 항상 일치하도록
+const getDescendantOrgIds = sharedGetDescendantOrgIds;
+const getOrgChain = sharedGetOrgChain;
+const getMyApprovalRole = sharedGetMyApprovalRole;
 
 // ── 뱃지 ─────────────────────────────────────────────────────
 
@@ -147,9 +96,10 @@ function ApprovalsContent() {
 
   function myRole(g: Goal) {
     if (!userProfile) return null;
-    const chainRole = getMyApprovalRole(g, allOrgs, userProfile.id, userProfile.role);
+    const myOrg = allOrgs.find(o => o.id === userProfile.organizationId);
+    const chainRole = getMyApprovalRole(g, allOrgs, userProfile.id, userProfile.role, myOrg);
     if (chainRole) return chainRole;
-    // org.leaderId 미설정 환경 fallback: userProfile.role 기준으로 역할 결정
+    // 최후 fallback: userProfile.role 기준 (소속 조직도 못 찾는 극단 케이스)
     if (userProfile.role === 'TEAM_LEAD') return 'TEAM_LEAD' as const;
     if (userProfile.role === 'EXECUTIVE' || userProfile.role === 'CEO') return 'EXEC' as const;
     return null;
@@ -163,23 +113,43 @@ function ApprovalsContent() {
     return chain.some(o => o.type === 'HEADQUARTERS') && chain.some(o => o.type === 'DIVISION');
   }
 
+  // 목표의 팀에 명시적 팀장이 없는 경우(leaderId 미지정) — 본부장/임원이 1차 대행
+  function teamHasNoLead(g: Goal): boolean {
+    if (!g.organizationId) return false;
+    const chain = getOrgChain(g.organizationId, allOrgs);
+    const teamOrg = chain.find(o => o.type === 'TEAM');
+    return !!teamOrg && !teamOrg.leaderId;
+  }
+
   /** 목표 승인 요청 (PENDING_APPROVAL / LEAD_APPROVED) */
   const approvalGoals = goals.filter(g => {
     const role = myRole(g);
     const ownerRole = users[g.userId]?.role;
+    const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
 
     if (role === 'TEAM_LEAD') {
       // 팀원(MEMBER) 1차 승인. 팀장/임원 역할이 아닌 모든 목표 (role 미설정 포함)
-      const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
       if (g.status === 'PENDING_APPROVAL' && isSubordinate && g.userId !== userProfile?.id) return true;
     }
     if (role === 'HQ_HEAD') {
       // 팀장 1차 승인 완료 후 본부장 2차 승인 대기 (hqApprovedBy 없는 것)
       if (g.status === 'LEAD_APPROVED' && !g.hqApprovedBy) return true;
+      // 팀장 부재 시 본부장이 1차 승인 대행 (팀원 목표)
+      if (g.status === 'PENDING_APPROVAL' && isSubordinate && g.userId !== userProfile?.id && teamHasNoLead(g)) return true;
+      // 팀장의 신규 목표 — 본부장 1차 승인
+      if (g.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD' && g.userId !== userProfile?.id) return true;
     }
     if (role === 'EXEC') {
-      // 팀장의 목표: 직접 최종 승인
-      if (g.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') return true;
+      const ownerOrg = allOrgs.find(o => o.id === g.organizationId);
+      // 팀장 owner: 본부 없으면 직접, 있으면 본부장 거친 후
+      //   단, owner가 본부 직속(HEADQUARTERS)인 경우(= 본부장 본인 목표) 본부 단계 건너뜀
+      if (g.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD' && g.userId !== userProfile?.id) {
+        if (!hasHQ(g)) return true;
+        if (ownerOrg?.type === 'HEADQUARTERS') return true; // 본부장 본인 목표
+        // 그 외에는 본부장 처리 대기
+      }
+      // EXECUTIVE owner (본부장이 임원 role 인 케이스): 부문장이 직접 최종
+      if (g.status === 'PENDING_APPROVAL' && ownerRole === 'EXECUTIVE' && g.userId !== userProfile?.id) return true;
       // 팀원의 LEAD_APPROVED:
       //   - 본부 없는 경우: 팀장 승인 후 바로 임원 최종
       //   - 본부 있는 경우: 본부장 승인(hqApprovedBy) 후 임원 최종
@@ -187,11 +157,13 @@ function ApprovalsContent() {
         if (!hasHQ(g)) return true;
         if (g.hqApprovedBy) return true;
       }
+      // 팀장·본부장 모두 부재 시 임원이 1차 승인 대행
+      if (g.status === 'PENDING_APPROVAL' && isSubordinate && g.userId !== userProfile?.id && teamHasNoLead(g) && !hasHQ(g)) return true;
     }
     return false;
   });
 
-  /** 완료 확인 요청 */
+  /** 완료 확인 요청 — 완료 승인 전용 필드(completion*) 기준으로 판별 */
   const completionGoals = goals.filter(g => {
     if (g.status !== 'COMPLETED') return false;
     const role = myRole(g);
@@ -199,14 +171,30 @@ function ApprovalsContent() {
 
     if (role === 'TEAM_LEAD') {
       const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
-      return isSubordinate && !g.leadApprovedBy && g.userId !== userProfile?.id;
+      return isSubordinate && !g.completionLeadApprovedBy && g.userId !== userProfile?.id;
     }
-    if (role === 'HQ_HEAD')   return ownerRole === 'MEMBER' && !!g.leadApprovedBy && !g.hqApprovedBy;
+    if (role === 'HQ_HEAD') {
+      // 팀원 목표: 팀장 1차 후 본부장 2차 / 팀장 목표: 본부장 1차 (직접)
+      if (ownerRole === 'MEMBER' && !!g.completionLeadApprovedBy && !g.completionHqApprovedBy) return true;
+      if (ownerRole === 'TEAM_LEAD' && !g.completionHqApprovedBy && g.userId !== userProfile?.id) return true;
+      // 팀장 부재 시 본부장이 1차 완료 확인 대행 (MEMBER 목표 + 1차 미확인)
+      if (ownerRole === 'MEMBER' && !g.completionLeadApprovedBy && !g.completionHqApprovedBy && teamHasNoLead(g)) return true;
+      return false;
+    }
     if (role === 'EXEC') {
-      if (ownerRole === 'TEAM_LEAD') return !g.approvedBy;
-      if (ownerRole === 'MEMBER' && !!g.leadApprovedBy && !g.approvedBy) {
+      const ownerOrg = allOrgs.find(o => o.id === g.organizationId);
+      if (ownerRole === 'TEAM_LEAD' && !g.completionExecApprovedBy && g.userId !== userProfile?.id) {
         if (!hasHQ(g)) return true;
-        if (g.hqApprovedBy) return true;
+        if (g.completionHqApprovedBy) return true;
+        // 본부장 본인 목표: 본부 단계 건너뜀
+        if (ownerOrg?.type === 'HEADQUARTERS') return true;
+        return false;
+      }
+      // EXECUTIVE owner (본부장이 임원 role): 부문장이 직접 최종 확인
+      if (ownerRole === 'EXECUTIVE' && !g.completionExecApprovedBy && g.userId !== userProfile?.id) return true;
+      if (ownerRole === 'MEMBER' && !!g.completionLeadApprovedBy && !g.completionExecApprovedBy) {
+        if (!hasHQ(g)) return true;
+        if (g.completionHqApprovedBy) return true;
       }
     }
     return false;
@@ -217,13 +205,24 @@ function ApprovalsContent() {
     if (g.status !== 'PENDING_ABANDON') return false;
     const role = myRole(g);
     const ownerRole = users[g.userId]?.role;
+    const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
 
     if (role === 'TEAM_LEAD') {
-      const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
       // 팀원 포기 요청 중 아직 1차 승인하지 않은 것만
       return isSubordinate && g.userId !== userProfile?.id && !g.abandonLeadApprovedBy;
     }
-    if (role === 'EXEC')      return ownerRole === 'TEAM_LEAD' || (ownerRole === 'MEMBER' && !!g.abandonLeadApprovedBy);
+    if (role === 'HQ_HEAD') {
+      // 팀장 부재 시 본부장이 포기 1차 승인 대행
+      if (isSubordinate && g.userId !== userProfile?.id && !g.abandonLeadApprovedBy && teamHasNoLead(g)) return true;
+      return false;
+    }
+    if (role === 'EXEC') {
+      if (ownerRole === 'TEAM_LEAD') return true;
+      if (ownerRole === 'MEMBER' && !!g.abandonLeadApprovedBy) return true;
+      // 팀장 부재 시에는 임원도 1차 + 최종 동시 (단, HQ 없을 때)
+      if (isSubordinate && !g.abandonLeadApprovedBy && teamHasNoLead(g) && !hasHQ(g)) return true;
+      return false;
+    }
     return false;
   });
 
@@ -426,7 +425,7 @@ function ApprovalRow({ goal, requester, approvalRole, actionLoading, onPromotion
                   {typeBadge.label}
                 </span>
               )}
-              <GoalStatusBadge status={goal.status} />
+              <GoalStatusBadge goal={goal} />
               {approvalRole === 'HQ_HEAD' && (
                 <span className="shrink-0 text-xs font-medium rounded-full px-2 py-0.5 bg-purple-50 text-purple-700">
                   2차 승인 대기
