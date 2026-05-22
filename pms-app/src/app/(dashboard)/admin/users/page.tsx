@@ -284,7 +284,25 @@ function UsersContent() {
       setDirectResult({ name: user.name, email: user.email, password: TEMP_PASSWORD });
       await load();
     } catch (e: any) {
-      toast.error(`직접 등록 실패: ${e?.code ?? e?.message}`);
+      // 이미 Firebase Auth 에 같은 이메일 계정이 있는 경우: 기존 Auth 계정과 placeholder 연결
+      if (e?.code === 'auth/email-already-in-use') {
+        try {
+          const res = await fetch('/api/admin/link-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ placeholderId: user.id, email: user.email, resetPassword: true }),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || '연결 실패');
+          setDirectResult({ name: user.name, email: user.email, password: json.password ?? TEMP_PASSWORD });
+          toast.success('기존 Firebase 계정과 연결했습니다. 임시 비밀번호로 로그인하세요.');
+          await load();
+        } catch (le: any) {
+          toast.error(`기존 계정 연결 실패: ${le?.message}`);
+        }
+      } else {
+        toast.error(`직접 등록 실패: ${e?.code ?? e?.message}`);
+      }
     } finally {
       await deleteApp(secondaryApp);
       setSaving(false);
@@ -313,12 +331,21 @@ function UsersContent() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await deleteUser(deleteTarget.id);
+      // Auth + Firestore 동시 삭제 (좀비 계정 방지)
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: deleteTarget.id, email: deleteTarget.email }),
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || '삭제 실패');
+      }
       toast.success(`${deleteTarget.name}님이 삭제되었습니다.`);
       setDeleteTarget(null);
       await load();
-    } catch {
-      toast.error('삭제에 실패했습니다.');
+    } catch (e: any) {
+      toast.error(`삭제에 실패했습니다: ${e?.message ?? ''}`);
     } finally { setDeleting(false); }
   }
 

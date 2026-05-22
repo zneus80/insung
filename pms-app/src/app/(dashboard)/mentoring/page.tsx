@@ -30,7 +30,7 @@ const EMPTY_FORM: Omit<MentoringForm, 'id' | 'userId' | 'organizationId' | 'cycl
 };
 
 // 연도가 바뀌어도 이어받을 필드 목록
-const CARRY_OVER_FIELDS = ['currentPosition', 'promotionDate'] as const;
+const CARRY_OVER_FIELDS = ['currentPosition', 'promotionDate', 'certifications'] as const;
 
 const MOCK_PREV_FORM = {
   currentPosition: '대리 / 영업1팀',
@@ -99,7 +99,7 @@ function MentoringContent() {
           setStatus(s);
           setCertList(record.certifications ? record.certifications.split('\n').filter(Boolean) : ['']);
         } else {
-          // 현재 연도 폼 없으면 작년 폼에서 고정 필드 불러오기
+          // 현재 연도 폼 없으면 작년 폼에서 고정 필드(직책·자격증·승진일) 자동 불러오기
           const prevRecord = await getMentoringForm(userProfile.id, year - 1);
           if (prevRecord) {
             const patch: Partial<typeof EMPTY_FORM> = {};
@@ -108,6 +108,11 @@ function MentoringContent() {
             });
             if (Object.keys(patch).length > 0) {
               setForm(prev => ({ ...prev, ...patch }));
+              // 자격증 리스트도 전년도 데이터로 초기화 (개별 입력 칸에 반영)
+              if (prevRecord.certifications) {
+                const certs = prevRecord.certifications.split('\n').filter(Boolean);
+                if (certs.length > 0) setCertList(certs);
+              }
               setCarriedOver(true);
             }
           }
@@ -191,8 +196,8 @@ function MentoringContent() {
           {/* 상단 상태 배너 */}
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-bold text-gray-900">CDP 육성면담서</h2>
-              <p className="text-sm text-gray-400 mt-0.5">{year}년도 · Career Development Program</p>
+              <h2 className="text-lg font-bold text-gray-900">Career Development Program</h2>
+              <p className="text-sm text-gray-400 mt-0.5">{year}년도</p>
             </div>
             {isSubmitted ? (
               <span className="flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1.5 text-xs font-semibold text-green-700">
@@ -218,7 +223,7 @@ function MentoringContent() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <Field label="직책">
-                  <Input placeholder="예) 대리 / 영업팀" value={form.currentPosition} disabled={isSubmitted}
+                  <Input value={form.currentPosition} disabled={isSubmitted}
                     onChange={e => set('currentPosition', e.target.value)} />
                 </Field>
                 <Field label="직무관련 보유자격증">
