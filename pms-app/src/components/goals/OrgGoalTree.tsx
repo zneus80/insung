@@ -38,7 +38,14 @@ export function buildTree(
   goalsByUser: Record<string, Goal[]>
 ): OrgNode[] {
   return allOrgs
-    .filter(o => (o.parentId ?? null) === parentId)
+    .filter(o => {
+      if (parentId === null) {
+        // 최상위 호출: 진짜 root(parentId 없음) + scope 밖에 부모가 있는 조직(orphan) 도 root 로
+        if (!o.parentId) return true;
+        return !allOrgs.some(p => p.id === o.parentId);
+      }
+      return o.parentId === parentId;
+    })
     .map(org => {
       const members = usersByOrg[org.id] ?? [];
       const goals = members.flatMap(u => goalsByUser[u.id] ?? []);
@@ -97,7 +104,7 @@ function MemberGoalRow({ user, goals }: { user: User; goals: Goal[] }) {
           {goals.map(goal => (
             <Link key={goal.id} href={`/goals/${goal.id}`}>
               <div className="flex items-center gap-3 rounded-lg border bg-white px-3 py-2 hover:shadow-sm transition-shadow">
-                <GoalStatusBadge status={goal.status} />
+                <GoalStatusBadge goal={goal} />
                 <span className="flex-1 text-sm text-gray-800 truncate">{goal.title}</span>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <Progress value={goal.progress} className="h-1.5 w-16" />

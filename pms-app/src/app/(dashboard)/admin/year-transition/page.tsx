@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getSystemSettings, updateSystemSettings } from '@/lib/firestore';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
@@ -43,12 +45,30 @@ function YearTransitionContent() {
 
   async function handleTransition(targetYear: number) {
     if (!userProfile) return;
-    if (!confirm(`연도를 ${currentSetting?.activeYear ?? activeYear}년에서 ${targetYear}년으로 전환하시겠습니까?\n\n전환 후 모든 사용자의 활성 연도가 ${targetYear}년으로 변경됩니다.`)) return;
+    if (!confirm(`연도를 ${currentSetting?.activeYear ?? activeYear}년에서 ${targetYear}년으로 전환하시겠습니까?\n\n전환 후 모든 사용자의 활성 연도가 ${targetYear}년으로 변경되며, 해당 연도의 평가기간이 없으면 기본값(1/1~12/31)으로 자동 생성됩니다.`)) return;
 
     setSaving(true);
     try {
+      // 1) 활성 연도 변경
       await updateSystemSettings({ activeYear: targetYear, updatedBy: userProfile.id });
-      toast.success(`${targetYear}년으로 연도가 전환되었습니다.`);
+
+      // 2) 해당 연도의 평가기간 문서가 없으면 자동 생성 (구 평가기간 관리의 '익년도 평가 시작' 기능 통합)
+      const periodRef = doc(db, 'evaluationPeriods', `${targetYear}`);
+      const snap = await getDoc(periodRef);
+      if (!snap.exists()) {
+        await setDoc(periodRef, {
+          year: targetYear,
+          startDate: Timestamp.fromDate(new Date(`${targetYear}-01-01`)),
+          endDate: Timestamp.fromDate(new Date(`${targetYear}-12-31`)),
+          isPublished: false,
+          publishedAt: null,
+          updatedBy: userProfile.id,
+          updatedAt: serverTimestamp(),
+        });
+        toast.success(`${targetYear}년으로 전환되었고, 평가기간이 새로 생성되었습니다.`);
+      } else {
+        toast.success(`${targetYear}년으로 연도가 전환되었습니다.`);
+      }
       await load();
     } catch (e: any) {
       toast.error(`전환 실패: ${e?.message ?? '알 수 없는 오류'}`);
@@ -138,7 +158,7 @@ function YearTransitionContent() {
             <li>연도 전환은 <strong>기본 표시 연도만 변경</strong>하며, 모든 연도의 데이터는 그대로 유지됩니다.</li>
             <li>인사평가가 익년 초까지 이어지는 경우, 전환 전 미리 입력된 새 연도 데이터도 영향 없이 보존됩니다.</li>
             <li>이전·이후 연도 데이터는 각 메뉴의 연도 탭에서 언제든지 조회 가능합니다.</li>
-            <li>새 연도 평가 기간이 아직 설정되지 않은 경우, 평가기간 관리에서 별도로 설정하세요.</li>
+            <li>새 연도 평가기간이 없는 경우 연도 전환 시 자동으로 1/1 ~ 12/31 기본값으로 생성됩니다. 필요 시 평가기간 관리에서 날짜를 조정하세요.</li>
           </ul>
         </div>
 

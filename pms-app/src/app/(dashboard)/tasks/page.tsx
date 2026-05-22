@@ -15,7 +15,7 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, ChevronDown,
+  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, ChevronDown, Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
@@ -348,9 +348,11 @@ function WeeklyReport({ year, week, onWeekChange }: {
   const [leadComments, setLeadComments] = useState<LeadCommentEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [summaryLocked, setSummaryLocked] = useState(false); // 저장 직후 시각적 고정 효과
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Omit<SimpleTaskItem, 'id'>>(EMPTY_SIMPLE());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const summaryRef = useRef<HTMLTextAreaElement | null>(null);
   const today = getISOWeek(new Date());
   const { start, end } = getWeekRange(year, week);
   const isCurrentWeek = year === today.year && week === today.week;
@@ -359,6 +361,7 @@ function WeeklyReport({ year, week, onWeekChange }: {
     if (!userProfile) return;
     setLoading(true);
     setEditingKey(null);
+    setSummaryLocked(false);
     (async () => {
       const wt = await getWeeklyTask(userProfile.id, year, week);
       if (wt) {
@@ -366,6 +369,8 @@ function WeeklyReport({ year, week, onWeekChange }: {
         setWillDoItems(wt.willDoItems ?? []);
         setSummary(wt.summary ?? '');
         setLeadComments(wt.leadComments ?? []);
+        // 저장된 종합 의견이 있으면 잠금 상태로 시작
+        if (wt.summary && wt.summary.trim()) setSummaryLocked(true);
       } else {
         // Auto-carry: prev week's willDoItems → this week's hasDoneItems
         const prev = prevWeek(year, week);
@@ -535,21 +540,85 @@ function WeeklyReport({ year, week, onWeekChange }: {
           {renderSection('wd', willDoItems, false)}
 
           {/* 종합 의견 */}
-          <div className="rounded-xl border bg-white p-5 space-y-3">
-            <h4 className="text-sm font-semibold text-gray-800">이번 주 종합 의견</h4>
+          <div className={cn(
+            'rounded-xl border p-5 space-y-3 transition-all',
+            summaryLocked ? 'bg-green-50/40 border-green-200' : 'bg-white border-gray-200',
+          )}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-semibold text-gray-800">이번 주 종합 의견</h4>
+                {summaryLocked && (
+                  <span className="flex items-center gap-1 text-xs font-medium text-green-600">
+                    <Check className="h-3.5 w-3.5" /> 저장됨
+                  </span>
+                )}
+              </div>
+              {summaryLocked ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSummaryLocked(false);
+                    setTimeout(() => summaryRef.current?.focus(), 50);
+                  }}
+                  className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  수정
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!userProfile) return;
+                    if (timerRef.current) clearTimeout(timerRef.current);
+                    setSaveStatus('saving');
+                    try {
+                      await upsertWeeklyTaskSections(
+                        userProfile.id, year, week,
+                        userProfile.organizationId, start, end,
+                        hasDoneItems, willDoItems, summary,
+                      );
+                      setSaveStatus('saved');
+                      setSummaryLocked(true);
+                      summaryRef.current?.blur();
+                      toast.success('저장되었습니다.');
+                      setTimeout(() => setSaveStatus('idle'), 2500);
+                    } catch {
+                      setSaveStatus('idle');
+                      toast.error('저장에 실패했습니다.');
+                    }
+                  }}
+                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  disabled={saveStatus === 'saving'}
+                >
+                  {saveStatus === 'saving' ? '저장 중…' : '저장'}
+                </button>
+              )}
+            </div>
             <textarea
+              ref={summaryRef}
               rows={4}
               value={summary}
-              onChange={e => { setSummary(e.target.value); scheduleSave(hasDoneItems, willDoItems, e.target.value); }}
+              readOnly={summaryLocked}
+              onChange={e => {
+                setSummary(e.target.value);
+                scheduleSave(hasDoneItems, willDoItems, e.target.value);
+              }}
               placeholder="이번 주 업무 전반에 대한 종합 의견, 이슈 등을 자유롭게 작성하세요."
-              className="w-full resize-none rounded-lg border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300 leading-relaxed"
+              className={cn(
+                'w-full resize-none rounded-lg border px-4 py-3 text-sm text-gray-700 placeholder:text-gray-300 leading-relaxed transition-colors',
+                summaryLocked
+                  ? 'bg-white border-green-200 cursor-default focus:outline-none'
+                  : 'bg-white border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500',
+              )}
             />
           </div>
 
-          {/* Comment 스레드 (읽기 전용) */}
-          {leadComments.length > 0 && (
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 space-y-3">
-              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Comment</p>
+          {/* 팀 코멘트 — 종합 의견 아래에 항상 표시 (팀장·임원이 작성한 코멘트) */}
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 space-y-3">
+            <p className="text-sm font-semibold text-blue-700">팀 코멘트</p>
+            {leadComments.length === 0 ? (
+              <p className="text-xs text-blue-400 italic">아직 작성된 코멘트가 없습니다.</p>
+            ) : (
               <div className="space-y-3">
                 {leadComments.map(c => (
                   <div key={c.id} className="rounded-lg bg-white border border-blue-100 px-4 py-3 space-y-1">
@@ -562,8 +631,8 @@ function WeeklyReport({ year, week, onWeekChange }: {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </>
       )}
     </div>
@@ -725,9 +794,9 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
                       </div>
                     )}
 
-                    {/* Comment 섹션 */}
+                    {/* 팀 코멘트 섹션 */}
                     <div className="border-t bg-blue-50/40 px-4 py-3 space-y-3">
-                      <p className="text-xs font-semibold text-blue-700">Comment</p>
+                      <p className="text-xs font-semibold text-blue-700">팀 코멘트</p>
 
                       {/* 기존 Comment 스레드 */}
                       {(wt?.leadComments ?? []).length > 0 && (
@@ -747,14 +816,14 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
 
                       {/* 새 Comment 입력 — 보고서 없으면 비활성화 */}
                       {!wt ? (
-                        <p className="text-xs text-gray-300 italic">이번 주 보고서가 없어 Comment를 작성할 수 없습니다.</p>
+                        <p className="text-xs text-gray-300 italic">이번 주 보고서가 없어 팀 코멘트를 작성할 수 없습니다.</p>
                       ) : (
                         <div className="space-y-2">
                           <textarea
                             rows={2}
                             value={commentDraft[member.id] ?? ''}
                             onChange={e => setCommentDraft(p => ({ ...p, [member.id]: e.target.value }))}
-                            placeholder="이번 주 업무에 대한 Comment를 남겨주세요."
+                            placeholder="이번 주 업무에 대한 팀 코멘트를 남겨주세요."
                             className="w-full resize-none rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-gray-300"
                           />
                           <div className="flex justify-end">

@@ -6,6 +6,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getActiveCycle,
   getGoalsByUser,
+  getGoalsByOrganizations,
   getSelfEvaluation,
   getSelfEvaluationsByUsers,
   getMentoringFormsByUsers,
@@ -20,6 +21,7 @@ import {
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
+import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -96,7 +98,7 @@ function MemberEvalView() {
   const [completedGoals, setCompleted]  = useState<Goal[]>([]);
   const [selfEval, setSelfEval]         = useState<SelfEvaluation | null>(null);
   const [myEval, setMyEval]             = useState<IndividualEvaluation | null>(null);
-  const [goalEvals, setGoalEvals]       = useState<Record<string, { good: string; regret: string }>>({});
+  const [goalEvals, setGoalEvals]       = useState<Record<string, { comment: string }>>({});
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
 
@@ -117,12 +119,19 @@ function MemberEvalView() {
       setMyEval(ie);
 
       if (se?.goalEvals?.length) {
-        const map: Record<string, { good: string; regret: string }> = {};
-        se.goalEvals.forEach(ge => { map[ge.goalId] = { good: ge.good, regret: ge.regret }; });
+        const map: Record<string, { comment: string }> = {};
+        se.goalEvals.forEach(ge => {
+          // 구버전(good/regret) 데이터를 종합 의견으로 합치기
+          const legacy = [
+            ge.good ? `[잘된 점]\n${ge.good}` : '',
+            ge.regret ? `[아쉬운 점]\n${ge.regret}` : '',
+          ].filter(Boolean).join('\n\n');
+          map[ge.goalId] = { comment: ge.comment || legacy || '' };
+        });
         setGoalEvals(map);
       } else {
-        const map: Record<string, { good: string; regret: string }> = {};
-        done.forEach(g => { map[g.id] = { good: '', regret: '' }; });
+        const map: Record<string, { comment: string }> = {};
+        done.forEach(g => { map[g.id] = { comment: '' }; });
         setGoalEvals(map);
       }
     } finally { setLoading(false); }
@@ -143,8 +152,7 @@ function MemberEvalView() {
       await upsertSelfEvaluation(userProfile.id, year, {
         goalEvals: completedGoals.map(g => ({
           goalId: g.id, goalTitle: g.title,
-          good: goalEvals[g.id]?.good ?? '',
-          regret: goalEvals[g.id]?.regret ?? '',
+          comment: goalEvals[g.id]?.comment ?? '',
         })),
         status: 'DRAFT',
       });
@@ -160,8 +168,7 @@ function MemberEvalView() {
       await upsertSelfEvaluation(userProfile.id, year, {
         goalEvals: completedGoals.map(g => ({
           goalId: g.id, goalTitle: g.title,
-          good: goalEvals[g.id]?.good ?? '',
-          regret: goalEvals[g.id]?.regret ?? '',
+          comment: goalEvals[g.id]?.comment ?? '',
         })),
         status: 'SUBMITTED',
         submittedAt: new Date(),
@@ -170,7 +177,7 @@ function MemberEvalView() {
         organizationId: userProfile.organizationId,
         status: 'SELF_SUBMITTED',
       });
-      toast.success('팀장에게 제출되었습니다.');
+      toast.success('자기평가를 제출했습니다.');
       await load();
     } finally { setSaving(false); }
   }
@@ -257,21 +264,23 @@ function MemberEvalView() {
             {selfEval.goalEvals.length === 0 ? (
               <p className="text-sm text-gray-400 py-4">완료된 목표가 없었습니다.</p>
             ) : (
-              selfEval.goalEvals.map(ge => (
-                <div key={ge.goalId} className="rounded-xl border bg-white p-5 space-y-3">
-                  <p className="font-medium text-gray-900">{ge.goalTitle}</p>
-                  <div className="grid grid-cols-2 gap-4">
+              selfEval.goalEvals.map(ge => {
+                // 구버전(잘된 점/아쉬운 점) 데이터는 합쳐서 표시
+                const legacyCombined = [
+                  ge.good ? `[잘된 점]\n${ge.good}` : '',
+                  ge.regret ? `[아쉬운 점]\n${ge.regret}` : '',
+                ].filter(Boolean).join('\n\n');
+                const displayText = ge.comment || legacyCombined || '—';
+                return (
+                  <div key={ge.goalId} className="rounded-xl border bg-white p-5 space-y-3">
+                    <p className="font-medium text-gray-900">{ge.goalTitle}</p>
                     <div>
-                      <p className="text-xs font-semibold text-green-600 mb-1.5">잘된 점</p>
-                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{ge.good || '—'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-orange-500 mb-1.5">아쉬운 점</p>
-                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{ge.regret || '—'}</p>
+                      <p className="text-xs font-semibold text-blue-600 mb-1.5">종합 의견</p>
+                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{displayText}</p>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -281,7 +290,7 @@ function MemberEvalView() {
           <div className="space-y-4">
             <div>
               <h3 className="font-semibold text-gray-900">완료된 업무 성과 입력</h3>
-              <p className="text-xs text-gray-500 mt-0.5">완료된 목표별로 잘된 점과 아쉬운 점을 입력하고 팀장에게 제출하세요.</p>
+              <p className="text-xs text-gray-500 mt-0.5">완료된 목표별로 종합 의견을 작성하고 제출하세요.</p>
             </div>
 
             {loading ? <LoadingSpinner /> : completedGoals.length === 0 ? (
@@ -302,27 +311,15 @@ function MemberEvalView() {
                     </div>
                     <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">완료</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-semibold text-green-600 block mb-1.5">잘된 점</label>
-                      <textarea
-                        value={goalEvals[goal.id]?.good ?? ''}
-                        onChange={e => setGoalEvals(p => ({ ...p, [goal.id]: { ...p[goal.id], good: e.target.value } }))}
-                        rows={3}
-                        placeholder="이 업무에서 잘된 점을 작성해주세요"
-                        className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-orange-500 block mb-1.5">아쉬운 점</label>
-                      <textarea
-                        value={goalEvals[goal.id]?.regret ?? ''}
-                        onChange={e => setGoalEvals(p => ({ ...p, [goal.id]: { ...p[goal.id], regret: e.target.value } }))}
-                        rows={3}
-                        placeholder="이 업무에서 아쉬운 점을 작성해주세요"
-                        className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
+                  <div>
+                    <label className="text-xs font-semibold text-blue-600 block mb-1.5">종합 의견</label>
+                    <textarea
+                      value={goalEvals[goal.id]?.comment ?? ''}
+                      onChange={e => setGoalEvals(p => ({ ...p, [goal.id]: { ...p[goal.id], comment: e.target.value } }))}
+                      rows={4}
+                      placeholder="이 업무에서의 종합 의견(잘된 점·아쉬운 점·개선 방향 등)을 자유롭게 작성해주세요"
+                      className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
                 </div>
               ))
@@ -332,7 +329,7 @@ function MemberEvalView() {
               <div className="flex justify-end gap-3 pt-2">
                 <Button variant="outline" onClick={handleSave} disabled={saving}>임시 저장</Button>
                 <Button onClick={handleSubmit} disabled={saving}>
-                  {saving ? '제출 중...' : '팀장에게 제출'}
+                  {saving ? '제출 중...' : '제출'}
                 </Button>
               </div>
             )}
@@ -354,6 +351,7 @@ function ExecutiveEvalView() {
   const [selfEvals, setSelfEvals]     = useState<Record<string, SelfEvaluation>>({});
   const [indivEvals, setIndivEvals]   = useState<Record<string, IndividualEvaluation>>({});
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
+  const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
   const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [quotas, setQuotas]           = useState<DivisionGradeQuota | null>(null);
   const [confirmInputs, setConfirm]   = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
@@ -390,11 +388,19 @@ function ExecutiveEvalView() {
       evalResults.flat().forEach(ie => { ieMap[ie.userId] = ie; });
       setIndivEvals(ieMap);
 
-      const [seList, mfList, weeklyTasks] = await Promise.all([
+      const [seList, mfList, weeklyTasks, allGoals] = await Promise.all([
         getSelfEvaluationsByUsers(active.map(m => m.id), year),
         getMentoringFormsByUsers(active.map(m => m.id), year),
         getWeeklyTasksByUsersAndYear(active.map(m => m.id), year),
+        getGoalsByOrganizations(descIds, year),
       ]);
+
+      const gbMap: Record<string, Goal[]> = {};
+      active.forEach(m => { gbMap[m.id] = []; });
+      allGoals.forEach(g => {
+        if (gbMap[g.userId]) gbMap[g.userId].push(g);
+      });
+      setGoalsByMember(gbMap);
 
       const seMap: Record<string, SelfEvaluation> = {};
       seList.forEach(se => { seMap[se.userId] = se; });
@@ -557,104 +563,65 @@ function ExecutiveEvalView() {
                     {/* 펼친 내용 */}
                     {isOpen && (
                       <div className="border-t px-5 py-5 space-y-4">
-                        {/* 주간 업무관리 내역 */}
+                        {/* 핵심목표 목록 — 인사평가에 의미 있는 상태만 (반려·미확정 포기·제안 단계 제외) */}
                         {(() => {
-                          const weeklyTasks = weeklyTasksByMember[member.id] ?? [];
+                          const goals = goalsByMember[member.id] ?? [];
+                          const activeGoals = goals.filter(g => (
+                            g.status === 'APPROVED' ||
+                            g.status === 'IN_PROGRESS' ||
+                            g.status === 'COMPLETED' ||
+                            g.status === 'PENDING_ABANDON' ||
+                            (g.status === 'ABANDONED' && !!g.approvedBy) // 포기 확정만
+                          ));
+                          if (activeGoals.length === 0) return null;
                           return (
                             <div>
-                              <p className="text-xs font-semibold text-gray-500 mb-2">주간 업무관리 내역</p>
-                              {weeklyTasks.length === 0 ? (
-                                <p className="text-sm text-gray-400">등록된 주간 업무 내역이 없습니다.</p>
-                              ) : (
-                                <div className="space-y-1.5">
-                                  {weeklyTasks.map(wt => {
-                                    const weekKey = `${member.id}_w${wt.weekNumber}`;
-                                    const isWeekOpen = expandedWeeks[weekKey] ?? false;
-                                    const hdItems = wt.hasDoneItems ?? [];
-                                    const wdItems = wt.willDoItems ?? [];
-                                    const totalCount = hdItems.length + wdItems.length;
-                                    return (
-                                      <div key={wt.id} className="rounded-lg border bg-gray-50 overflow-hidden">
-                                        <button
-                                          className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-100 transition-colors"
-                                          onClick={() => setExpandedWeeks(p => ({ ...p, [weekKey]: !isWeekOpen }))}
-                                        >
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-xs font-semibold text-gray-700">{wt.weekNumber}주차</span>
-                                            <span className="text-xs text-gray-400">
-                                              {wt.weekStart.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} ~ {wt.weekEnd.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
-                                            </span>
-                                            <span className="text-xs text-green-600 font-medium">실적 {hdItems.length}건</span>
-                                            <span className="text-xs text-gray-400">계획 {wdItems.length}건</span>
-                                          </div>
-                                          {isWeekOpen
-                                            ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" />
-                                            : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
-                                        </button>
-                                        {isWeekOpen && (
-                                          <div className="border-t px-3 py-2 space-y-1.5 bg-white">
-                                            {totalCount === 0 ? (
-                                              <p className="text-xs text-gray-400">등록된 업무가 없습니다.</p>
-                                            ) : (
-                                              <>
-                                                {hdItems.length > 0 && (
-                                                  <div>
-                                                    <p className="text-[10px] font-bold text-green-700 mb-1">Has Done — 이번 주 실적</p>
-                                                    {hdItems.map(item => (
-                                                      <div key={item.id} className="flex items-start gap-2 py-1">
-                                                        <div className="flex-1 min-w-0">
-                                                          <p className="text-xs text-gray-800">{item.title}</p>
-                                                          {item.content && <p className="text-xs text-gray-500 mt-0.5">{item.content}</p>}
-                                                        </div>
-                                                      </div>
-                                                    ))}
-                                                  </div>
-                                                )}
-                                                {wdItems.length > 0 && (
-                                                  <div className={hdItems.length > 0 ? 'border-t pt-1.5' : ''}>
-                                                    <p className="text-[10px] font-bold text-gray-600 mb-1">Will Do — 다음 주 계획</p>
-                                                    {wdItems.map(item => (
-                                                      <div key={item.id} className="flex items-start gap-2 py-1">
-                                                        <div className="flex-1 min-w-0">
-                                                          <p className="text-xs text-gray-800">{item.title}</p>
-                                                          {item.content && <p className="text-xs text-gray-500 mt-0.5">{item.content}</p>}
-                                                        </div>
-                                                      </div>
-                                                    ))}
-                                                  </div>
-                                                )}
-                                              </>
-                                            )}
-                                            {wt.summary && (
-                                              <div className="border-t pt-1.5 mt-1.5">
-                                                <p className="text-xs text-gray-500"><span className="font-semibold">종합 의견: </span>{wt.summary}</p>
-                                              </div>
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
+                              <p className="text-xs font-semibold text-gray-500 mb-2">핵심목표 ({activeGoals.length}개)</p>
+                              <div className="space-y-1.5">
+                                {activeGoals.map(g => (
+                                  <div key={g.id} className="flex items-center gap-3 rounded-lg border bg-gray-50 px-3 py-2">
+                                    <span className="text-xs text-gray-500 shrink-0">{g.progress}%</span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm text-gray-800 truncate">{g.title}</p>
+                                    </div>
+                                    <span className={`shrink-0 text-xs rounded-full px-2 py-0.5 font-medium ${
+                                      g.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
+                                      g.status === 'ABANDONED' ? 'bg-gray-100 text-gray-400' :
+                                      'bg-blue-50 text-blue-600'
+                                    }`}>
+                                      {g.status === 'COMPLETED' ? '완료' : g.status === 'ABANDONED' ? '포기' : '진행중'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           );
                         })()}
+
+                        {/* 주간 업무관리 내역 — 52주 카드 그리드 */}
+                        <div>
+                          <p className="text-xs font-semibold text-gray-500 mb-2">주간 업무관리 내역 ({year}년)</p>
+                          <WeeklyTasksGrid tasks={weeklyTasksByMember[member.id] ?? []} year={year} />
+                        </div>
 
                         {/* 자기평가 요약 */}
                         {se?.status === 'SUBMITTED' && se.goalEvals.length > 0 && (
                           <div>
                             <p className="text-xs font-semibold text-gray-500 mb-2">자기평가 내용</p>
                             <div className="space-y-2">
-                              {se.goalEvals.map(ge => (
-                                <div key={ge.goalId} className="rounded-lg bg-gray-50 p-3">
-                                  <p className="text-xs font-medium text-gray-700 mb-1.5">{ge.goalTitle}</p>
-                                  <div className="grid grid-cols-2 gap-3 text-xs text-gray-500">
-                                    <div><span className="font-semibold text-green-600">잘된 점: </span>{ge.good || '—'}</div>
-                                    <div><span className="font-semibold text-orange-500">아쉬운 점: </span>{ge.regret || '—'}</div>
+                              {se.goalEvals.map(ge => {
+                                const legacy = [
+                                  ge.good ? `[잘된 점]\n${ge.good}` : '',
+                                  ge.regret ? `[아쉬운 점]\n${ge.regret}` : '',
+                                ].filter(Boolean).join('\n\n');
+                                const text = ge.comment || legacy || '—';
+                                return (
+                                  <div key={ge.goalId} className="rounded-lg bg-gray-50 p-3">
+                                    <p className="text-xs font-medium text-gray-700 mb-1.5">{ge.goalTitle}</p>
+                                    <p className="text-xs text-gray-600 whitespace-pre-wrap"><span className="font-semibold text-blue-600">종합 의견: </span>{text}</p>
                                   </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         )}

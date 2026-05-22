@@ -1,17 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, setDoc, Timestamp } from 'firebase/firestore';
-import { COLLECTIONS, getGradeQuotas, getActiveCycle } from '@/lib/firestore';
+import { doc, setDoc } from 'firebase/firestore';
+import { COLLECTIONS, getGradeQuotas } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { toast } from 'sonner';
-import type { EvaluationGrade, EvaluationCycle } from '@/types';
+import type { EvaluationGrade } from '@/types';
 
 const GRADES: EvaluationGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
@@ -24,12 +22,6 @@ export default function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { activeYear: year } = useActiveYear();
-  const [cycle, setCycle] = useState<EvaluationCycle | null>(null);
-  const [cycleForm, setCycleForm] = useState({
-    goalStart: '', goalEnd: '', evalStart: '', evalEnd: '',
-  });
-
   // 쿼터: orgGrade → { A, B, C, D, E } 비율 (%, 합계 100)
   const [quotas, setQuotas] = useState<Record<EvaluationGrade, Record<EvaluationGrade, number>>>({
     A: { A: 10, B: 30, C: 50, D: 10, E: 0 },
@@ -43,16 +35,7 @@ function SettingsContent() {
 
   useEffect(() => {
     async function load() {
-      const [activeCycle, rawQuotas] = await Promise.all([getActiveCycle(), getGradeQuotas()]);
-      if (activeCycle) {
-        setCycle(activeCycle);
-        setCycleForm({
-          goalStart: toDateInput(activeCycle.goalStartDate),
-          goalEnd: toDateInput(activeCycle.goalEndDate),
-          evalStart: toDateInput(activeCycle.evalStartDate),
-          evalEnd: toDateInput(activeCycle.evalEndDate),
-        });
-      }
+      const rawQuotas = await getGradeQuotas();
       if (rawQuotas.length > 0) {
         const qMap = { ...quotas };
         rawQuotas.forEach((q: any) => {
@@ -65,27 +48,6 @@ function SettingsContent() {
     }
     load();
   }, []);
-
-  function toDateInput(d: Date) {
-    return d.toISOString().slice(0, 10);
-  }
-
-  async function saveCycle() {
-    setSaving(true);
-    try {
-      const id = `cycle-${year}`;
-      await setDoc(doc(db, COLLECTIONS.EVALUATION_CYCLES, id), {
-        year,
-        goalStartDate: Timestamp.fromDate(new Date(cycleForm.goalStart)),
-        goalEndDate: Timestamp.fromDate(new Date(cycleForm.goalEnd)),
-        evalStartDate: Timestamp.fromDate(new Date(cycleForm.evalStart)),
-        evalEndDate: Timestamp.fromDate(new Date(cycleForm.evalEnd)),
-        isActive: true,
-        createdAt: Timestamp.now(),
-      });
-      toast.success('평가 사이클이 저장되었습니다.');
-    } finally { setSaving(false); }
-  }
 
   async function saveQuotas() {
     setSaving(true);
@@ -104,32 +66,13 @@ function SettingsContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="시스템 설정" />
+      <Header title="개인평가등급 설정" />
       <div className="flex-1 overflow-y-auto p-6 space-y-8">
 
-        {/* 평가 사이클 */}
-        <section className="rounded-xl border bg-white p-6 space-y-4">
-          <h3 className="font-semibold text-gray-900">{year}년 평가 사이클</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>목표 수립 시작</Label>
-              <Input type="date" value={cycleForm.goalStart} onChange={e => setCycleForm(f => ({ ...f, goalStart: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>목표 수립 마감</Label>
-              <Input type="date" value={cycleForm.goalEnd} onChange={e => setCycleForm(f => ({ ...f, goalEnd: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>평가 시작</Label>
-              <Input type="date" value={cycleForm.evalStart} onChange={e => setCycleForm(f => ({ ...f, evalStart: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>평가 마감</Label>
-              <Input type="date" value={cycleForm.evalEnd} onChange={e => setCycleForm(f => ({ ...f, evalEnd: e.target.value }))} />
-            </div>
-          </div>
-          <Button onClick={saveCycle} disabled={saving} size="sm">저장</Button>
-        </section>
+        <p className="text-sm text-gray-500">
+          조직평가 등급별 개인 평가등급 비율을 설정합니다.
+          평가 기간은 <span className="font-medium text-gray-700">평가기간 관리</span> 페이지에서 설정하세요.
+        </p>
 
         {/* 등급 쿼터 */}
         <section className="rounded-xl border bg-white p-6 space-y-4">
