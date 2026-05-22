@@ -6,6 +6,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getActiveCycle,
   getGoalsByUser,
+  getGoalsByOrganizations,
   getSelfEvaluation,
   getSelfEvaluationsByUsers,
   getMentoringFormsByUsers,
@@ -354,6 +355,7 @@ function ExecutiveEvalView() {
   const [selfEvals, setSelfEvals]     = useState<Record<string, SelfEvaluation>>({});
   const [indivEvals, setIndivEvals]   = useState<Record<string, IndividualEvaluation>>({});
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
+  const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
   const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [quotas, setQuotas]           = useState<DivisionGradeQuota | null>(null);
   const [confirmInputs, setConfirm]   = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
@@ -390,11 +392,19 @@ function ExecutiveEvalView() {
       evalResults.flat().forEach(ie => { ieMap[ie.userId] = ie; });
       setIndivEvals(ieMap);
 
-      const [seList, mfList, weeklyTasks] = await Promise.all([
+      const [seList, mfList, weeklyTasks, allGoals] = await Promise.all([
         getSelfEvaluationsByUsers(active.map(m => m.id), year),
         getMentoringFormsByUsers(active.map(m => m.id), year),
         getWeeklyTasksByUsersAndYear(active.map(m => m.id), year),
+        getGoalsByOrganizations(descIds, year),
       ]);
+
+      const gbMap: Record<string, Goal[]> = {};
+      active.forEach(m => { gbMap[m.id] = []; });
+      allGoals.forEach(g => {
+        if (gbMap[g.userId]) gbMap[g.userId].push(g);
+      });
+      setGoalsByMember(gbMap);
 
       const seMap: Record<string, SelfEvaluation> = {};
       seList.forEach(se => { seMap[se.userId] = se; });
@@ -557,6 +567,35 @@ function ExecutiveEvalView() {
                     {/* 펼친 내용 */}
                     {isOpen && (
                       <div className="border-t px-5 py-5 space-y-4">
+                        {/* 핵심목표 목록 */}
+                        {(() => {
+                          const goals = goalsByMember[member.id] ?? [];
+                          const activeGoals = goals.filter(g => !['DRAFT', 'PENDING_APPROVAL', 'LEAD_APPROVED'].includes(g.status));
+                          if (activeGoals.length === 0) return null;
+                          return (
+                            <div>
+                              <p className="text-xs font-semibold text-gray-500 mb-2">핵심목표 ({activeGoals.length}개)</p>
+                              <div className="space-y-1.5">
+                                {activeGoals.map(g => (
+                                  <div key={g.id} className="flex items-center gap-3 rounded-lg border bg-gray-50 px-3 py-2">
+                                    <span className="text-xs text-gray-500 shrink-0">{g.progress}%</span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm text-gray-800 truncate">{g.title}</p>
+                                    </div>
+                                    <span className={`shrink-0 text-xs rounded-full px-2 py-0.5 font-medium ${
+                                      g.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
+                                      g.status === 'ABANDONED' ? 'bg-gray-100 text-gray-400' :
+                                      'bg-blue-50 text-blue-600'
+                                    }`}>
+                                      {g.status === 'COMPLETED' ? '완료' : g.status === 'ABANDONED' ? '포기' : '진행중'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {/* 주간 업무관리 내역 */}
                         {(() => {
                           const weeklyTasks = weeklyTasksByMember[member.id] ?? [];

@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getGoalsByUser,
-  getPendingGoalsByOrganization,
+  getPendingGoalsByOrganizations,
   getOneOnOnesByMember,
   getOneOnOnesByLeader,
   getMileage,
@@ -54,11 +54,8 @@ function MemberDashboard() {
     if (!userProfile) return;
     async function load() {
       try {
-        const [goalList, pending, meetings, mileage, cGoal, oGoal, announcements] = await Promise.all([
+        const [goalList, meetings, mileage, cGoal, oGoal, announcements, allOrgs] = await Promise.all([
           getGoalsByUser(userProfile!.id, year),
-          userProfile!.role === 'TEAM_LEAD'
-            ? getPendingGoalsByOrganization(userProfile!.organizationId)
-            : Promise.resolve([]),
           userProfile!.role === 'TEAM_LEAD'
             ? getOneOnOnesByLeader(userProfile!.id)
             : getOneOnOnesByMember(userProfile!.id),
@@ -66,7 +63,21 @@ function MemberDashboard() {
           getAnnualGoal('company', year),
           getAnnualGoal('org', year, userProfile!.organizationId),
           getAnnouncements(),
+          userProfile!.role === 'TEAM_LEAD' ? getOrganizations() : Promise.resolve([] as Organization[]),
         ]);
+
+        // 팀장: 승인대기함과 동일한 범위(leaderId 등록 조직 + 소속 조직 하위 전체)로 조회
+        let pending: Goal[] = [];
+        if (userProfile!.role === 'TEAM_LEAD') {
+          const myLedOrgs = allOrgs.filter(o => o.leaderId === userProfile!.id);
+          const rootIdSet = new Set<string>([userProfile!.organizationId]);
+          myLedOrgs.forEach(o => rootIdSet.add(o.id));
+          const scopeOrgIds = [...new Set(
+            [...rootIdSet].flatMap(id => findDescendantIds(id, allOrgs))
+          )];
+          pending = await getPendingGoalsByOrganizations(scopeOrgIds);
+        }
+
         setGoals(goalList);
         setPendingCount(pending.length);
         setUpcomingMeetings(meetings.slice(0, 3));

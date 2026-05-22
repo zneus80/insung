@@ -171,13 +171,15 @@ function OrgEvalCard({
         <span className="text-sm text-gray-400 shrink-0">
           <Users className="h-3.5 w-3.5 inline mr-1" />{orgMembers.length}명
         </span>
-        {/* 조직 평가등급 */}
-        {orgEval?.grade ? (
-          <span className={cn('rounded-full px-3 py-0.5 text-sm font-bold shrink-0', GRADE_STYLE[orgEval.grade])}>
-            조직 {orgEval.grade}등급
-          </span>
-        ) : (
-          <span className="rounded-full px-3 py-0.5 text-sm bg-gray-100 text-gray-400 shrink-0">조직등급 미확정</span>
+        {/* 조직 평가등급 — DIVISION(부문/공장)만 표시 */}
+        {org.type === 'DIVISION' && (
+          orgEval?.grade ? (
+            <span className={cn('rounded-full px-3 py-0.5 text-sm font-bold shrink-0', GRADE_STYLE[orgEval.grade])}>
+              조직 {orgEval.grade}등급
+            </span>
+          ) : (
+            <span className="rounded-full px-3 py-0.5 text-sm bg-gray-100 text-gray-400 shrink-0">조직등급 미확정</span>
+          )
         )}
       </button>
 

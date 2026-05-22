@@ -84,19 +84,21 @@ function MyGoalsView() {
         teamMemberIds.add(myOrg.leaderId);
       }
 
-      const list = await getGoalsByOrganization(userProfile.organizationId, year);
+      // 같은 org 목표 + 팀장 userId 기반 목표를 병렬 조회 (org 이동 등으로 누락되는 경우 대비)
+      const leaderId = myOrg?.leaderId;
+      const [list, leadGoals] = await Promise.all([
+        getGoalsByOrganization(userProfile.organizationId, year),
+        leaderId && leaderId !== userProfile!.id
+          ? getGoalsByUser(leaderId, year)
+          : Promise.resolve([] as Goal[]),
+      ]);
 
-      // 팀장이 다른 org인 경우 별도 조회
-      let extraGoals: Goal[] = [];
-      if (myOrg?.leaderId && myOrg.leaderId !== userProfile!.id) {
-        const leadUser = allUsers.find(u => u.id === myOrg!.leaderId);
-        if (leadUser && leadUser.organizationId !== userProfile!.organizationId) {
-          const leadGoals = await getGoalsByUser(leadUser.id, year);
-          extraGoals = leadGoals;
-        }
+      // 중복 제거 (팀장이 같은 org에 있으면 list에도 포함될 수 있음)
+      const seenIds = new Set<string>();
+      const combined: Goal[] = [];
+      for (const g of [...list, ...leadGoals]) {
+        if (!seenIds.has(g.id)) { seenIds.add(g.id); combined.push(g); }
       }
-
-      const combined = [...list, ...extraGoals];
       // 자신 제외, DRAFT/PENDING_APPROVAL/LEAD_APPROVED 제외, ABANDONED는 승인된 것만 표시
       const active = combined.filter(g =>
         teamMemberIds.has(g.userId) &&
