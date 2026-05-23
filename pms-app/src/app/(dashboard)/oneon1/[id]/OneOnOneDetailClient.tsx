@@ -14,6 +14,7 @@ import {
   answerOneOnOneQuestion,
   getOneOnOneQuestions,
   deleteOneOnOneQuestion,
+  createNotification,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -70,10 +71,23 @@ export default function OneOnOneDetailPage() {
   }, [questions]);
 
   async function handleAsk() {
-    if (!userProfile || !newQuestion.trim()) return;
+    if (!userProfile || !newQuestion.trim() || !room) return;
     setSubmitting(true);
     try {
       await addOneOnOneQuestion(id, { askerId: userProfile.id, question: newQuestion.trim() });
+      // 상대방에게 알림
+      const targetId = userProfile.id === room.leaderId ? room.memberId : room.leaderId;
+      try {
+        await createNotification({
+          userId: targetId,
+          type: 'ONEONONE_MESSAGE',
+          category: 'ONEONONE',
+          title: `${userProfile.name}님이 1on1에 새 질문을 남겼습니다`,
+          message: newQuestion.trim().slice(0, 100),
+          link: `/oneon1/${id}`,
+          read: false,
+        });
+      } catch { /* 알림 실패 무시 */ }
       setNewQuestion('');
       toast.success('질문이 등록되었습니다.');
       await load();
@@ -85,13 +99,30 @@ export default function OneOnOneDetailPage() {
   }
 
   async function handleAnswer(questionId: string) {
-    if (!userProfile || !answerDraft[questionId]?.trim()) return;
+    if (!userProfile || !answerDraft[questionId]?.trim() || !room) return;
+    const answerText = answerDraft[questionId].trim();
     setAnsweringId(questionId);
     try {
       await answerOneOnOneQuestion(id, questionId, {
-        answer: answerDraft[questionId].trim(),
+        answer: answerText,
         answeredBy: userProfile.id,
       });
+      // 질문 작성자(상대방)에게 알림
+      const q = questions.find(qq => qq.id === questionId);
+      const targetId = q?.askerId && q.askerId !== userProfile.id ? q.askerId : null;
+      if (targetId) {
+        try {
+          await createNotification({
+            userId: targetId,
+            type: 'ONEONONE_MESSAGE',
+            category: 'ONEONONE',
+            title: `${userProfile.name}님이 1on1에 답변을 남겼습니다`,
+            message: answerText.slice(0, 100),
+            link: `/oneon1/${id}`,
+            read: false,
+          });
+        } catch { /* 알림 실패 무시 */ }
+      }
       setAnswerDraft(d => ({ ...d, [questionId]: '' }));
       toast.success('답변이 등록되었습니다.');
       await load();

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -17,6 +18,7 @@ import {
   FileText,
   MessageSquareHeart,
   Bell,
+  BellRing,
   Trophy,
   CalendarClock,
   HardDrive,
@@ -25,6 +27,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/lib/auth';
+import { getUnreadNotificationCount } from '@/lib/firestore';
 import type { UserRole } from '@/types';
 
 interface NavItem {
@@ -45,6 +48,11 @@ const navItems: NavItem[] = [
     icon: <LayoutDashboard className="h-5 w-5" />,
   },
   {
+    label: '알림',
+    href: '/notifications',
+    icon: <BellRing className="h-5 w-5" />,
+  },
+  {
     label: '공지사항',
     href: '/announcements',
     icon: <Bell className="h-5 w-5" />,
@@ -60,7 +68,7 @@ const navItems: NavItem[] = [
 
   // ── 팀원·팀장 공통 ─────────────────────────
   {
-    label: '주간 업무관리',
+    label: '주간업무보고',
     href: '/tasks',
     icon: <ClipboardList className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
@@ -256,6 +264,17 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { userProfile } = useAuth();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // 알림 미읽음 카운트 — 페이지 변경마다 갱신 (가벼운 query)
+  useEffect(() => {
+    if (!userProfile) return;
+    let cancelled = false;
+    getUnreadNotificationCount(userProfile.id).then(n => {
+      if (!cancelled) setUnreadCount(n);
+    }).catch(() => { /* 무시 */ });
+    return () => { cancelled = true; };
+  }, [userProfile, pathname]);
 
   async function handleLogout() {
     await signOut();
@@ -312,7 +331,12 @@ export default function Sidebar() {
                   <span className={isActive ? 'text-blue-600' : 'text-gray-400'}>
                     {item.icon}
                   </span>
-                  {item.label}
+                  <span className="flex-1">{item.label}</span>
+                  {item.href === '/notifications' && unreadCount > 0 && (
+                    <span className="rounded-full bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] inline-flex items-center justify-center px-1.5">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
                 </Link>
               </div>
             );

@@ -10,6 +10,7 @@ import {
   getUsersByOrganization,
   getAllUsers,
   getOrganizations,
+  createNotification,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -76,7 +77,7 @@ function MemberTasksPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="주간 업무관리" />
+      <Header title="주간업무보고" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
           {(['my', 'team'] as const).map(t => (
@@ -689,6 +690,18 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
         },
       }));
       setCommentDraft(p => ({ ...p, [userId]: '' }));
+      // 알림 생성 (작성 대상자에게)
+      try {
+        await createNotification({
+          userId,
+          type: 'WEEKLY_TASK_COMMENT',
+          category: 'WEEKLY_TASK',
+          title: `${year}년 ${week}주차 주간업무`,
+          message: `${me.name}님이 코멘트를 남겼습니다: ${text.slice(0, 60)}${text.length > 60 ? '…' : ''}`,
+          link: '/tasks',
+          read: false,
+        });
+      } catch { /* 알림 실패는 무시 */ }
     } finally {
       setSavingComment(null);
     }
@@ -993,7 +1006,7 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="주간 업무관리" />
+      <Header title="주간업무보고" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <WeekNav year={year} week={week} start={start} end={end}
           isCurrentWeek={isCurrentWeek} saveStatus="idle"
