@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { getOrganizations, createOrganization, updateOrganization, deleteOrganization, getAllUsers } from '@/lib/firestore';
+import { getOrganizations, createOrganization, updateOrganization, deleteOrganization, getAllUsers, countOrgReferences, abandonGoalsForOrg } from '@/lib/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,6 +78,7 @@ export default function OrganizationsPage() {
 }
 
 function OrganizationsContent() {
+  const { userProfile } = useAuth();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,9 +118,40 @@ function OrganizationsContent() {
 
   async function handleSave() {
     if (!form.name) { toast.error('조직명을 입력하세요.'); return; }
+    // 조직 부모/타입 변경 시 — 기존 목표 처리 옵션 제공 (v0.75 B14)
+    let shouldAbandonGoals = false;
+    if (editing) {
+      const parentChanged = (editing.parentId ?? null) !== (form.parentId || null);
+      const typeChanged   = editing.type !== form.type;
+      if (parentChanged || typeChanged) {
+        const refs = await countOrgReferences(editing.id);
+        if (refs.goals > 0) {
+          const labels: string[] = [];
+          if (parentChanged) labels.push('상위 조직');
+          if (typeChanged)   labels.push('조직 타입');
+          // 1차 — 기존 목표 처리 의사 묻기
+          shouldAbandonGoals = confirm(
+            `${labels.join(' / ')} 변경 시 기존 목표 처리 방식\n\n` +
+            `이 조직과 연결된 핵심목표 ${refs.goals}건이 있습니다.\n\n` +
+            `[확인] 모든 목표를 자동 포기 확정 + 휴지통 이동 처리\n` +
+            `[취소] 데이터는 유지하고 새 조직 구조에 맞춰 결재 라인이 자동 재구성됨`
+          );
+          // 2차 — 최종 진행 confirm (사용자에게 선택 결과 안내)
+          const summary = shouldAbandonGoals
+            ? `핵심목표 ${refs.goals}건을 모두 포기 처리하고 휴지통으로 이동합니다.`
+            : `핵심목표는 그대로 유지되며, 새 조직 구조에 맞게 결재 라인이 재구성됩니다.`;
+          if (!confirm(`${summary}\n\n진행하시겠습니까?`)) return;
+        }
+      }
+    }
     setSaving(true);
     try {
       if (editing) {
+        // "예" 선택 시 — 조직 변경 전에 기존 목표 포기·휴지통 처리
+        if (shouldAbandonGoals && userProfile) {
+          const processed = await abandonGoalsForOrg(editing.id, userProfile.id);
+          if (processed > 0) toast.success(`기존 목표 ${processed}건이 포기 처리되었습니다.`);
+        }
         await updateOrganization(editing.id, {
           name: form.name, type: form.type,
           parentId: form.parentId || null,
@@ -154,8 +187,28 @@ function OrganizationsContent() {
       setDeleteTarget(null);
       return;
     }
+
+    // 연중 조직 변경 시 historical 데이터 영향 확인 (v0.75 B14)
     setDeleting(true);
     try {
+      const refs = await countOrgReferences(deleteTarget.id);
+      const total = refs.goals + refs.weeklyTasks + refs.annualGoals + refs.orgEvaluations;
+      if (total > 0) {
+        const details = [
+          refs.goals > 0 ? `핵심목표 ${refs.goals}건` : '',
+          refs.weeklyTasks > 0 ? `주간업무 ${refs.weeklyTasks}건` : '',
+          refs.annualGoals > 0 ? `연간목표 ${refs.annualGoals}건` : '',
+          refs.orgEvaluations > 0 ? `조직평가 ${refs.orgEvaluations}건` : '',
+        ].filter(Boolean).join(', ');
+        if (!confirm(
+          `이 조직에 연결된 이력 데이터가 있습니다.\n  ${details}\n\n` +
+          `삭제 시 해당 데이터는 보존되지만 조직 정보를 잃습니다.\n` +
+          `(인사평가·이력 관리에 영향이 있을 수 있습니다)\n\n그래도 삭제하시겠습니까?`
+        )) {
+          setDeleting(false);
+          return;
+        }
+      }
       await deleteOrganization(deleteTarget.id);
       toast.success(`${deleteTarget.name} 조직이 삭제되었습니다.`);
       setDeleteTarget(null);

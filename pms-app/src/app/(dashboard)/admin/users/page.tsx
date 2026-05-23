@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation } from '@/lib/firestore';
+import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation, abandonActiveGoalsForUser, migrateActiveGoalsToNewOrg } from '@/lib/firestore';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -223,9 +223,39 @@ function UsersContent() {
   // 초대 방식: Firestore에 정보만 저장 (isActive: false)
   async function handleSave() {
     if (!form.name) { toast.error('이름을 입력하세요.'); return; }
+    // 사용자 조직 변경 시 기존 목표 처리 방식 묻기 (v0.75 B14)
+    let goalsAction: 'abandon' | 'migrate' | null = null;
+    if (editing && form.organizationId && editing.organizationId !== form.organizationId) {
+      const fromName = orgs.find(o => o.id === editing.organizationId)?.name ?? '(이전 조직)';
+      const toName = orgs.find(o => o.id === form.organizationId)?.name ?? '(새 조직)';
+      const choice = confirm(
+        `${editing.name}님의 소속 조직을 변경합니다.\n${fromName} → ${toName}\n\n` +
+        `기존 진행 중인 목표 처리 방식을 선택하세요:\n\n` +
+        `[확인] 모든 진행 중 목표를 자동 포기 확정 + 휴지통 이동\n` +
+        `       (인사평가 자료는 보존됨)\n\n` +
+        `[취소] 진행 중 목표를 새 조직으로 이전해서 재구성\n` +
+        `       (새 조직의 결재 라인·코멘트가 적용됨)`
+      );
+      goalsAction = choice ? 'abandon' : 'migrate';
+      const summary = choice
+        ? `진행 중 목표를 모두 포기 처리하고 휴지통으로 이동합니다.`
+        : `진행 중 목표를 새 조직(${toName})으로 이전하여 재구성합니다.`;
+      if (!confirm(`${summary}\n\n계속하시겠습니까?`)) return;
+    }
     setSaving(true);
     try {
       if (editing) {
+        // 조직 변경 시 — 기존 목표 처리
+        if (goalsAction && userProfile) {
+          let n = 0;
+          if (goalsAction === 'abandon') {
+            n = await abandonActiveGoalsForUser(editing.id, userProfile.id);
+            if (n > 0) toast.success(`진행 중 목표 ${n}건을 포기 처리·휴지통 이동했습니다.`);
+          } else if (goalsAction === 'migrate') {
+            n = await migrateActiveGoalsToNewOrg(editing.id, form.organizationId);
+            if (n > 0) toast.success(`진행 중 목표 ${n}건을 새 조직으로 이전했습니다.`);
+          }
+        }
         await updateUser(editing.id, {
           name: form.name, role: form.role,
           organizationId: form.organizationId || '',
@@ -328,20 +358,37 @@ function UsersContent() {
   }
 
   async function handleDelete() {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !userProfile) return;
+    // 한번 더 확인 — 데이터 이관 안내
+    if (!confirm(
+      `${deleteTarget.name}님을 삭제합니다.\n\n` +
+      `이 사용자가 입력한 모든 데이터(목표·주간업무·자기평가·육성면담서·1on1·마일리지·포상 등)는\n` +
+      `userDataBackups 컬렉션으로 이관된 후 원본은 삭제됩니다.\n\n` +
+      `삭제 후에는 원본 데이터를 직접 조회할 수 없습니다. 계속하시겠습니까?`
+    )) return;
     setDeleting(true);
     try {
-      // Auth + Firestore 동시 삭제 (좀비 계정 방지)
       const res = await fetch('/api/admin/delete-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: deleteTarget.id, email: deleteTarget.email }),
+        body: JSON.stringify({
+          uid: deleteTarget.id,
+          email: deleteTarget.email,
+          deletedBy: userProfile.id,
+        }),
       });
       if (!res.ok) {
         const json = await res.json();
         throw new Error(json.error || '삭제 실패');
       }
-      toast.success(`${deleteTarget.name}님이 삭제되었습니다.`);
+      const result = await res.json();
+      const summary = result.counts
+        ? Object.entries(result.counts).filter(([, v]: any) => v > 0).map(([k, v]) => `${k} ${v}`).join(', ')
+        : '';
+      toast.success(
+        `${deleteTarget.name}님이 삭제되었습니다.` +
+        (summary ? ` (백업: ${summary})` : '')
+      );
       setDeleteTarget(null);
       await load();
     } catch (e: any) {

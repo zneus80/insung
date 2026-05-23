@@ -127,4 +127,22 @@
   html {
     @apply font-sans;
   }
+
+  /* 임원·CEO 페이지 폰트 사이즈 — 최소 12pt 이상 (v0.75 B6) */
+  .exec-larger-text { font-size: 13pt; line-height: 1.55; }
+  .exec-larger-text .text-\[10px\] { font-size: 12pt !important; }
+  .exec-larger-text .text-\[11px\] { font-size: 12pt !important; }
+  .exec-larger-text .text-\[13px\] { font-size: 12pt !important; }
+  .exec-larger-text .text-xs { font-size: 12pt !important; line-height: 1.5 !important; }
+  .exec-larger-text .text-sm { font-size: 12pt !important; line-height: 1.55 !important; }
+  .exec-larger-text .text-base { font-size: 13pt !important; line-height: 1.55 !important; }
+  .exec-larger-text .text-lg { font-size: 14pt !important; }
+  .exec-larger-text .text-xl { font-size: 16pt !important; }
+  .exec-larger-text .text-2xl { font-size: 19pt !important; }
+  .exec-larger-text .text-3xl { font-size: 22pt !important; }
+  /* input, textarea 등 form 요소도 부모 폰트 사이즈 상속 (브라우저 기본 폰트 상속 안 함) */
+  .exec-larger-text input,
+  .exec-larger-text textarea,
+  .exec-larger-text select,
+  .exec-larger-text button { font-size: inherit; }
 }
