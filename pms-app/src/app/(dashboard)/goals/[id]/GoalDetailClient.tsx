@@ -13,6 +13,7 @@ import {
   addProgressUpdate,
   getProgressUpdates,
   getUser,
+  getAllUsers,
   getOrganizations,
   createNotification,
   COLLECTIONS,
@@ -64,6 +65,7 @@ export default function GoalDetailPage() {
   const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
   const [histories, setHistories] = useState<GoalHistory[]>([]);
   const [updates, setUpdates] = useState<ProgressUpdate[]>([]);
+  const [usersMap, setUsersMap] = useState<Record<string, User>>({});
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -99,11 +101,12 @@ export default function GoalDetailPage() {
         abandonLeadApprovedAt: fromTimestamp(data.abandonLeadApprovedAt as Timestamp),
       } as Goal;
 
-      const [owner, h, u, orgs] = await Promise.all([
+      const [owner, h, u, orgs, allUsers] = await Promise.all([
         getUser(loadedGoal.userId),
         getGoalHistories(id),
         getProgressUpdates(id),
         getOrganizations(),
+        getAllUsers(),
       ]);
       setGoal(loadedGoal);
       setGoalOwner(owner);
@@ -111,6 +114,7 @@ export default function GoalDetailPage() {
       setNewProgress(loadedGoal.progress);
       setHistories(h);
       setUpdates(u);
+      setUsersMap(Object.fromEntries(allUsers.map(usr => [usr.id, usr])));
     } catch (e: any) {
       toast.error(`목표를 불러오지 못했습니다: ${e?.code ?? e?.message ?? ''}`);
       router.push('/goals');
@@ -212,16 +216,35 @@ export default function GoalDetailPage() {
     if (!goal || !userProfile || !progressComment.trim()) return;
     setActionLoading(true);
     try {
+      // 본인은 진행률 + 코멘트, 그 외(팀장·본부장·임원) 결재자는 코멘트만 저장
+      const isGoalOwner = goal.userId === userProfile.id;
       await addProgressUpdate({
         goalId: id, userId: userProfile.id,
-        progress: newProgress, comment: progressComment,
+        progress: isGoalOwner ? newProgress : goal.progress,
+        comment: progressComment,
       });
-      await updateGoal(id, {
-        progress: newProgress,
-        status: goal.status === 'APPROVED' ? 'IN_PROGRESS' : goal.status,
-      });
+      if (isGoalOwner) {
+        await updateGoal(id, {
+          progress: newProgress,
+          status: goal.status === 'APPROVED' ? 'IN_PROGRESS' : goal.status,
+        });
+      }
+      // 결재자가 코멘트 단 경우 → 목표 owner 에게 알림
+      if (!isGoalOwner && goal.userId !== userProfile.id) {
+        try {
+          await createNotification({
+            userId: goal.userId,
+            type: 'GOAL_COMMENT',
+            category: 'GOAL',
+            title: goal.title,
+            message: `${userProfile.name}님이 코멘트를 남겼습니다: ${progressComment.slice(0, 60)}${progressComment.length > 60 ? '…' : ''}`,
+            link: `/goals/${id}`,
+            read: false,
+          });
+        } catch { /* 알림 실패 무시 */ }
+      }
       setProgressComment('');
-      toast.success('진행상황이 업데이트되었습니다.');
+      toast.success(isGoalOwner ? '진행상황이 업데이트되었습니다.' : '코멘트를 등록했습니다.');
       await load();
     } finally { setActionLoading(false); }
   }
@@ -468,6 +491,10 @@ export default function GoalDetailPage() {
   const canRequestAbandon = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status) && !showAbandonInput;
   const canRequestModify = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
   const canUpdateProgress = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
+  // 진행 중 목표에 한해 조직 체인 상의 결재자(팀장·본부장·임원)도 코멘트 작성 가능 (v0.75)
+  const canComment =
+    canUpdateProgress ||
+    (['APPROVED', 'IN_PROGRESS', 'COMPLETED'].includes(goal.status) && (iAmTeamLead || iAmHQHead || iAmExec));
 
   // 팀장: PENDING_APPROVAL 목표 (팀원 것)
   const canLeadApprove = iAmTeamLead && ownerIsMemberLike && (
@@ -842,29 +869,35 @@ export default function GoalDetailPage() {
             </TabsList>
 
             <TabsContent value="progress" className="mt-4 space-y-4">
-              {canUpdateProgress && (
+              {canComment && (
                 <div className="rounded-xl border bg-white p-5 space-y-4">
-                  <h4 className="font-medium text-gray-900">진행상황 업데이트</h4>
-                  <div className="space-y-1.5">
-                    <Label>진행률: {newProgress}%</Label>
-                    <input
-                      type="range" min={0} max={100} step={5}
-                      value={newProgress}
-                      onChange={e => setNewProgress(Number(e.target.value))}
-                      className="w-full"
-                    />
-                  </div>
+                  <h4 className="font-medium text-gray-900">
+                    {canUpdateProgress ? '진행상황 업데이트' : '코멘트 작성'}
+                  </h4>
+                  {canUpdateProgress && (
+                    <div className="space-y-1.5">
+                      <Label>진행률: {newProgress}%</Label>
+                      <input
+                        type="range" min={0} max={100} step={5}
+                        value={newProgress}
+                        onChange={e => setNewProgress(Number(e.target.value))}
+                        className="w-full"
+                      />
+                    </div>
+                  )}
                   <div className="space-y-1.5">
                     <Label>코멘트 *</Label>
                     <Textarea
-                      placeholder="진행 내용을 기록하세요"
+                      placeholder={canUpdateProgress
+                        ? "진행 내용을 기록하세요"
+                        : "조직 체인 상의 결재자로서 코멘트를 작성하세요"}
                       value={progressComment}
                       onChange={e => setProgressComment(e.target.value)}
                       rows={3}
                     />
                   </div>
                   <Button onClick={submitProgress} disabled={actionLoading || !progressComment.trim()} size="sm">
-                    업데이트
+                    {canUpdateProgress ? '업데이트' : '코멘트 등록'}
                   </Button>
                 </div>
               )}
@@ -872,15 +905,31 @@ export default function GoalDetailPage() {
                 <p className="text-center text-sm text-gray-400 py-8">진행상황 기록이 없습니다.</p>
               ) : (
                 <div className="space-y-3">
-                  {updates.map(u => (
-                    <div key={u.id} className="rounded-xl border bg-white p-4 space-y-2">
-                      <div className="flex items-center justify-between text-xs text-gray-400">
-                        <span>{format(u.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })}</span>
-                        <span className="font-medium text-blue-600">{u.progress}%</span>
+                  {updates.map(u => {
+                    const author = usersMap[u.userId];
+                    const isOwnerUpdate = u.userId === goal.userId;
+                    return (
+                      <div key={u.id} className="rounded-xl border bg-white p-4 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-700">
+                              {author?.name ?? '알 수 없음'}
+                            </span>
+                            {!isOwnerUpdate && (
+                              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">코멘트</span>
+                            )}
+                            <span className="text-gray-400">
+                              {format(u.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })}
+                            </span>
+                          </div>
+                          {isOwnerUpdate && (
+                            <span className="font-medium text-blue-600">{u.progress}%</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{u.comment}</p>
                       </div>
-                      <p className="text-sm text-gray-700">{u.comment}</p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </TabsContent>
@@ -891,18 +940,24 @@ export default function GoalDetailPage() {
               ) : (
                 <div className="relative pl-5">
                   <div className="absolute left-2 top-0 bottom-0 w-px bg-gray-200" />
-                  {histories.map(h => (
-                    <div key={h.id} className="relative mb-4 pl-4">
-                      <div className="absolute -left-0.5 top-1.5 h-2 w-2 rounded-full bg-blue-400" />
-                      <div className="rounded-xl border bg-white p-3">
-                        <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
-                          <span>{format(h.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })}</span>
-                          {h.newStatus && <GoalStatusBadge status={h.newStatus} />}
+                  {histories.map(h => {
+                    const changer = usersMap[h.changedBy];
+                    return (
+                      <div key={h.id} className="relative mb-4 pl-4">
+                        <div className="absolute -left-0.5 top-1.5 h-2 w-2 rounded-full bg-blue-400" />
+                        <div className="rounded-xl border bg-white p-3">
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-gray-700">{changer?.name ?? '시스템'}</span>
+                              <span className="text-gray-400">{format(h.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })}</span>
+                            </div>
+                            {h.newStatus && <GoalStatusBadge status={h.newStatus} />}
+                          </div>
+                          {h.comment && <p className="text-sm text-gray-700 whitespace-pre-wrap">{h.comment}</p>}
                         </div>
-                        {h.comment && <p className="text-sm text-gray-700">{h.comment}</p>}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </TabsContent>

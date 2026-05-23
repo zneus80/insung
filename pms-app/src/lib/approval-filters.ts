@@ -58,8 +58,14 @@ export function getMyApprovalRole(
   if (divOrg?.leaderId === userId) return 'EXEC';
   if (hqOrg?.leaderId === userId) return divOrg ? 'HQ_HEAD' : 'EXEC';
 
-  // leaderId 미설정 환경 fallback
-  if (userRole === 'EXECUTIVE' || userRole === 'CEO') return 'EXEC';
+  // leaderId 미설정 환경 fallback — CEO 는 인사평가 결재 라인에 참여하지 않음
+  if (userRole === 'EXECUTIVE') {
+    // 본부장(EXECUTIVE) 인데 상위에 DIVISION 있으면 → HQ_HEAD (2차 의견만, 최종 X)
+    if (myOrg?.type === 'HEADQUARTERS' && divOrg && hqOrg?.id === myOrg.id) {
+      return 'HQ_HEAD';
+    }
+    return 'EXEC';
+  }
   if (myOrg && userRole === 'TEAM_LEAD') {
     if (myOrg.type === 'DIVISION') return 'EXEC';
     if (myOrg.type === 'HEADQUARTERS' && hqOrg?.id === myOrg.id) {

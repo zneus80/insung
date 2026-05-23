@@ -118,6 +118,11 @@ export interface Goal {
   // 단, 평가 페이지(팀원평가·평가등급확정)에서는 인사평가 자료로 계속 표시
   softDeletedAt?: Date;
 
+  // 조직 변경 등 시스템 자동 이관에 의한 포기 — 본인 의사가 아님
+  //   - 평가 화면에는 "포기 확정"으로 표시되지 않음 (자동 이관 제외)
+  //   - 본인이 휴지통에서 복구 가능 (일반 포기 확정과 달리)
+  autoAbandonedByOrgChange?: boolean;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -240,6 +245,7 @@ export type IndividualEvalStatus =
   | 'NOT_STARTED'
   | 'SELF_SUBMITTED'    // 팀원 자기평가 제출
   | 'LEAD_REVIEWED'     // 팀장 의견 제출
+  | 'HQ_REVIEWED'       // 본부장 2차 의견 제출 (본부 단계 있을 때, v0.75)
   | 'EXEC_CONFIRMED'    // 임원 등급 확정
   | 'PUBLISHED';        // 팀원 공개
 
@@ -253,6 +259,12 @@ export interface IndividualEvaluation {
   leadComment?: string;            // 팀장 의견 내용
   leadSubmittedBy?: string;        // 팀장 userId
   leadSubmittedAt?: Date;
+
+  // 본부장 2차 의견 (v0.75) — 본부 단계 있을 때만 사용
+  hqGrade?: EvaluationGrade;       // 본부장 의견 등급
+  hqComment?: string;              // 본부장 의견 내용
+  hqReviewedBy?: string;           // 본부장 userId
+  hqReviewedAt?: Date;
 
   execGrade?: EvaluationGrade;     // 임원 확정 등급
   execComment?: string;            // 임원 의견
@@ -286,14 +298,28 @@ export interface AnnualGoal {
 // ─────────────────────────────────────────────
 // 마일리지 (임원 제외)
 // ─────────────────────────────────────────────
+export type MileageEntryType = 'TDS' | 'SMART_PROJECT';
+export type MileageEntrySubtype = 'SUBMIT' | 'INSTRUCT' | 'PM' | 'MEMBER';
+
+export interface MileageEntry {
+  id: string;
+  type: MileageEntryType;       // TDS | SMART_PROJECT
+  subtype: MileageEntrySubtype; // TDS: SUBMIT/INSTRUCT, SMART_PROJECT: PM/MEMBER
+  subject: string;              // 주제명
+  points: number;               // 지급 마일리지
+  createdAt: Date;
+}
+
 export interface Mileage {
   id: string;          // userId와 동일 (document ID)
   userId: string;
   organizationId: string;
-  points: number;
-  submitTds?: number;  // 제출 TDS 점수
-  instructTds?: number; // 지시 TDS 점수
-  memo?: string;       // HR관리자 메모
+  points: number;             // 총 마일리지 점수 (필수, 직접 입력 - 변동없음)
+  entries?: MileageEntry[];   // 마일리지 지급 내역 (v0.75 신설)
+  // ─── legacy 필드 (v0.75 이전) — 호환성을 위해 유지하되 신규 입력 화면에서는 사용 X
+  submitTds?: number;
+  instructTds?: number;
+  memo?: string;
   updatedBy: string;   // HR관리자 userId
   updatedAt: Date;
 }
@@ -475,17 +501,27 @@ export type NotificationType =
   | 'GOAL_APPROVED' | 'GOAL_LEAD_APPROVED' | 'GOAL_REJECTED'
   | 'ABANDON_APPROVED' | 'ABANDON_LEAD_APPROVED' | 'ABANDON_REJECTED'
   | 'COMPLETION_APPROVED' | 'COMPLETION_REJECTED'
-  | 'GOAL_SUBMITTED' | 'COMPLETION_REQUESTED' | 'ABANDON_REQUESTED';
+  | 'GOAL_SUBMITTED' | 'COMPLETION_REQUESTED' | 'ABANDON_REQUESTED'
+  | 'GOAL_COMMENT'        // 핵심목표 진행 코멘트 (v0.75)
+  | 'WEEKLY_TASK_COMMENT' // 주간업무 팀 코멘트 (v0.75)
+  | 'ONEONONE_MESSAGE'    // 1on1 새 메시지/질문 (v0.75)
+  | 'EVALUATION_PUBLISHED'; // 평가결과 공개 (v0.75)
+
+export type NotificationCategory = 'GOAL' | 'WEEKLY_TASK' | 'ONEONONE' | 'EVALUATION';
 
 export interface AppNotification {
   id: string;
-  userId: string;
-  goalId: string;
-  goalTitle: string;
+  userId: string;          // 수신자
   type: NotificationType;
-  message: string;
+  category: NotificationCategory; // 도메인 (사이드바 그룹·아이콘용)
+  title: string;           // 알림 제목 (예: 목표 제목, 주간업무 N주차 등)
+  message: string;         // 알림 본문
+  link: string;            // 클릭 시 이동할 경로 (예: /goals/{id}, /oneon1/{id})
   read: boolean;
   createdAt: Date;
+  // 구버전 호환 (v0.75 미만) — 신규 알림은 모두 link 사용
+  goalId?: string;
+  goalTitle?: string;
 }
 
 // ─────────────────────────────────────────────

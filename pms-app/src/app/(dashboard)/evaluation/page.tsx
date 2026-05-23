@@ -543,11 +543,16 @@ function ExecutiveEvalView() {
                         </div>
                         {ie?.leadGrade && (
                           <span className={`text-xs rounded-full px-2.5 py-0.5 font-medium ${GRADE_COLOR[ie.leadGrade]}`}>
-                            팀장 의견 {ie.leadGrade}
+                            팀장 {ie.leadGrade}
                           </span>
                         )}
-                        {!ie?.leadGrade && (
-                          <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2.5 py-0.5">팀장 의견 없음</span>
+                        {ie?.hqGrade && (
+                          <span className={`text-xs rounded-full px-2.5 py-0.5 font-medium ${GRADE_COLOR[ie.hqGrade]}`}>
+                            본부 {ie.hqGrade}
+                          </span>
+                        )}
+                        {!ie?.leadGrade && !ie?.hqGrade && (
+                          <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2.5 py-0.5">의견 없음</span>
                         )}
                       </div>
                       <div className="flex items-center gap-3">
@@ -571,7 +576,7 @@ function ExecutiveEvalView() {
                             g.status === 'IN_PROGRESS' ||
                             g.status === 'COMPLETED' ||
                             g.status === 'PENDING_ABANDON' ||
-                            (g.status === 'ABANDONED' && !!g.approvedBy) // 포기 확정만
+                            (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange) // 포기 확정만
                           ));
                           if (activeGoals.length === 0) return null;
                           return (
@@ -598,9 +603,9 @@ function ExecutiveEvalView() {
                           );
                         })()}
 
-                        {/* 주간 업무관리 내역 — 52주 카드 그리드 */}
+                        {/* 주간업무보고 내역 — 52주 카드 그리드 */}
                         <div>
-                          <p className="text-xs font-semibold text-gray-500 mb-2">주간 업무관리 내역 ({year}년)</p>
+                          <p className="text-xs font-semibold text-gray-500 mb-2">주간업무보고 내역 ({year}년)</p>
                           <WeeklyTasksGrid tasks={weeklyTasksByMember[member.id] ?? []} year={year} />
                         </div>
 
@@ -670,10 +675,21 @@ function ExecutiveEvalView() {
                         {/* 팀장 의견 */}
                         {ie?.leadGrade && (
                           <div className="rounded-lg bg-gray-50 px-4 py-3">
-                            <p className="text-xs font-semibold text-gray-500 mb-1">팀장 의견</p>
-                            <div className="flex items-center gap-2">
-                              <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold ${GRADE_COLOR[ie.leadGrade]}`}>{ie.leadGrade}</span>
-                              {ie.leadComment && <p className="text-sm text-gray-600">{ie.leadComment}</p>}
+                            <p className="text-xs font-semibold text-gray-500 mb-1">팀장 의견 (1차)</p>
+                            <div className="flex items-start gap-2">
+                              <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold shrink-0 ${GRADE_COLOR[ie.leadGrade]}`}>{ie.leadGrade}</span>
+                              {ie.leadComment && <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">{ie.leadComment}</p>}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 본부장 의견 (2차) */}
+                        {ie?.hqGrade && (
+                          <div className="rounded-lg bg-indigo-50/50 border border-indigo-100 px-4 py-3">
+                            <p className="text-xs font-semibold text-indigo-700 mb-1">본부장 의견 (2차)</p>
+                            <div className="flex items-start gap-2">
+                              <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold shrink-0 ${GRADE_COLOR[ie.hqGrade]}`}>{ie.hqGrade}</span>
+                              {ie.hqComment && <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{ie.hqComment}</p>}
                             </div>
                           </div>
                         )}

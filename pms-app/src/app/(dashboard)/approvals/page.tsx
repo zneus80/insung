@@ -21,7 +21,7 @@ import {
 
 export default function ApprovalsPage() {
   return (
-    <AuthGuard allowedRoles={['TEAM_LEAD', 'EXECUTIVE', 'CEO']}>
+    <AuthGuard allowedRoles={['TEAM_LEAD', 'EXECUTIVE']}>
       <ApprovalsContent />
     </AuthGuard>
   );
@@ -100,8 +100,9 @@ function ApprovalsContent() {
     const chainRole = getMyApprovalRole(g, allOrgs, userProfile.id, userProfile.role, myOrg);
     if (chainRole) return chainRole;
     // 최후 fallback: userProfile.role 기준 (소속 조직도 못 찾는 극단 케이스)
+    // CEO 는 인사평가 결재 라인에 참여하지 않음
     if (userProfile.role === 'TEAM_LEAD') return 'TEAM_LEAD' as const;
-    if (userProfile.role === 'EXECUTIVE' || userProfile.role === 'CEO') return 'EXEC' as const;
+    if (userProfile.role === 'EXECUTIVE') return 'EXEC' as const;
     return null;
   }
 
@@ -275,10 +276,10 @@ function ApprovalsContent() {
 
   // ── 렌더 ─────────────────────────────────────────────────────
 
-  // 현재 사용자의 대표 역할 (헤더 문구용)
+  // 현재 사용자의 대표 역할 (헤더 문구용) — CEO 는 결재 라인 미참여
   const representativeRole = userProfile
     ? (goals.length > 0 ? myRole(goals[0]) : null) ?? (
-        userProfile.role === 'EXECUTIVE' || userProfile.role === 'CEO' ? 'EXEC' :
+        userProfile.role === 'EXECUTIVE' ? 'EXEC' :
         userProfile.role === 'TEAM_LEAD' ? 'TEAM_LEAD' : null
       )
     : null;

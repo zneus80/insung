@@ -234,17 +234,25 @@ function MyGoalsView() {
   async function handleRestore(goalId: string) {
     const target = myGoals.find(g => g.id === goalId);
     // 포기 확정 목표는 인사평가 기록 보존을 위해 복구 불가 (영구 삭제만 가능)
-    if (target?.status === 'ABANDONED' && !!target.approvedBy) {
+    // 단, 조직 변경에 의한 자동 이관(autoAbandonedByOrgChange) 은 본인 의사가 아니므로 복구 가능
+    if (target?.status === 'ABANDONED' && !!target.approvedBy && !target.autoAbandonedByOrgChange) {
       toast.error('포기 확정된 목표는 인사평가 기록 보존을 위해 복구할 수 없습니다.');
       return;
     }
     if (!confirm('목표를 복구하시겠습니까? 임시저장 상태로 복원됩니다.')) return;
     try {
       // trashedAt 해제(null 저장) + 상태를 DRAFT 로 복원
-      await updateGoal(goalId, {
+      // 자동 이관(autoAbandonedByOrgChange) 목표는 approvedBy/At 도 함께 초기화
+      const update: any = {
         status: 'DRAFT',
-        trashedAt: null as any,
-      });
+        trashedAt: null,
+      };
+      if (target?.autoAbandonedByOrgChange) {
+        update.approvedBy = null;
+        update.approvedAt = null;
+        update.autoAbandonedByOrgChange = false;
+      }
+      await updateGoal(goalId, update);
       if (userProfile) {
         await addGoalHistory({
           goalId, changedBy: userProfile.id,
@@ -500,13 +508,16 @@ function MyGoalsView() {
                 </DialogTitle>
               </DialogHeader>
               {(() => {
-                const isFinalAbandoned = previewGoal.status === 'ABANDONED' && !!previewGoal.approvedBy;
+                const isAutoAbandoned = !!previewGoal.autoAbandonedByOrgChange;
+                const isFinalAbandoned = previewGoal.status === 'ABANDONED' && !!previewGoal.approvedBy && !isAutoAbandoned;
                 return (
                   <>
                     <p className="text-xs text-gray-400">
                       {isFinalAbandoned
                         ? '포기 확정된 목표는 복구할 수 없습니다. 영구 삭제 시에도 인사평가 자료로 팀장·임원 화면에는 계속 표시됩니다.'
-                        : '휴지통에 보관된 목표입니다. 복구하면 임시저장 상태로 돌아가고, 영구 삭제는 되돌릴 수 없습니다.'}
+                        : isAutoAbandoned
+                          ? '조직 변경으로 자동 이관된 목표입니다. 본인 의사가 아니므로 복구 가능합니다.'
+                          : '휴지통에 보관된 목표입니다. 복구하면 임시저장 상태로 돌아가고, 영구 삭제는 되돌릴 수 없습니다.'}
                     </p>
                     <div className="space-y-3 py-1">
                       {previewGoal.description && (

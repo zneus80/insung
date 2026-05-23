@@ -39,6 +39,31 @@ const GRADE_STYLE: Record<string, string> = {
   D: 'bg-red-100 text-red-600',
 };
 
+// 평가 진척 단계 (v0.75)
+type Stage = 'NOT_STARTED' | 'SELF_SUBMITTED' | 'LEAD_REVIEWED' | 'HQ_REVIEWED' | 'EXEC_CONFIRMED' | 'PUBLISHED';
+
+const STAGE_META: Record<Stage, { label: string; color: string }> = {
+  NOT_STARTED:    { label: '시작 전',    color: 'bg-gray-100 text-gray-500' },
+  SELF_SUBMITTED: { label: '자기평가',   color: 'bg-blue-100 text-blue-700' },
+  LEAD_REVIEWED:  { label: '팀장 의견',  color: 'bg-indigo-100 text-indigo-700' },
+  HQ_REVIEWED:    { label: '본부장 의견', color: 'bg-purple-100 text-purple-700' },
+  EXEC_CONFIRMED: { label: '임원 확정',  color: 'bg-orange-100 text-orange-700' },
+  PUBLISHED:      { label: '공개됨',    color: 'bg-green-100 text-green-700' },
+};
+
+const STAGE_ORDER: Stage[] = ['NOT_STARTED', 'SELF_SUBMITTED', 'LEAD_REVIEWED', 'HQ_REVIEWED', 'EXEC_CONFIRMED', 'PUBLISHED'];
+
+function getStage(ie: IndividualEvaluation | undefined): Stage {
+  if (!ie) return 'NOT_STARTED';
+  const s = ie.status;
+  if (s === 'PUBLISHED') return 'PUBLISHED';
+  if (s === 'EXEC_CONFIRMED') return 'EXEC_CONFIRMED';
+  if (s === 'HQ_REVIEWED') return 'HQ_REVIEWED';
+  if (s === 'LEAD_REVIEWED') return 'LEAD_REVIEWED';
+  if (s === 'SELF_SUBMITTED') return 'SELF_SUBMITTED';
+  return 'NOT_STARTED';
+}
+
 export default function EvaluationResultAllPage() {
   return (
     <AuthGuard allowedRoles={['CEO']} requireHrAdmin>
@@ -128,7 +153,10 @@ function EvaluationResultAllContent() {
             {[1,2,3].map(i => <div key={i} className="h-24 animate-pulse rounded-xl bg-gray-100" />)}
           </div>
         ) : (
-          <div className="max-w-3xl space-y-3">
+          <div className="max-w-3xl space-y-4">
+            {/* 평가 진척도 요약 (v0.75) */}
+            <ProgressSummary users={users} indivEvals={indivEvals} />
+
             {topOrgs.map(org => (
               <OrgEvalCard
                 key={org.id}
@@ -169,6 +197,20 @@ function OrgEvalCard({
   const childOrgs = allOrgs.filter(o => o.parentId === org.id);
   const hasContent = orgMembers.length > 0 || childOrgs.length > 0;
 
+  // 조직별 평가 완료 여부 (자신 + 산하 모든 인원 — 평가 대상은 MEMBER + TEAM_LEAD)
+  function collectDescendantUserIds(orgId: string): string[] {
+    const direct = users.filter(u => u.organizationId === orgId && (u.role === 'MEMBER' || u.role === 'TEAM_LEAD')).map(u => u.id);
+    const childIds = allOrgs.filter(o => o.parentId === orgId).flatMap(c => collectDescendantUserIds(c.id));
+    return [...direct, ...childIds];
+  }
+  const subjectIds = collectDescendantUserIds(org.id);
+  const subjectTotal = subjectIds.length;
+  const subjectConfirmed = subjectIds.filter(id => {
+    const ie = indivEvals[id];
+    return ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
+  }).length;
+  const allConfirmed = subjectTotal > 0 && subjectConfirmed === subjectTotal;
+
   return (
     <div className={cn('rounded-xl border bg-white overflow-hidden', depth > 0 && 'ml-6 rounded-lg')}>
       {/* 조직 헤더 행 */}
@@ -187,6 +229,19 @@ function OrgEvalCard({
         <span className="text-sm text-gray-400 shrink-0">
           <Users className="h-3.5 w-3.5 inline mr-1" />{orgMembers.length}명
         </span>
+        {/* 조직별 평가 완료 여부 배지 (v0.75) — 자신 + 산하 인원 모두 임원 확정인지
+            COMPANY 는 상단 진척도 요약과 중복이므로 표시 제외 */}
+        {org.type !== 'COMPANY' && subjectTotal > 0 && (
+          allConfirmed ? (
+            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-green-100 text-green-700 shrink-0">
+              평가 완료
+            </span>
+          ) : (
+            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700 shrink-0">
+              진행 중 {subjectConfirmed}/{subjectTotal}
+            </span>
+          )
+        )}
         {/* 조직 평가등급 — DIVISION 또는 상위 DIVISION 없는 단독 조직 표시 */}
         {isGradeTarget(org, allOrgs) && (
           orgEval?.grade ? (
@@ -252,26 +307,107 @@ function MemberGroup({
           const ie = indivEvals[u.id];
           const grade = ie?.execGrade;
           const isPublished = ie?.status === 'PUBLISHED';
+          const stage = getStage(ie);
+          const stageMeta = STAGE_META[stage];
           return (
             <div key={u.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-2.5">
-              <div>
+              <div className="flex items-center gap-2">
                 <MemberInfoModal userId={u.id} userName={u.name} />
                 {u.position && (
-                  <span className="ml-2 text-sm text-gray-400">{u.position}</span>
+                  <span className="text-sm text-gray-400">{u.position}</span>
                 )}
               </div>
-              {grade && isPublished ? (
-                <span className={cn('rounded-full px-3 py-0.5 text-sm font-bold', GRADE_STYLE[grade])}>
-                  {grade}등급
+              <div className="flex items-center gap-2 shrink-0">
+                {/* 진척 단계 배지 (v0.75) */}
+                <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', stageMeta.color)}>
+                  {stageMeta.label}
                 </span>
-              ) : (
-                <span className="rounded-full px-2.5 py-0.5 text-sm bg-gray-200 text-gray-500">
-                  {isPublished ? '미확정' : '비공개'}
-                </span>
-              )}
+                {grade && isPublished ? (
+                  <span className={cn('rounded-full px-3 py-0.5 text-sm font-bold', GRADE_STYLE[grade])}>
+                    {grade}등급
+                  </span>
+                ) : (
+                  <span className="rounded-full px-2.5 py-0.5 text-sm bg-gray-200 text-gray-500">
+                    {isPublished ? '미확정' : '비공개'}
+                  </span>
+                )}
+              </div>
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ── 평가 진척도 요약 (v0.75) ─────────────────────────
+function ProgressSummary({ users, indivEvals }: {
+  users: User[];
+  indivEvals: Record<string, IndividualEvaluation>;
+}) {
+  // 평가 대상자: MEMBER + TEAM_LEAD 모두
+  const targets = users.filter(u => u.role === 'MEMBER' || u.role === 'TEAM_LEAD');
+  const total = targets.length;
+  if (total === 0) return null;
+
+  // 각 단계별 누적 명수 — STAGE_ORDER 인덱스 이상이면 누적 카운트
+  const stageIndex: Record<string, number> = {};
+  targets.forEach(u => {
+    const s = getStage(indivEvals[u.id]);
+    stageIndex[u.id] = STAGE_ORDER.indexOf(s);
+  });
+  function countAtOrAfter(stage: Stage): number {
+    const idx = STAGE_ORDER.indexOf(stage);
+    return targets.filter(u => stageIndex[u.id] >= idx).length;
+  }
+
+  const selfDone = countAtOrAfter('SELF_SUBMITTED');
+  const leadDone = countAtOrAfter('LEAD_REVIEWED');
+  const hqDone = countAtOrAfter('HQ_REVIEWED');
+  const execDone = countAtOrAfter('EXEC_CONFIRMED');
+
+  const finalReadyRate = total > 0 ? Math.round((execDone / total) * 100) : 0;
+
+  const Bar = ({ label, done, color }: { label: string; done: number; color: string }) => {
+    const pct = total > 0 ? (done / total) * 100 : 0;
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-gray-600 font-medium">{label}</span>
+          <span className="text-gray-500">
+            <span className="font-semibold text-gray-800">{done}</span>
+            <span className="text-gray-400"> / {total}명</span>
+          </span>
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+          <div className={cn('h-full rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="rounded-xl border bg-white p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-gray-900">평가 진척도</h3>
+        <span className={cn(
+          'rounded-full px-2.5 py-0.5 text-xs font-semibold',
+          finalReadyRate === 100 ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+        )}>
+          공개 가능 {finalReadyRate}%
+        </span>
+      </div>
+      <p className="text-xs text-gray-400">
+        평가 대상 <strong className="text-gray-700">{total}명</strong>의 단계별 진척률입니다.
+        {finalReadyRate === 100
+          ? ' 모든 인원이 임원 확정 완료 → 평가결과 공개 가능합니다.'
+          : ' 임원 확정이 완료된 인원이 100%가 되면 평가결과를 공개할 수 있습니다.'}
+      </p>
+      <div className="space-y-2.5">
+        <Bar label="자기평가 제출"  done={selfDone}  color="bg-blue-500" />
+        <Bar label="팀장 의견"      done={leadDone}  color="bg-indigo-500" />
+        <Bar label="본부장 의견"    done={hqDone}    color="bg-purple-500" />
+        <Bar label="임원 확정"      done={execDone}  color="bg-orange-500" />
       </div>
     </div>
   );

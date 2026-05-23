@@ -92,7 +92,7 @@ function EvaluationPeriodContent() {
 
   async function handlePublish() {
     if (!period) { toast.error('먼저 평가 기간을 저장하세요.'); return; }
-    if (!confirm('평가 결과를 전체 팀원에게 공개하시겠습니까?\n공개 후에는 취소할 수 없습니다.')) return;
+    if (!confirm('평가 결과를 전체 팀원에게 공개하시겠습니까?')) return;
     if (!userProfile) return;
     setPublishing(true);
     try {
@@ -109,6 +109,33 @@ function EvaluationPeriodContent() {
       await load();
     } catch (e: any) {
       toast.error(e?.message ?? '공개 실패');
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function handleUnpublish() {
+    if (!period) return;
+    if (!confirm(
+      '평가 결과 공개를 취소하시겠습니까?\n\n' +
+      '취소 후에는 팀원·팀장이 본인의 평가결과를 볼 수 없게 되며, 평가기간을 다시 수정할 수 있습니다.'
+    )) return;
+    if (!userProfile) return;
+    setPublishing(true);
+    try {
+      await setDoc(doc(db, 'evaluationPeriods', docId), {
+        year: CURRENT_YEAR,
+        startDate: Timestamp.fromDate(period.startDate),
+        endDate: Timestamp.fromDate(period.endDate),
+        isPublished: false,
+        publishedAt: null,
+        updatedBy: userProfile.id,
+        updatedAt: serverTimestamp(),
+      });
+      toast.success('평가 결과 공개를 취소했습니다.');
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message ?? '공개 취소 실패');
     } finally {
       setPublishing(false);
     }
@@ -170,16 +197,26 @@ function EvaluationPeriodContent() {
           </div>
           <p className="text-sm text-gray-500">
             공개 후 팀원·팀장이 본인의 최종 평가등급을 확인할 수 있습니다.
-            공개 후에는 취소할 수 없습니다.
+            공개 취소 시 평가기간을 다시 수정할 수 있습니다.
           </p>
-          <Button
-            onClick={handlePublish}
-            disabled={publishing || period?.isPublished || !period}
-            variant={period?.isPublished ? 'outline' : 'default'}
-            className={`w-full ${period?.isPublished ? '' : 'bg-purple-600 hover:bg-purple-700'}`}
-          >
-            {period?.isPublished ? '이미 공개됨' : publishing ? '공개 중...' : '전체 공개하기'}
-          </Button>
+          {period?.isPublished ? (
+            <Button
+              onClick={handleUnpublish}
+              disabled={publishing}
+              variant="outline"
+              className="w-full border-red-300 text-red-600 hover:bg-red-50"
+            >
+              {publishing ? '처리 중...' : '평가 결과 공개 취소'}
+            </Button>
+          ) : (
+            <Button
+              onClick={handlePublish}
+              disabled={publishing || !period}
+              className="w-full bg-purple-600 hover:bg-purple-700"
+            >
+              {publishing ? '공개 중...' : '전체 공개하기'}
+            </Button>
+          )}
         </div>
 
         {/* 익년도 평가 시작 안내 */}
