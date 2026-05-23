@@ -232,12 +232,8 @@ function MemberDashboard() {
           )}
         </div>
 
-        {/* 마일리지 카드 */}
-        <MileageCard
-          points={myMileage?.points ?? 0}
-          submitTds={myMileage?.submitTds}
-          instructTds={myMileage?.instructTds}
-        />
+        {/* 마일리지 카드 — 총 점수만 표시 (v0.75) */}
+        <MileageCard points={myMileage?.points ?? 0} />
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* 최근 목표 */}
@@ -503,33 +499,35 @@ function ExecDashboard() {
           )}
         </div>
 
-        {/* 요약 카드: 승인대기 + 1on1 */}
-        <div className="grid grid-cols-2 gap-3">
-          <Link href="/approvals">
-            <div className={`rounded-xl border px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer ${execPendingCount > 0 ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-white'}`}>
-              <div className="flex items-center gap-2 mb-1">
-                <Clock className={`h-4 w-4 ${execPendingCount > 0 ? 'text-orange-500' : 'text-gray-400'}`} />
-                <span className={`text-sm font-semibold ${execPendingCount > 0 ? 'text-orange-700' : 'text-gray-600'}`}>승인 대기</span>
+        {/* 요약 카드: 승인대기 + 1on1 — CEO 는 해당 메뉴 미사용이라 숨김 */}
+        {userProfile?.role !== 'CEO' && (
+          <div className="grid grid-cols-2 gap-3">
+            <Link href="/approvals">
+              <div className={`rounded-xl border px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer ${execPendingCount > 0 ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-white'}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock className={`h-4 w-4 ${execPendingCount > 0 ? 'text-orange-500' : 'text-gray-400'}`} />
+                  <span className={`text-sm font-semibold ${execPendingCount > 0 ? 'text-orange-700' : 'text-gray-600'}`}>승인 대기</span>
+                </div>
+                <p className={`text-2xl font-bold ${execPendingCount > 0 ? 'text-orange-700' : 'text-gray-400'}`}>
+                  {execPendingCount}<span className="text-sm font-normal ml-1">건</span>
+                </p>
+                <p className={`text-xs mt-1 ${execPendingCount > 0 ? 'text-orange-500' : 'text-gray-400'}`}>처리 필요한 목표</p>
               </div>
-              <p className={`text-2xl font-bold ${execPendingCount > 0 ? 'text-orange-700' : 'text-gray-400'}`}>
-                {execPendingCount}<span className="text-sm font-normal ml-1">건</span>
-              </p>
-              <p className={`text-xs mt-1 ${execPendingCount > 0 ? 'text-orange-500' : 'text-gray-400'}`}>처리 필요한 목표</p>
-            </div>
-          </Link>
-          <Link href="/oneon1">
-            <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer">
-              <div className="flex items-center gap-2 mb-1">
-                <Users className="h-4 w-4 text-blue-500" />
-                <span className="text-sm font-semibold text-gray-600">예정된 1on1</span>
+            </Link>
+            <Link href="/oneon1">
+              <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer">
+                <div className="flex items-center gap-2 mb-1">
+                  <Users className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm font-semibold text-gray-600">예정된 1on1</span>
+                </div>
+                <p className="text-2xl font-bold text-gray-400">
+                  {upcomingMeetings.length}<span className="text-sm font-normal ml-1">건</span>
+                </p>
+                <p className="text-xs text-gray-400 mt-1">진행 중인 면담</p>
               </div>
-              <p className="text-2xl font-bold text-gray-400">
-                {upcomingMeetings.length}<span className="text-sm font-normal ml-1">건</span>
-              </p>
-              <p className="text-xs text-gray-400 mt-1">진행 중인 면담</p>
-            </div>
-          </Link>
-        </div>
+            </Link>
+          </div>
+        )}
 
         {/* 조직 트리 상세 */}
         <div>

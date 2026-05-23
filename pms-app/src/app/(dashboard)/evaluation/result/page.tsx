@@ -12,7 +12,10 @@ import {
   getOrgEvaluations,
   getUsersByOrganization,
   getIndividualEvaluationsByOrg,
+  getAllUsers,
+  getOrganizations,
 } from '@/lib/firestore';
+import type { Organization } from '@/types';
 import { cn } from '@/lib/utils';
 import type { IndividualEvaluation, OrganizationEvaluation, User } from '@/types';
 import { Lock, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
@@ -92,7 +95,7 @@ function TeamLeadResultView() {
                 : 'border-transparent text-gray-500 hover:text-gray-700',
             )}
           >
-            {t === 'mine' ? '내 평가결과' : '팀원 평가결과'}
+            {t === 'mine' ? '내 평가결과' : '소속 인원 평가결과'}
           </button>
         ))}
       </div>
@@ -105,23 +108,55 @@ function TeamLeadResultView() {
   );
 }
 
-// ── 팀원 결과 목록 (팀장 전용) ────────────────────────────
+// ── 팀원·팀장 결과 목록 (팀장·본부장 전용) ────────────────────────────
 function TeamMembersResultView({ year }: { year: number }) {
   const { userProfile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<User[]>([]);
   const [indivEvals, setIndivEvals] = useState<Record<string, IndividualEvaluation>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [isHQHead, setIsHQHead] = useState(false);
+
+  function getDescendantIds(orgId: string, allOrgs: Organization[]): string[] {
+    const ids: string[] = [orgId];
+    for (const c of allOrgs.filter(o => o.parentId === orgId)) {
+      ids.push(...getDescendantIds(c.id, allOrgs));
+    }
+    return ids;
+  }
 
   useEffect(() => {
     async function load() {
       if (!userProfile) return;
       setLoading(true);
-      const [memberList, evalList] = await Promise.all([
-        getUsersByOrganization(userProfile.organizationId),
-        getIndividualEvaluationsByOrg(userProfile.organizationId, year),
+      const allOrgs = await getOrganizations();
+      // 본부장 판별: leaderId 인 본부 있거나 본인 소속이 HEADQUARTERS
+      const myLedHQ = allOrgs.filter(o => o.leaderId === userProfile.id && o.type === 'HEADQUARTERS');
+      const myOrg = allOrgs.find(o => o.id === userProfile.organizationId);
+      const fallbackHQ = myLedHQ.length === 0 && myOrg?.type === 'HEADQUARTERS' ? [myOrg] : [];
+      const hqOrgs = [...myLedHQ, ...fallbackHQ];
+      const detectedHQHead = hqOrgs.length > 0;
+      setIsHQHead(detectedHQHead);
+
+      // scope orgIds 결정
+      const scopeOrgIds = detectedHQHead
+        ? [...new Set(hqOrgs.flatMap(o => getDescendantIds(o.id, allOrgs)))]
+        : [userProfile.organizationId];
+
+      const [allUsers, ...evalLists] = await Promise.all([
+        getAllUsers(),
+        ...scopeOrgIds.map(id => getIndividualEvaluationsByOrg(id, year)),
       ]);
-      setMembers(memberList.filter(u => u.role === 'MEMBER' && u.isActive));
+      const evalList = evalLists.flat();
+      const memberList = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
+      // 본부장: MEMBER + TEAM_LEAD 모두, 일반 팀장: MEMBER 만
+      const active = memberList.filter(u => {
+        if (!u.isActive) return false;
+        if (u.id === userProfile.id) return false;
+        if (detectedHQHead) return u.role === 'MEMBER' || u.role === 'TEAM_LEAD';
+        return u.role === 'MEMBER';
+      });
+      setMembers(active);
       const ieMap: Record<string, IndividualEvaluation> = {};
       evalList.forEach(ie => { ieMap[ie.userId] = ie; });
       setIndivEvals(ieMap);
@@ -133,13 +168,13 @@ function TeamMembersResultView({ year }: { year: number }) {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-2xl space-y-3">
-        <p className="text-sm text-gray-500">{year}년 소속 팀원 평가결과</p>
+        <p className="text-sm text-gray-500">{year}년 {isHQHead ? '본부 산하 인원' : '소속 팀원'} 평가결과</p>
         {loading ? (
           <div className="space-y-2">
             {[1,2,3].map(i => <div key={i} className="h-14 animate-pulse rounded-xl bg-gray-100" />)}
           </div>
         ) : members.length === 0 ? (
-          <div className="py-16 text-center text-gray-400">소속 팀원이 없습니다.</div>
+          <div className="py-16 text-center text-gray-400">{isHQHead ? '산하 인원이 없습니다.' : '소속 팀원이 없습니다.'}</div>
         ) : (
           members.map(member => {
             const ie = indivEvals[member.id];

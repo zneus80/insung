@@ -153,6 +153,106 @@ export async function deleteOrganization(id: string) {
   await deleteDoc(doc(db, COLLECTIONS.ORGANIZATIONS, id));
 }
 
+/**
+ * 조직 삭제 전 영향 받는 데이터 카운트 확인용 (v0.75 B14).
+ * goals / weeklyTasks / annualGoals / organizationEvaluations 에서
+ * 해당 organizationId 를 참조하는 문서 수를 한 번에 조회.
+ */
+export async function countOrgReferences(orgId: string): Promise<{
+  goals: number;
+  weeklyTasks: number;
+  annualGoals: number;
+  orgEvaluations: number;
+}> {
+  const [goalsSnap, wtSnap, agSnap, oeSnap] = await Promise.all([
+    getDocs(query(collection(db, COLLECTIONS.GOALS), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.WEEKLY_TASKS), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.ANNUAL_GOALS), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.ORG_EVALUATIONS), where('organizationId', '==', orgId))),
+  ]);
+  return {
+    goals: goalsSnap.size,
+    weeklyTasks: wtSnap.size,
+    annualGoals: agSnap.size,
+    orgEvaluations: oeSnap.size,
+  };
+}
+
+/**
+ * 특정 조직의 모든 목표를 포기 확정 + 휴지통 이동 처리 (v0.75 B14)
+ * 조직 변경 시 옵션 "예"를 선택했을 때 사용.
+ */
+export async function abandonGoalsForOrg(orgId: string, approvedBy: string): Promise<number> {
+  const snap = await getDocs(query(collection(db, COLLECTIONS.GOALS), where('organizationId', '==', orgId)));
+  const now = new Date();
+  let processed = 0;
+  await Promise.all(snap.docs.map(async d => {
+    const data = d.data();
+    if (data.status === 'ABANDONED' && data.trashedAt) return;
+    await updateDoc(d.ref, {
+      status: 'ABANDONED',
+      approvedBy,
+      approvedAt: Timestamp.fromDate(now),
+      trashedAt: Timestamp.fromDate(now),
+      autoAbandonedByOrgChange: true,  // 시스템 자동 이관 표시 — 본인 복구 가능
+      updatedAt: serverTimestamp(),
+    });
+    processed += 1;
+  }));
+  return processed;
+}
+
+const ACTIVE_GOAL_STATUSES = ['DRAFT','PENDING_APPROVAL','LEAD_APPROVED','APPROVED','IN_PROGRESS','PENDING_ABANDON','PENDING_MODIFY','REJECTED','COMPLETED'] as const;
+
+/**
+ * 특정 사용자의 진행 중 목표(완료·포기 확정 제외)를 포기 확정 + 휴지통 이동 처리 (v0.75 B14).
+ * 사용자 조직 변경 시 옵션 "예"를 선택했을 때 사용.
+ */
+export async function abandonActiveGoalsForUser(userId: string, approvedBy: string): Promise<number> {
+  const snap = await getDocs(query(collection(db, COLLECTIONS.GOALS), where('userId', '==', userId)));
+  const now = new Date();
+  let processed = 0;
+  await Promise.all(snap.docs.map(async d => {
+    const data = d.data();
+    // 이미 포기 확정(approvedBy 있는 ABANDONED) 또는 휴지통 처리된 것은 스킵
+    if (data.status === 'ABANDONED' && data.approvedBy) return;
+    if (data.trashedAt) return;
+    await updateDoc(d.ref, {
+      status: 'ABANDONED',
+      approvedBy,
+      approvedAt: Timestamp.fromDate(now),
+      trashedAt: Timestamp.fromDate(now),
+      autoAbandonedByOrgChange: true,  // 시스템 자동 이관 표시 — 본인 복구 가능
+      updatedAt: serverTimestamp(),
+    });
+    processed += 1;
+  }));
+  return processed;
+}
+
+/**
+ * 특정 사용자의 진행 중 목표(완료·포기 확정 제외)의 organizationId 를 새 조직으로 이전 (v0.75 B14).
+ * 사용자 조직 변경 시 옵션 "아니오" (재구성) 를 선택했을 때 사용.
+ * 완료/포기 확정된 historical 데이터는 그대로 유지하여 인사평가 자료 보존.
+ */
+export async function migrateActiveGoalsToNewOrg(userId: string, newOrgId: string): Promise<number> {
+  const snap = await getDocs(query(collection(db, COLLECTIONS.GOALS), where('userId', '==', userId)));
+  let processed = 0;
+  await Promise.all(snap.docs.map(async d => {
+    const data = d.data();
+    // 완료(COMPLETED + completionExecApprovedBy) 또는 포기 확정(ABANDONED + approvedBy)은 그대로 유지
+    if (data.status === 'COMPLETED' && data.completionExecApprovedBy) return;
+    if (data.status === 'ABANDONED' && data.approvedBy) return;
+    if (data.trashedAt) return; // 휴지통 안의 것도 그대로
+    await updateDoc(d.ref, {
+      organizationId: newOrgId,
+      updatedAt: serverTimestamp(),
+    });
+    processed += 1;
+  }));
+  return processed;
+}
+
 // ─── 목표 ─────────────────────────────────────
 export async function createGoal(data: Omit<Goal, 'id' | 'createdAt' | 'updatedAt'>) {
   const ref = await addDoc(collection(db, COLLECTIONS.GOALS), {
@@ -192,6 +292,7 @@ export async function getGoalsByUser(userId: string, year?: number): Promise<Goa
     completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
     completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
     completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
+    autoAbandonedByOrgChange: d.data().autoAbandonedByOrgChange ?? false,
   } as Goal));
   return goals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
@@ -213,6 +314,7 @@ export async function getAllGoalsByYear(year: number): Promise<Goal[]> {
     completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
     completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
     completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
+    autoAbandonedByOrgChange: d.data().autoAbandonedByOrgChange ?? false,
   } as Goal));
   return goals.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
@@ -234,6 +336,7 @@ export async function getGoalsByOrganization(orgId: string, year?: number): Prom
     completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
     completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
     completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
+    autoAbandonedByOrgChange: d.data().autoAbandonedByOrgChange ?? false,
   } as Goal));
   return goals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
@@ -260,6 +363,7 @@ export async function getGoalsByOrganizations(orgIds: string[], year?: number): 
     completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
     completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
     completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
+    autoAbandonedByOrgChange: d.data().autoAbandonedByOrgChange ?? false,
     } as Goal)));
   }
   return results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -289,6 +393,7 @@ export async function getPendingGoalsByOrganizations(orgIds: string[]): Promise<
       completionLeadApprovedAt: fromTimestamp(data.completionLeadApprovedAt),
       completionHqApprovedAt: fromTimestamp(data.completionHqApprovedAt),
       completionExecApprovedAt: fromTimestamp(data.completionExecApprovedAt),
+      autoAbandonedByOrgChange: data.autoAbandonedByOrgChange ?? false,
     } as Goal;
   }
 
@@ -319,6 +424,7 @@ export async function getPendingGoalsByOrganizations(orgIds: string[]): Promise<
       completionLeadApprovedAt: fromTimestamp(data.completionLeadApprovedAt),
       completionHqApprovedAt: fromTimestamp(data.completionHqApprovedAt),
       completionExecApprovedAt: fromTimestamp(data.completionExecApprovedAt),
+      autoAbandonedByOrgChange: data.autoAbandonedByOrgChange ?? false,
           hqApprovedAt: fromTimestamp(data.hqApprovedAt),
         } as Goal;
       }));
@@ -434,6 +540,7 @@ function mapIndividualEval(id: string, d: DocumentData): IndividualEvaluation {
     createdAt: fromTimestamp(d.createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
     leadSubmittedAt: fromTimestamp(d.leadSubmittedAt),
+    hqReviewedAt: fromTimestamp(d.hqReviewedAt),
     execConfirmedAt: fromTimestamp(d.execConfirmedAt),
   } as IndividualEvaluation;
 }
@@ -458,6 +565,9 @@ export async function upsertIndividualEvaluation(
   const safeData = { ...data };
   if (safeData.leadSubmittedAt) {
     (safeData as any).leadSubmittedAt = Timestamp.fromDate(safeData.leadSubmittedAt);
+  }
+  if (safeData.hqReviewedAt) {
+    (safeData as any).hqReviewedAt = Timestamp.fromDate(safeData.hqReviewedAt);
   }
   if (safeData.execConfirmedAt) {
     (safeData as any).execConfirmedAt = Timestamp.fromDate(safeData.execConfirmedAt);
@@ -694,33 +804,45 @@ export async function getActiveCycle(): Promise<EvaluationCycle | null> {
 }
 
 // ─── 마일리지 ─────────────────────────────────
-export async function getMileage(userId: string): Promise<Mileage | null> {
-  const snap = await getDoc(doc(db, COLLECTIONS.MILEAGES, userId));
-  if (!snap.exists()) return null;
-  const data = snap.data();
+function mapMileage(id: string, data: DocumentData): Mileage {
+  // entries 안의 createdAt 도 Timestamp → Date 변환
+  const entries = Array.isArray(data.entries)
+    ? data.entries.map((e: any) => ({
+        ...e,
+        createdAt: fromTimestamp(e.createdAt) ?? new Date(),
+      }))
+    : undefined;
   return {
     ...data,
-    id: snap.id,
+    id,
+    ...(entries ? { entries } : {}),
     updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
   } as Mileage;
 }
 
+export async function getMileage(userId: string): Promise<Mileage | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.MILEAGES, userId));
+  if (!snap.exists()) return null;
+  return mapMileage(snap.id, snap.data());
+}
+
 export async function setMileage(userId: string, data: Omit<Mileage, 'id' | 'updatedAt'>) {
-  const { memo, ...rest } = data;
+  const { memo, entries, ...rest } = data;
+  // entries 의 Date → Timestamp 변환
+  const entriesForFirestore = entries
+    ? entries.map(e => ({ ...e, createdAt: Timestamp.fromDate(new Date(e.createdAt)) }))
+    : undefined;
   await setDoc(doc(db, COLLECTIONS.MILEAGES, userId), {
     ...rest,
     ...(memo !== undefined ? { memo } : {}),
+    ...(entriesForFirestore !== undefined ? { entries: entriesForFirestore } : {}),
     updatedAt: serverTimestamp(),
   });
 }
 
 export async function getAllMileages(): Promise<Mileage[]> {
   const snap = await getDocs(collection(db, COLLECTIONS.MILEAGES));
-  return snap.docs.map(d => ({
-    ...d.data(),
-    id: d.id,
-    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-  } as Mileage));
+  return snap.docs.map(d => mapMileage(d.id, d.data()));
 }
 
 // ─── 연간 목표 ────────────────────────────────
@@ -1225,9 +1347,20 @@ export async function getWeeklyTasksByUsersAndYear(
 }
 
 // ─── 알림 (Notification) ──────────────────────
-export async function createNotification(data: Omit<AppNotification, 'id' | 'createdAt'>) {
+// link/title/category 는 신규 호출은 명시, 구버전 호출(goalId/goalTitle 만)은 자동 보강
+type CreateNotificationInput =
+  Omit<AppNotification, 'id' | 'createdAt' | 'link' | 'title' | 'category'>
+  & Partial<Pick<AppNotification, 'link' | 'title' | 'category'>>;
+
+export async function createNotification(data: CreateNotificationInput) {
+  const link = data.link ?? (data.goalId ? `/goals/${data.goalId}` : '');
+  const title = data.title ?? data.goalTitle ?? '';
+  const category = data.category ?? 'GOAL';
   await addDoc(collection(db, COLLECTIONS.NOTIFICATIONS), {
     ...data,
+    link,
+    title,
+    category,
     createdAt: serverTimestamp(),
   });
 }
@@ -1238,12 +1371,38 @@ export async function getNotifications(userId: string): Promise<AppNotification[
     where('userId', '==', userId),
     orderBy('createdAt', 'desc'),
   ));
-  return snap.docs.map(d => ({
-    ...d.data(), id: d.id,
-    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
-  } as AppNotification));
+  return snap.docs.map(d => {
+    const data = d.data();
+    // 구버전 호환: link / title / category 자동 보강
+    return {
+      ...data,
+      id: d.id,
+      title: data.title ?? data.goalTitle ?? '',
+      link: data.link ?? (data.goalId ? `/goals/${data.goalId}` : ''),
+      category: data.category ?? 'GOAL',
+      createdAt: fromTimestamp(data.createdAt) ?? new Date(),
+    } as AppNotification;
+  });
+}
+
+export async function getUnreadNotificationCount(userId: string): Promise<number> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.NOTIFICATIONS),
+    where('userId', '==', userId),
+    where('read', '==', false),
+  ));
+  return snap.size;
 }
 
 export async function markNotificationRead(id: string) {
   await updateDoc(doc(db, COLLECTIONS.NOTIFICATIONS, id), { read: true });
+}
+
+export async function markAllNotificationsRead(userId: string) {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.NOTIFICATIONS),
+    where('userId', '==', userId),
+    where('read', '==', false),
+  ));
+  await Promise.all(snap.docs.map(d => updateDoc(d.ref, { read: true })));
 }
