@@ -25,6 +25,7 @@ import { Target, TrendingUp, CheckCircle, Clock, Users, ArrowRight, Building2, L
 import GoalCard from '@/components/goals/GoalCard';
 import MileageCard from '@/components/mileage/MileageCard';
 import { OrgTreeNode, buildTree, findDescendantIds, avgProgress } from '@/components/goals/OrgGoalTree'; // findDescendantIds: ExecDashboard에서 사용
+import { CompanyProgressBody } from '@/app/(dashboard)/progress/company/page';
 import { filterMyActionableGoals } from '@/lib/approval-filters';
 import type { Goal, OneOnOne, Mileage, User, AnnualGoal, Organization, Announcement } from '@/types';
 
@@ -529,23 +530,28 @@ function ExecDashboard() {
           </div>
         )}
 
-        {/* 조직 트리 상세 */}
-        <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-3">
-            {userProfile?.role === 'CEO' ? '전체 조직' : '담당 조직'} 상세 현황
-          </h4>
-          {loading ? (
-            <div className="space-y-3">
-              {[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100" />)}
-            </div>
-          ) : (
-            <div className="rounded-xl border bg-white p-4 space-y-1">
-              {treeNodes.length === 0
-                ? <p className="text-center text-sm text-gray-400 py-8">표시할 데이터가 없습니다.</p>
-                : treeNodes.map(node => <OrgTreeNode key={node.org.id} node={node} orgGoalMap={orgGoalMap} />)}
-            </div>
-          )}
-        </div>
+        {/* 조직 상세 — CEO 는 전사 업무추진현황 임베드, 임원은 조직 트리 */}
+        {userProfile?.role === 'CEO' ? (
+          <div>
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">전사 업무추진현황</h4>
+            <CompanyProgressBody embedded />
+          </div>
+        ) : (
+          <div>
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">담당 조직 상세 현황</h4>
+            {loading ? (
+              <div className="space-y-3">
+                {[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100" />)}
+              </div>
+            ) : (
+              <div className="rounded-xl border bg-white p-4 space-y-1">
+                {treeNodes.length === 0
+                  ? <p className="text-center text-sm text-gray-400 py-8">표시할 데이터가 없습니다.</p>
+                  : treeNodes.map(node => <OrgTreeNode key={node.org.id} node={node} orgGoalMap={orgGoalMap} />)}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

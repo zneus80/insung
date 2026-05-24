@@ -21,7 +21,7 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem, InnovationActivity } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -50,6 +50,7 @@ export const COLLECTIONS = {
   BACKUPS: 'backups',
   NOTIFICATIONS: 'notifications',
   WEEKLY_TASKS: 'weeklyTasks',
+  INNOVATION_ACTIVITIES: 'innovationActivities',
 } as const;
 
 // ─── Timestamp 변환 유틸 ──────────────────────
@@ -1405,4 +1406,46 @@ export async function markAllNotificationsRead(userId: string) {
     where('read', '==', false),
   ));
   await Promise.all(snap.docs.map(d => updateDoc(d.ref, { read: true })));
+}
+
+// ─── 혁신활동 (HR 입력, 전사 공유) ────────────────────────
+export async function listInnovationActivities(year: number): Promise<InnovationActivity[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.INNOVATION_ACTIVITIES),
+    where('year', '==', year),
+  ));
+  return snap.docs.map(d => {
+    const data = d.data();
+    return {
+      ...data,
+      id: d.id,
+      createdAt: fromTimestamp(data.createdAt) ?? new Date(),
+      updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
+    } as InnovationActivity;
+  });
+}
+
+export async function createInnovationActivity(
+  input: Omit<InnovationActivity, 'id' | 'createdAt' | 'updatedAt'>,
+): Promise<string> {
+  const ref = await addDoc(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), {
+    ...input,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function updateInnovationActivity(
+  id: string,
+  patch: Partial<Omit<InnovationActivity, 'id' | 'createdAt'>>,
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.INNOVATION_ACTIVITIES, id), {
+    ...patch,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteInnovationActivity(id: string): Promise<void> {
+  await deleteDoc(doc(db, COLLECTIONS.INNOVATION_ACTIVITIES, id));
 }
