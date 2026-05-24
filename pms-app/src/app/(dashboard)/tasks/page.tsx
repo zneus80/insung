@@ -861,7 +861,8 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
   );
 }
 
-// ── 임원 / CEO 조직 업무 현황 ──────────────────────────────
+// ── 임원 / CEO 조직 업무 현황 (v0.75 개편) ──────────────────────────────
+// 산하 팀별 탭 + Has Done/Will Do 2-column + 행은 팀장→팀원 순
 function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
   const { userProfile } = useAuth();
   const today = getISOWeek(new Date());
@@ -871,9 +872,42 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
   const [users, setUsers] = useState<User[]>([]);
   const [tasksByUser, setTasksByUser] = useState<Record<string, WeeklyTask>>({});
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
+  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
+  const [savingComment, setSavingComment] = useState<string | null>(null);
   const { start, end } = getWeekRange(year, week);
   const isCurrentWeek = year === today.year && week === today.week;
+
+  async function handleSaveComment(memberId: string) {
+    const wt = tasksByUser[memberId];
+    const text = (commentDraft[memberId] ?? '').trim();
+    if (!wt || !text || !userProfile) return;
+    setSavingComment(memberId);
+    try {
+      const newEntry = await addLeadComment(memberId, year, week, userProfile.id, userProfile.name, text);
+      setTasksByUser(p => ({
+        ...p,
+        [memberId]: {
+          ...p[memberId],
+          leadComments: [...(p[memberId].leadComments ?? []), newEntry],
+        },
+      }));
+      setCommentDraft(p => ({ ...p, [memberId]: '' }));
+      try {
+        await createNotification({
+          userId: memberId,
+          type: 'WEEKLY_TASK_COMMENT',
+          category: 'WEEKLY_TASK',
+          title: `${year}년 ${week}주차 주간업무`,
+          message: `${userProfile.name}님이 코멘트를 남겼습니다: ${text.slice(0, 60)}${text.length > 60 ? '…' : ''}`,
+          link: '/tasks',
+          read: false,
+        });
+      } catch { /* 알림 실패 무시 */ }
+    } finally {
+      setSavingComment(null);
+    }
+  }
 
   useEffect(() => {
     if (!userProfile) return;
@@ -895,114 +929,42 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
       const map: Record<string, WeeklyTask> = {};
       tasks.forEach(t => { map[t.userId] = t; });
       setTasksByUser(map);
-      const init: Record<string, boolean> = {};
-      scopeOrgs.forEach(o => { init[o.id] = true; });
-      scopeUsers.forEach(u => { init[`u_${u.id}`] = false; }); // 멤버 기본 닫힘
-      setExpanded(init);
       setLoading(false);
     }
     load().catch(console.error);
   }, [userProfile, year, week, isAllOrgs]);
 
-  const scopeOrgIdSet = new Set(orgs.map(o => o.id));
-  const rootOrgs = orgs.filter(o => o.parentId === null || !scopeOrgIdSet.has(o.parentId!));
+  // 산하 팀 목록 (TEAM 타입)
+  const teams = orgs.filter(o => o.type === 'TEAM');
+  // 활성 탭이 없거나 더 이상 유효하지 않으면 첫 팀으로
+  useEffect(() => {
+    if (teams.length === 0) { setActiveTeamId(null); return; }
+    if (!activeTeamId || !teams.find(t => t.id === activeTeamId)) {
+      setActiveTeamId(teams[0].id);
+    }
+  }, [teams, activeTeamId]);
 
-  function renderOrg(org: Organization, depth = 0) {
-    const orgUsers = users.filter(u => u.organizationId === org.id);
-    const childOrgs = orgs.filter(o => o.parentId === org.id);
-    const allHd = orgUsers.flatMap(u => tasksByUser[u.id]?.hasDoneItems ?? []);
-    const allWd = orgUsers.flatMap(u => tasksByUser[u.id]?.willDoItems ?? []);
-    const isOpen = expanded[org.id] ?? true;
-
-    return (
-      <div key={org.id} className={cn(depth > 0 && 'ml-5 border-l border-gray-100 pl-3 mt-1')}>
-        <button
-          onClick={() => setExpanded(p => ({ ...p, [org.id]: !isOpen }))}
-          className="w-full flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors text-left"
-        >
-          <ChevronDown className={cn('h-4 w-4 text-gray-400 shrink-0 transition-transform', !isOpen && '-rotate-90')} />
-          <span className="font-semibold text-gray-800 flex-1 text-sm">{org.name}</span>
-          <span className="text-xs text-gray-400 shrink-0">{orgUsers.length}명</span>
-          {(allHd.length > 0 || allWd.length > 0) && (
-            <>
-              <span className="text-xs text-green-600 font-medium shrink-0">실적 {allHd.length}건</span>
-              <span className="text-xs text-gray-500 shrink-0">계획 {allWd.length}건</span>
-            </>
-          )}
-        </button>
-
-        {isOpen && (
-          <div className="ml-2 mt-0.5 mb-1 space-y-0.5">
-            {orgUsers.map(member => {
-              const wt = tasksByUser[member.id];
-              const hdItems = wt?.hasDoneItems ?? [];
-              const wdItems = wt?.willDoItems ?? [];
-              const hasAny = hdItems.length > 0 || wdItems.length > 0;
-              const isUserOpen = expanded[`u_${member.id}`] ?? false;
-
-              return (
-                <div key={member.id} className="rounded-lg border bg-white overflow-hidden ml-1 mb-1">
-                  <button
-                    onClick={() => setExpanded(p => ({ ...p, [`u_${member.id}`]: !isUserOpen }))}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-gray-50"
-                  >
-                    <div className="h-6 w-6 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-600 shrink-0">
-                      {member.name[0]}
-                    </div>
-                    <span className="flex-1 text-left text-sm text-gray-800">
-                      {member.name}
-                      {member.position && <span className="ml-1 text-xs text-gray-400">{member.position}</span>}
-                    </span>
-                    {!hasAny ? (
-                      <span className="text-xs text-gray-300">보고서 없음</span>
-                    ) : (
-                      <div className="flex items-center gap-3 text-xs shrink-0">
-                        <span className="text-green-600 font-medium">실적 {hdItems.length}건</span>
-                        <span className="text-gray-500">계획 {wdItems.length}건</span>
-                      </div>
-                    )}
-                    <ChevronDown className={cn('h-3.5 w-3.5 text-gray-300 shrink-0 transition-transform', !isUserOpen && '-rotate-90')} />
-                  </button>
-
-                  {isUserOpen && hasAny && (
-                    <div className="border-t">
-                      {hdItems.length > 0 && (
-                        <div>
-                          <div className="px-3 py-1.5 bg-green-50 border-b text-xs font-bold text-green-700">Has Done — 이번 주 실적</div>
-                          <div className="divide-y">
-                            {hdItems.map(item => (
-                              <div key={item.id} className="px-4 py-2 bg-green-50/20">
-                                <p className="text-xs font-medium text-gray-800">{item.title}</p>
-                                {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {wdItems.length > 0 && (
-                        <div>
-                          <div className="px-3 py-1.5 bg-gray-50 border-b text-xs font-bold text-gray-700">Will Do — 다음 주 계획</div>
-                          <div className="divide-y">
-                            {wdItems.map(item => (
-                              <div key={item.id} className="px-4 py-2">
-                                <p className="text-xs font-medium text-gray-800">{item.title}</p>
-                                {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {childOrgs.map(child => renderOrg(child, depth + 1))}
-          </div>
-        )}
-      </div>
-    );
+  // 상위 조직 체인 라벨 (예: "재경부문 · 재경본부 · 재경팀")
+  function teamPath(teamOrg: Organization): string {
+    const labels: string[] = [teamOrg.name];
+    let cur = teamOrg.parentId ? orgs.find(o => o.id === teamOrg.parentId!) : undefined;
+    while (cur) {
+      labels.unshift(cur.name);
+      cur = cur.parentId ? orgs.find(o => o.id === cur!.parentId!) : undefined;
+    }
+    return labels.join(' · ');
   }
+
+  const activeTeam = teams.find(t => t.id === activeTeamId);
+  const teamMembers = activeTeam
+    ? users
+        .filter(u => u.organizationId === activeTeam.id)
+        // 팀장 먼저, 팀원 다음 (그 외 역할은 뒤로)
+        .sort((a, b) => {
+          const rank = (r: string) => r === 'TEAM_LEAD' ? 0 : r === 'MEMBER' ? 1 : 2;
+          return rank(a.role) - rank(b.role);
+        })
+    : [];
 
   return (
     <div className="flex flex-col h-full">
@@ -1022,11 +984,136 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
           </h4>
           {loading ? (
             <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100" />)}</div>
+          ) : teams.length === 0 ? (
+            <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">표시할 팀이 없습니다.</p>
           ) : (
-            <div className="rounded-xl border bg-white p-3 space-y-1">
-              {rootOrgs.length === 0
-                ? <p className="text-center text-sm text-gray-400 py-8">표시할 조직이 없습니다.</p>
-                : rootOrgs.map(org => renderOrg(org))}
+            <div className="space-y-3">
+              {/* 팀 탭 */}
+              <div className="flex gap-1 overflow-x-auto border-b border-gray-200 px-1 pb-px">
+                {teams.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setActiveTeamId(t.id)}
+                    className={cn(
+                      'shrink-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
+                      activeTeamId === t.id
+                        ? 'border-blue-600 text-blue-700'
+                        : 'border-transparent text-gray-500 hover:text-gray-800',
+                    )}
+                    title={teamPath(t)}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+
+              {activeTeam && (
+                <>
+                  <p className="text-xs text-gray-400">{teamPath(activeTeam)}</p>
+                  {teamMembers.length === 0 ? (
+                    <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">이 팀에 소속된 인원이 없습니다.</p>
+                  ) : (
+                    <div className="rounded-xl border bg-white overflow-hidden">
+                      {/* 헤더 */}
+                      <div className="grid grid-cols-[180px_1fr_1fr] border-b bg-gray-50 text-xs font-semibold">
+                        <div className="px-4 py-2.5 text-gray-600 border-r">팀원</div>
+                        <div className="px-4 py-2.5 text-green-700 border-r">Has Done — 이번 주 실적</div>
+                        <div className="px-4 py-2.5 text-gray-700">Will Do — 다음 주 계획</div>
+                      </div>
+                      {/* 행: 팀장→팀원 순 */}
+                      <div className="divide-y">
+                        {teamMembers.map(m => {
+                          const wt = tasksByUser[m.id];
+                          const hd = wt?.hasDoneItems ?? [];
+                          const wd = wt?.willDoItems ?? [];
+                          return (
+                            <div key={m.id} className="grid grid-cols-[180px_1fr_1fr]">
+                              <div className="px-4 py-3 border-r bg-gray-50/50 flex items-start gap-2.5">
+                                <div className="h-7 w-7 rounded-full bg-blue-50 flex items-center justify-center text-xs font-bold text-blue-600 shrink-0 mt-0.5">
+                                  {m.name[0]}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 truncate">{m.name}</p>
+                                  <p className="text-[11px] text-gray-400 truncate">
+                                    {m.role === 'TEAM_LEAD' ? '팀장' : '팀원'}
+                                    {m.position && ` · ${m.position}`}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="px-4 py-3 border-r space-y-1.5 bg-green-50/10">
+                                {hd.length === 0 ? (
+                                  <p className="text-xs text-gray-300 italic">기록 없음</p>
+                                ) : hd.map(item => (
+                                  <div key={item.id}>
+                                    <p className="text-sm font-medium text-gray-800">{item.title}</p>
+                                    {item.content && (
+                                      <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="px-4 py-3 space-y-1.5">
+                                {wd.length === 0 ? (
+                                  <p className="text-xs text-gray-300 italic">기록 없음</p>
+                                ) : wd.map(item => (
+                                  <div key={item.id}>
+                                    <p className="text-sm font-medium text-gray-800">{item.title}</p>
+                                    {item.content && (
+                                      <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              {wt?.summary && (
+                                <div className="col-span-3 px-4 py-2.5 border-t bg-blue-50/30">
+                                  <span className="text-xs font-semibold text-blue-700 mr-2">종합 의견</span>
+                                  <span className="text-sm text-gray-700 whitespace-pre-wrap">{wt.summary}</span>
+                                </div>
+                              )}
+                              {/* 팀 코멘트 — 임원/CEO도 작성 가능 */}
+                              <div className="col-span-3 px-4 py-3 border-t bg-blue-50/20 space-y-2">
+                                <p className="text-xs font-semibold text-blue-700">팀 코멘트</p>
+                                {(wt?.leadComments ?? []).length > 0 && (
+                                  <div className="space-y-1.5">
+                                    {(wt!.leadComments).map(c => (
+                                      <div key={c.id} className="text-xs">
+                                        <span className="font-semibold text-gray-700">{c.authorName}</span>
+                                        <span className="text-gray-400 ml-1.5">
+                                          {new Date(c.createdAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                        <p className="text-gray-700 whitespace-pre-wrap mt-0.5">{c.text}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {!wt ? (
+                                  <p className="text-xs text-gray-300 italic">이번 주 보고서가 없어 팀 코멘트를 작성할 수 없습니다.</p>
+                                ) : (
+                                  <div className="flex gap-2 items-start">
+                                    <textarea
+                                      value={commentDraft[m.id] ?? ''}
+                                      onChange={e => setCommentDraft(p => ({ ...p, [m.id]: e.target.value }))}
+                                      placeholder="이번 주 업무에 대한 코멘트를 남겨주세요."
+                                      className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-xs resize-none min-h-[60px]"
+                                    />
+                                    <button
+                                      onClick={() => handleSaveComment(m.id)}
+                                      disabled={savingComment === m.id || !(commentDraft[m.id] ?? '').trim()}
+                                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:bg-gray-300"
+                                    >
+                                      {savingComment === m.id ? '저장 중...' : '저장'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>

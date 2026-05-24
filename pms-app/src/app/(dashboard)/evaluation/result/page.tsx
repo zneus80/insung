@@ -82,7 +82,7 @@ function TeamLeadResultView() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="평가결과 확인" showBack />
+      <Header title="평가결과 확인" />
       <div className="flex border-b bg-white px-6 shrink-0">
         {(['mine', 'team'] as const).map(t => (
           <button

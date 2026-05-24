@@ -148,7 +148,7 @@ export default function OneOnOneDetailPage() {
   if (loading || !room || !userProfile) {
     return (
       <div className="flex flex-col h-full">
-        <Header title="1on1" />
+        <Header title="1on1" showBack />
         <div className="flex flex-1 items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
         </div>
