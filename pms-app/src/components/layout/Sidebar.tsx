@@ -23,6 +23,7 @@ import {
   CalendarClock,
   HardDrive,
   ClipboardList,
+  Lightbulb,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -91,6 +92,14 @@ const navItems: NavItem[] = [
     href: '/approvals',
     icon: <CheckSquare className="h-5 w-5" />,
     roles: ['TEAM_LEAD', 'EXECUTIVE'],
+  },
+
+  // ── 7. 전사 업무추진현황 (CEO 제외 — CEO 는 대시보드에 임베드됨) ─
+  {
+    label: '전사 업무추진현황',
+    href: '/progress/company',
+    icon: <TrendingUp className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
 
   // ══ EGG Meeting ═════════════════════════════
@@ -204,6 +213,13 @@ const navItems: NavItem[] = [
     label: '포상 이력 관리',
     href: '/admin/awards',
     icon: <Trophy className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: '기본정보입력',
+  },
+  {
+    label: '혁신활동 관리',
+    href: '/admin/innovation',
+    icon: <Lightbulb className="h-5 w-5" />,
     requireHrAdmin: true,
     group: '기본정보입력',
   },

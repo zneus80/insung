@@ -296,6 +296,30 @@ export interface AnnualGoal {
 }
 
 // ─────────────────────────────────────────────
+// 혁신활동 (HR 입력, 전사 공유) - SmartProject / TDS
+// ─────────────────────────────────────────────
+export type InnovationActivityType = 'SMART_PROJECT' | 'TDS';
+export type InnovationActivityStatus = 'IN_PROGRESS' | 'COMPLETED';
+
+export interface InnovationActivity {
+  id: string;
+  type: InnovationActivityType;
+  name: string;                  // 프로젝트명 / TDS명
+  isConfidential: boolean;       // 대내비 — 제목 CONFIDENTIAL 로 마스킹
+  status: InnovationActivityStatus;
+  year: number;
+  // SMART_PROJECT
+  pmId?: string;
+  memberIds?: string[];
+  // TDS
+  performerId?: string;
+  instructorId?: string;
+  createdBy: string;             // HR 사용자 id
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
 // 마일리지 (임원 제외)
 // ─────────────────────────────────────────────
 export type MileageEntryType = 'TDS' | 'SMART_PROJECT';

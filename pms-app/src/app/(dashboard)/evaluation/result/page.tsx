@@ -268,17 +268,42 @@ function MemberResultView({
       const published = periodSnap.exists() ? periodSnap.data().isPublished : false;
       setIsPublished(published);
 
+      // 조직평가등급은 status === 'APPROVED' 면 published 와 무관하게 노출
+      // 개인평가등급은 published 일 때만 노출
+      const [orgEvals, allOrgs] = await Promise.all([
+        getOrgEvaluations(selectedYear),
+        getOrganizations(),
+      ]);
+      const approvedEvalByOrg = new Map(
+        orgEvals.filter(e => e.status === 'APPROVED').map(e => [e.organizationId, e]),
+      );
+      // 1차: 부모 체인 따라 올라가며 DIVISION 우선
+      let cur: Organization | undefined = allOrgs.find(o => o.id === userProfile.organizationId);
+      let chosen: OrganizationEvaluation | undefined;
+      while (cur) {
+        if (cur.type === 'DIVISION') {
+          const ev = approvedEvalByOrg.get(cur.id);
+          if (ev) { chosen = ev; break; }
+        }
+        cur = cur.parentId ? allOrgs.find(o => o.id === cur!.parentId) : undefined;
+      }
+      // fallback: DIVISION 매칭 없으면 가장 가까운 상위(또는 자기) 평가
+      if (!chosen) {
+        let walk: Organization | undefined = allOrgs.find(o => o.id === userProfile.organizationId);
+        while (walk) {
+          const ev = approvedEvalByOrg.get(walk.id);
+          if (ev) { chosen = ev; break; }
+          walk = walk.parentId ? allOrgs.find(o => o.id === walk!.parentId) : undefined;
+        }
+      }
+      setOrgEval(chosen ?? null);
+
+      // 개인평가는 published 일 때만 표시
       if (published) {
-        const [result, orgEvals] = await Promise.all([
-          getIndividualEvaluation(userProfile.id, selectedYear),
-          getOrgEvaluations(selectedYear),
-        ]);
+        const result = await getIndividualEvaluation(userProfile.id, selectedYear);
         setEval(result);
-        const myOrg = orgEvals.find(e => e.organizationId === userProfile.organizationId);
-        setOrgEval(myOrg ?? null);
       } else {
         setEval(null);
-        setOrgEval(null);
       }
       setLoading(false);
     }
@@ -306,33 +331,33 @@ function MemberResultView({
         <YearTabBar selectedYear={selectedYear} yearTabs={YEAR_TABS} onChange={setSelectedYear} />
       )}
       <div className="flex-1 overflow-y-auto p-6 max-w-xl space-y-6">
-        {!isPublished ? (
-          <div className="flex flex-col items-center gap-4 py-16 text-center">
-            <Lock className="h-12 w-12 text-gray-300" />
-            <p className="font-semibold text-gray-500">아직 평가 결과가 공개되지 않았습니다.</p>
-            <p className="text-sm text-gray-400">HR관리자가 공개하면 이곳에서 확인할 수 있습니다.</p>
-          </div>
-        ) : !eval_ ? (
-          <div className="flex flex-col items-center gap-4 py-16 text-center">
-            <CheckCircle2 className="h-12 w-12 text-gray-300" />
-            <p className="font-semibold text-gray-500">평가 결과가 없습니다.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* 조직 평가등급 */}
-            {orgEval && (
-              <div className="rounded-xl border bg-white p-5 space-y-3">
-                <h2 className="font-semibold text-gray-900">조직 평가등급</h2>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-gray-500">소속 조직 등급</span>
-                  <span className={`rounded-full px-4 py-1 text-sm font-bold ${GRADE_LABELS[orgEval.grade]?.color}`}>
-                    {GRADE_LABELS[orgEval.grade]?.label}
-                  </span>
-                </div>
+        <div className="space-y-4">
+          {/* 조직 평가등급 — 조직평가 확정(APPROVED) 시 published 와 무관하게 노출 */}
+          {orgEval && (
+            <div className="rounded-xl border bg-white p-5 space-y-3">
+              <h2 className="font-semibold text-gray-900">조직 평가등급</h2>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-500">소속 조직 등급</span>
+                <span className={`rounded-full px-4 py-1 text-sm font-bold ${GRADE_LABELS[orgEval.grade]?.color}`}>
+                  {GRADE_LABELS[orgEval.grade]?.label}
+                </span>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* 개인 평가결과 — 최종 평가권한자(임원) 등급·의견만 표시 */}
+          {/* 개인 평가결과 — HR 일괄 공개 후에만 노출 */}
+          {!isPublished ? (
+            <div className="rounded-xl border bg-white p-8 flex flex-col items-center gap-3 text-center">
+              <Lock className="h-10 w-10 text-gray-300" />
+              <p className="font-semibold text-gray-500">개인 평가 결과는 아직 공개되지 않았습니다.</p>
+              <p className="text-sm text-gray-400">HR관리자가 공개하면 이곳에서 확인할 수 있습니다.</p>
+            </div>
+          ) : !eval_ ? (
+            <div className="rounded-xl border bg-white p-8 flex flex-col items-center gap-3 text-center">
+              <CheckCircle2 className="h-10 w-10 text-gray-300" />
+              <p className="font-semibold text-gray-500">개인 평가 결과가 없습니다.</p>
+            </div>
+          ) : (
             <div className="rounded-xl border bg-white p-6 space-y-4">
               <h2 className="font-semibold text-gray-900">{selectedYear}년 개인 평가결과</h2>
               <div className="flex items-center gap-3">
@@ -352,8 +377,8 @@ function MemberResultView({
                 </div>
               )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
