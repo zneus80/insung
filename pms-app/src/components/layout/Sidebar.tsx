@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { signOut } from '@/lib/auth';
 import { getUnreadNotificationCount } from '@/lib/firestore';
 import type { UserRole } from '@/types';
@@ -282,6 +283,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { userProfile } = useAuth();
+  const { activeYear, calendarYear } = useActiveYear();
   const [unreadCount, setUnreadCount] = useState(0);
 
   // 알림 미읽음 카운트 — 페이지 변경마다 갱신 (가벼운 query)
@@ -327,7 +329,15 @@ export default function Sidebar() {
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
           P
         </div>
-        <span className="text-sm font-semibold text-gray-900">INSUNG</span>
+        <div className="flex flex-col leading-tight">
+          <span className="text-sm font-semibold text-gray-900">INSUNG</span>
+          <span className={cn(
+            'text-[10px] font-medium',
+            activeYear === calendarYear ? 'text-gray-400' : 'text-orange-600',
+          )}>
+            {activeYear}년 활성{activeYear !== calendarYear && ` · 달력 ${calendarYear}`}
+          </span>
+        </div>
       </Link>
 
       {/* 네비게이션 */}
