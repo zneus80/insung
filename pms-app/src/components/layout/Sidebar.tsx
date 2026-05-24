@@ -41,87 +41,31 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  // ── 전체 공통 ──────────────────────────────────
+  // ── 1. 대시보드 ──────────────────────────────
   {
     label: '대시보드',
     href: '/dashboard',
     icon: <LayoutDashboard className="h-5 w-5" />,
   },
+  // ── 2. 알림 ─────────────────────────────────
   {
     label: '알림',
     href: '/notifications',
     icon: <BellRing className="h-5 w-5" />,
   },
+  // ── 3. 공지사항 ──────────────────────────────
   {
     label: '공지사항',
     href: '/announcements',
     icon: <Bell className="h-5 w-5" />,
   },
-
-  // ── 팀원 전용 ────────────────────────────────
+  // ── 4. 핵심목표관리(또는 진행현황) ────────────
   {
     label: '핵심목표관리',
     href: '/goals',
     icon: <Target className="h-5 w-5" />,
-    roles: ['MEMBER'],
-  },
-
-  // ── 팀원·팀장 공통 ─────────────────────────
-  {
-    label: '주간업무보고',
-    href: '/tasks',
-    icon: <ClipboardList className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
-  },
-  {
-    label: '자기평가',
-    href: '/evaluation',
-    icon: <FileText className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
-    exact: true,
   },
-  {
-    label: '육성면담서',
-    href: '/mentoring',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-    exact: true,
-  },
-  {
-    label: '평가결과 확인',
-    href: '/evaluation/result',
-    icon: <CheckSquare className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-    exact: true,
-  },
-  {
-    label: '1on1',
-    href: '/oneon1',
-    icon: <Users className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
-  },
-
-  // ── 팀장 전용 ────────────────────────────────
-  {
-    label: '핵심목표관리',
-    href: '/goals',
-    icon: <Target className="h-5 w-5" />,
-    roles: ['TEAM_LEAD'],
-  },
-  {
-    label: '승인 대기함',
-    href: '/approvals',
-    icon: <CheckSquare className="h-5 w-5" />,
-    roles: ['TEAM_LEAD', 'EXECUTIVE'],
-  },
-  {
-    label: '팀원 평가',
-    href: '/evaluation/team',
-    icon: <BarChart3 className="h-5 w-5" />,
-    roles: ['TEAM_LEAD'],
-  },
-
-  // ── 임원 전용 ────────────────────────────────
   {
     label: '업무 진행사항',
     href: '/progress/leads',
@@ -129,51 +73,109 @@ const navItems: NavItem[] = [
     roles: ['EXECUTIVE'],
   },
   {
+    label: '조직목표현황',
+    href: '/progress',
+    icon: <TrendingUp className="h-5 w-5" />,
+    roles: ['CEO'],
+  },
+  // ── 5. 주간업무보고 ──────────────────────────
+  {
+    label: '주간업무보고',
+    href: '/tasks',
+    icon: <ClipboardList className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
+  },
+  // ── 6. 승인 대기함 ───────────────────────────
+  {
+    label: '승인 대기함',
+    href: '/approvals',
+    icon: <CheckSquare className="h-5 w-5" />,
+    roles: ['TEAM_LEAD', 'EXECUTIVE'],
+  },
+
+  // ══ EGG Meeting ═════════════════════════════
+  {
+    label: '1on1',
+    href: '/oneon1',
+    icon: <Users className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
+    group: 'EGG Meeting',
+  },
+  {
+    label: '육성면담서',
+    href: '/mentoring',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
+    group: 'EGG Meeting',
+  },
+  {
+    label: '전사 육성면담서 확인',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    roles: ['CEO'],
+    group: 'EGG Meeting',
+  },
+  {
+    label: '전사 육성면담서 확인',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: 'EGG Meeting',
+  },
+
+  // ══ 인사고과 ════════════════════════════════
+  {
+    label: '자기평가',
+    href: '/evaluation',
+    icon: <FileText className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
+    group: '인사고과',
+  },
+  {
+    label: '인사평가',
+    href: '/evaluation/team',
+    icon: <BarChart3 className="h-5 w-5" />,
+    roles: ['TEAM_LEAD'],
+    group: '인사고과',
+  },
+  {
     label: '평가등급확정',
     href: '/evaluation',
     icon: <BarChart3 className="h-5 w-5" />,
     roles: ['EXECUTIVE'],
     exact: true,
-  },
-
-  // ── 최고관리자 전용 ───────────────────────────
-  {
-    label: '진행현황',
-    href: '/progress',
-    icon: <TrendingUp className="h-5 w-5" />,
-    roles: ['CEO'],
+    group: '인사고과',
   },
   {
     label: '조직평가관리',
     href: '/evaluation/org',
     icon: <BarChart3 className="h-5 w-5" />,
     roles: ['CEO'],
+    group: '인사고과',
+  },
+  {
+    label: '평가결과 확인',
+    href: '/evaluation/result',
+    icon: <CheckSquare className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
+    group: '인사고과',
   },
   {
     label: '전사 평가결과확인',
     href: '/evaluation/result/all',
     icon: <CheckSquare className="h-5 w-5" />,
     roles: ['CEO'],
+    group: '인사고과',
   },
-  {
-    label: '전사 육성면담서 확인',
-    href: '/mentoring/all',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    roles: ['CEO'],
-  },
-
-  // ── HR관리자 전용 — 전사 조회 ────────────────────────────
   {
     label: '전사 평가결과확인',
     href: '/evaluation/result/all',
     icon: <CheckSquare className="h-5 w-5" />,
     requireHrAdmin: true,
-  },
-  {
-    label: '전사 육성면담서 확인',
-    href: '/mentoring/all',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    requireHrAdmin: true,
+    group: '인사고과',
   },
 
   // ── HR관리자 전용 — 기본정보입력 ─────────────────────
@@ -281,7 +283,7 @@ export default function Sidebar() {
     router.replace('/login');
   }
 
-  const visibleItems = navItems.filter(item => {
+  const visibleItemsRaw = navItems.filter(item => {
     // 역할·HR 제한이 모두 없으면 전체 표시
     if (!item.roles && !item.requireHrAdmin) return true;
     // 역할 조건: roles 배열이 있을 때만 체크
@@ -290,16 +292,27 @@ export default function Sidebar() {
     const hrOk = !!item.requireHrAdmin && !!userProfile?.isHrAdmin;
     return roleOk || hrOk;
   });
+  // CEO+HR 등 중복 진입(같은 href + group)을 한 번만 표시
+  const seenKeys = new Set<string>();
+  const visibleItems = visibleItemsRaw.filter(item => {
+    const key = `${item.href}__${item.group ?? ''}`;
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
 
   return (
     <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-white">
-      {/* 로고 */}
-      <div className="flex h-16 items-center gap-2 border-b border-gray-200 px-6">
+      {/* 로고 — 클릭 시 대시보드 이동 */}
+      <Link
+        href="/dashboard"
+        className="flex h-16 items-center gap-2 border-b border-gray-200 px-6 hover:bg-gray-50 transition-colors"
+      >
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
           P
         </div>
         <span className="text-sm font-semibold text-gray-900">INSUNG</span>
-      </div>
+      </Link>
 
       {/* 네비게이션 */}
       <nav className="flex-1 overflow-y-auto px-3 py-4">
@@ -313,7 +326,7 @@ export default function Sidebar() {
             const showGroupHeader = item.group && item.group !== lastGroup;
             if (item.group) lastGroup = item.group;
             return (
-              <div key={item.label}>
+              <div key={`${item.href}__${item.group ?? ''}__${item.label}`}>
                 {showGroupHeader && (
                   <p className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
                     {item.group}

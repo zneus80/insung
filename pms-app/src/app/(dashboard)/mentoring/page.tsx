@@ -153,7 +153,7 @@ function MentoringContent() {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <Header title="육성면담서" showBack />
+        <Header title="육성면담서" />
         <div className="p-6 space-y-4">
           {[1,2,3,4].map(i => <div key={i} className="h-32 animate-pulse rounded-2xl bg-gray-100" />)}
         </div>
@@ -163,7 +163,7 @@ function MentoringContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="육성면담서" showBack />
+      <Header title="육성면담서" />
 
       {/* 연도 선택 탭 */}
       <div className="flex gap-1 border-b bg-white px-6 pt-3 shrink-0">

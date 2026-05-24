@@ -192,7 +192,7 @@ function PerformanceContent() {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <Header title="평가" />
+        <Header title="평가" showBack />
         <div className="p-6 space-y-4">
           {[1, 2, 3].map(i => (
             <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100" />
@@ -204,7 +204,7 @@ function PerformanceContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="평가" />
+      <Header title="평가" showBack />
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl space-y-6">
 

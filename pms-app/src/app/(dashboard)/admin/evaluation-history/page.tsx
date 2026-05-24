@@ -74,7 +74,7 @@ function EvaluationHistoryContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="평가이력 관리" showBack />
+      <Header title="평가이력 관리" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
         {/* 필터 */}
