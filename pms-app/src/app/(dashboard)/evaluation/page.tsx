@@ -101,22 +101,35 @@ function MemberEvalView() {
   const [goalEvals, setGoalEvals]       = useState<Record<string, { comment: string }>>({});
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
+  const [orgChainHasHQ, setOrgChainHasHQ] = useState(false); // 본부장 단계 포함 여부
 
   async function load() {
     if (!userProfile) return;
     setLoading(true);
     try {
-      const [cyc, goals, se, ie] = await Promise.all([
+      const [cyc, goals, se, ie, allOrgs] = await Promise.all([
         getActiveCycle(),
         getGoalsByUser(userProfile.id, year),
         getSelfEvaluation(userProfile.id, year),
         getIndividualEvaluation(userProfile.id, year),
+        getOrganizations(),
       ]);
       setCycle(cyc);
       const done = goals.filter(g => g.status === 'COMPLETED');
       setCompleted(done);
       setSelfEval(se);
       setMyEval(ie);
+      // 본부장 단계 포함 여부 — 본인 조직에서 부모 체인 따라가며 HEADQUARTERS 가 있고
+      // 그 본부의 위에 DIVISION 도 존재할 때만 본부장 단계가 의미 있음
+      let cur = allOrgs.find(o => o.id === userProfile.organizationId);
+      let hasHQ = false;
+      let hasDiv = false;
+      while (cur) {
+        if (cur.type === 'HEADQUARTERS') hasHQ = true;
+        if (cur.type === 'DIVISION') hasDiv = true;
+        cur = cur.parentId ? allOrgs.find(o => o.id === cur!.parentId) : undefined;
+      }
+      setOrgChainHasHQ(hasHQ && hasDiv);
 
       if (se?.goalEvals?.length) {
         const map: Record<string, { comment: string }> = {};
@@ -209,20 +222,43 @@ function MemberEvalView() {
           </div>
         )}
 
-        {/* 현재 처리 상태 */}
-        {myEval && myEval.status !== 'NOT_STARTED' && (
+        {/* 현재 처리 상태 — 사용자 역할·조직 체인에 따라 단계 동적 구성 */}
+        {myEval && myEval.status !== 'NOT_STARTED' && (() => {
+          // 팀장 본인의 자기평가는 팀장 검토(LEAD_REVIEWED) 단계 불필요
+          // 본부장이 있는 조직(본부+부문 모두 존재)이면 HQ_REVIEWED 단계 추가
+          const isSelfTeamLead = userProfile?.role === 'TEAM_LEAD';
+          // 본부장(임원 role + HQ 산하)이 본인 자기평가 작성 — 별도 분기 (HQ_REVIEWED 도 불필요)
+          // 일단 임원 role 은 MemberEvalView 진입 안 함이라 여기서는 신경 X
+          type StageKey = 'SELF_SUBMITTED' | 'LEAD_REVIEWED' | 'HQ_REVIEWED' | 'EXEC_CONFIRMED' | 'PUBLISHED';
+          const stages: { key: StageKey; label: string }[] = [{ key: 'SELF_SUBMITTED', label: '자기평가 제출' }];
+          if (!isSelfTeamLead) stages.push({ key: 'LEAD_REVIEWED', label: '팀장 검토 완료' });
+          if (orgChainHasHQ) stages.push({ key: 'HQ_REVIEWED', label: '본부장 검토 완료' });
+          stages.push({ key: 'EXEC_CONFIRMED', label: '임원 등급 확정' });
+          stages.push({ key: 'PUBLISHED', label: '결과 공개' });
+
+          // 현재 상태가 어디까지 진행됐는지 판정
+          // SELF_SUBMITTED < LEAD_REVIEWED < HQ_REVIEWED < EXEC_CONFIRMED < PUBLISHED 의 자연 순서 따름
+          const rank: Record<string, number> = {
+            NOT_STARTED: -1,
+            SELF_SUBMITTED: 0,
+            LEAD_REVIEWED: 1,
+            HQ_REVIEWED: 2,
+            EXEC_CONFIRMED: 3,
+            PUBLISHED: 4,
+          };
+          const currentRank = rank[myEval.status] ?? -1;
+
+          return (
           <div className="rounded-xl border bg-white px-5 py-4">
             <p className="text-xs text-gray-500 mb-1">평가 진행 상태</p>
             <div className="flex items-center gap-2 flex-wrap">
-              {(['SELF_SUBMITTED', 'LEAD_REVIEWED', 'EXEC_CONFIRMED', 'PUBLISHED'] as const).map((s, i) => {
-                const statusIndex = ['SELF_SUBMITTED', 'LEAD_REVIEWED', 'EXEC_CONFIRMED', 'PUBLISHED'].indexOf(myEval.status);
-                const isDone = i <= statusIndex;
-                const labels = ['자기평가 제출', '팀장 검토 완료', '임원 등급 확정', '결과 공개'];
+              {stages.map((s, i) => {
+                const isDone = currentRank >= rank[s.key];
                 return (
-                  <span key={s} className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  <span key={s.key} className={`rounded-full px-3 py-1 text-xs font-medium ${
                     isDone ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'
                   }`}>
-                    {i + 1}. {labels[i]}
+                    {i + 1}. {s.label}
                   </span>
                 );
               })}
@@ -239,7 +275,8 @@ function MemberEvalView() {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* 평가 기간 아님 */}
         {!isInEvalPeriod && !isSubmitted && (
