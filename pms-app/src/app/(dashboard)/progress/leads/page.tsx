@@ -59,9 +59,23 @@ function ProgressContent() {
         setLeads(teamLeads);
         setMembers(teamMembers);
         setOrgs(allOrgs);
+        // 각 사용자의 목표 = owner 본인 목표 + (임원 승인 후) 공동 추진자로 포함된 목표
+        const COLLAB_VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'PENDING_ABANDON']);
         const gMap: Record<string, Goal[]> = {};
         scopedUsers.forEach(u => {
-          gMap[u.id] = allGoals.filter(g => g.userId === u.id);
+          const own = allGoals.filter(g => g.userId === u.id);
+          const collab = allGoals.filter(g =>
+            g.userId !== u.id &&
+            (g.collaboratorIds ?? []).includes(u.id) &&
+            COLLAB_VISIBLE.has(g.status) &&
+            !g.trashedAt && !g.softDeletedAt,
+          );
+          const seen = new Set<string>();
+          gMap[u.id] = [...own, ...collab].filter(g => {
+            if (seen.has(g.id)) return false;
+            seen.add(g.id);
+            return true;
+          });
         });
         setGoalsByUser(gMap);
       } finally {

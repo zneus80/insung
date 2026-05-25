@@ -22,6 +22,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { cn } from '@/lib/utils';
+import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { ChevronDown, Lightbulb, FileText, Target, Lock } from 'lucide-react';
 import type {
   Organization, User, Goal, AnnualGoal, InnovationActivity,
@@ -82,7 +83,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   const divisions = useMemo(() => {
     const divList = orgs.filter(o => o.type === 'DIVISION');
     if (divList.length > 0) {
-      return divList.sort((a, b) => a.name.localeCompare(b.name));
+      return divList.sort(compareOrgByDisplayOrder);
     }
     // fallback: 부문 등록이 없는 환경에서는 최상위(부모가 COMPANY 이거나 없는) 비-COMPANY 조직을 사용
     const companyIds = new Set(orgs.filter(o => o.type === 'COMPANY').map(o => o.id));
@@ -100,15 +101,19 @@ function Content({ embedded = false }: { embedded?: boolean }) {
     return ids;
   }
 
-  // 부문별 핵심목표 (추진중·완료만, 세부 내용 제외)
+  // 부문별 핵심목표 — 임원 승인 이후(APPROVED/IN_PROGRESS/COMPLETED) 모두 표시. 세부 내용은 제외.
+  // 공동 추진자가 다른 부문 소속이면 그 부문에서도 동일 목표가 노출됨 (relatedOrgIds 활용).
   function goalsForDivision(divId: string): Goal[] {
     const scopeIds = new Set(descendantOrgIds(divId));
+    const VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
     return goals
-      .filter(g =>
-        scopeIds.has(g.organizationId) &&
-        (g.status === 'IN_PROGRESS' || g.status === 'COMPLETED') &&
-        !g.trashedAt && !g.softDeletedAt,
-      )
+      .filter(g => {
+        if (!VISIBLE.has(g.status) || g.trashedAt || g.softDeletedAt) return false;
+        if (scopeIds.has(g.organizationId)) return true;
+        // relatedOrgIds 매칭 — 공동 추진자 소속 조직 포함
+        if ((g.relatedOrgIds ?? []).some(orgId => scopeIds.has(orgId))) return true;
+        return false;
+      })
       .sort((a, b) => a.title.localeCompare(b.title));
   }
 
@@ -201,7 +206,6 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                     >
                       <div className="flex-1 text-left min-w-0">
                         <p className="text-sm font-semibold text-gray-900 truncate">{div.name}</p>
-                        <p className="text-[11px] text-gray-400">핵심 {divGoals.length} · 연간 {items.length}</p>
                       </div>
                       <ChevronDown className={cn('h-4 w-4 text-gray-400 shrink-0 transition-transform', !isOpen && '-rotate-90')} />
                     </button>

@@ -103,7 +103,7 @@ export default function ProfilePage() {
                 <Label htmlFor="hireDate">입사일</Label>
                 <Input
                   id="hireDate"
-                  type="date"
+                  type="date" min="2000-01-01" max="2099-12-31"
                   value={hireDate}
                   onChange={e => setHireDate(e.target.value)}
                 />

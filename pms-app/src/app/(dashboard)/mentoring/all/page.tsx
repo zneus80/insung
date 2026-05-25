@@ -1,14 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getAllUsers, getOrganizations, getMentoringFormsByUsers } from '@/lib/firestore';
+import { useSearchParams } from 'next/navigation';
+import {
+  getAllUsers, getOrganizations, getMentoringFormsByUsers,
+} from '@/lib/firestore';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { ChevronDown, ChevronRight, MessageSquareHeart } from 'lucide-react';
+import { ChevronDown, ChevronRight, MessageSquareHeart, AlertCircle, Pencil } from 'lucide-react';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { cn } from '@/lib/utils';
-import type { User, Organization, MentoringForm } from '@/types';
+import type { User, Organization, MentoringForm, JobRequestType } from '@/types';
+
+const JOB_REQUEST_LABELS: Record<JobRequestType, string> = {
+  EXPAND:    '① 직무 확대',
+  REDUCE:    '② 직무 축소',
+  CHANGE:    '③ 직무 변경',
+  RELOCATE:  '④ 근무지 이동',
+  SATISFIED: '● 만족함',
+};
 
 export default function MentoringAllPage() {
   return (
@@ -19,8 +30,10 @@ export default function MentoringAllPage() {
 }
 
 function MentoringAllContent() {
+  const searchParams = useSearchParams();
   const { activeYear } = useActiveYear();
-  const [selectedYear, setSelectedYear] = useState(activeYear);
+  const initYear = Number(searchParams.get('year') ?? activeYear) || activeYear;
+  const [selectedYear, setSelectedYear] = useState(initYear);
   const YEAR_TABS = [activeYear, activeYear - 1, activeYear - 2];
 
   const [users, setUsers] = useState<User[]>([]);
@@ -30,6 +43,9 @@ function MentoringAllContent() {
   const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set());
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [selectedForm, setSelectedForm] = useState<MentoringForm | null>(null);
+  // URL ?user= 자동 선택 1회 플래그 (로드 후)
+  const userParam = searchParams.get('user');
+  const [userParamApplied, setUserParamApplied] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -49,11 +65,27 @@ function MentoringAllContent() {
 
         const topOrgs = allOrgs.filter(o => !o.parentId);
         if (topOrgs.length > 0) setExpandedOrgs(new Set([topOrgs[0].id]));
+
+        // URL ?user= 가 있고 아직 적용 전이면 자동 선택 + 해당 조직 펼치기
+        if (userParam && !userParamApplied) {
+          const target = active.find(u => u.id === userParam);
+          if (target) {
+            setSelectedUser(target);
+            setSelectedForm(formMap[target.id] ?? null);
+            // 조직 체인 모두 펼치기
+            const chain = new Set<string>();
+            let cur = allOrgs.find(o => o.id === target.organizationId);
+            while (cur) { chain.add(cur.id); cur = cur.parentId ? allOrgs.find(o => o.id === cur!.parentId) : undefined; }
+            setExpandedOrgs(prev => new Set([...prev, ...chain]));
+          }
+          setUserParamApplied(true);
+        }
       } finally {
         setLoading(false);
       }
     })();
-  }, [selectedYear]);
+  }, [selectedYear, userParam, userParamApplied]);
+
 
   const usersByOrg = users.reduce<Record<string, User[]>>((acc, u) => {
     (acc[u.organizationId] ??= []).push(u);
@@ -160,6 +192,31 @@ function MentoringAllContent() {
                 </span>
               </div>
 
+              {/* 수정 요청 대기 안내 (정보만 표시 — 처리는 알림에서) */}
+              {selectedForm.editRequestPending && (
+                <div className="flex items-start gap-3 rounded-xl border border-blue-300 bg-blue-50 p-4">
+                  <AlertCircle className="h-5 w-5 shrink-0 text-blue-600 mt-0.5" />
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Pencil className="h-4 w-4 text-blue-700" />
+                      <p className="font-semibold text-blue-900">수정 요청 대기 중</p>
+                      {selectedForm.editRequestedAt && (
+                        <span className="text-xs text-blue-700/70">
+                          {new Date(selectedForm.editRequestedAt).toLocaleDateString('ko-KR')} 요청
+                        </span>
+                      )}
+                    </div>
+                    {selectedForm.editRequestReason && (
+                      <div className="rounded-md bg-white/60 border border-blue-200 px-3 py-2">
+                        <p className="text-xs font-medium text-blue-700 mb-0.5">요청 사유</p>
+                        <p className="text-sm text-blue-900 whitespace-pre-wrap">{selectedForm.editRequestReason}</p>
+                      </div>
+                    )}
+                    <p className="text-xs text-blue-700/80">알림함에서 [수정 허가] / [거절] 로 처리할 수 있습니다.</p>
+                  </div>
+                </div>
+              )}
+
               <Section title="직무 정보">
                 <Row label="직책" value={selectedForm.currentPosition} />
                 <Row label="주요담당업무" value={selectedForm.mainDuties} />
@@ -173,10 +230,27 @@ function MentoringAllContent() {
               </Section>
 
               <Section title="직무 요청사항">
-                <Row label="요청 유형" value={selectedForm.jobRequest} />
-                <Row label="이유" value={selectedForm.jobRequestReason} multiline />
-                {selectedForm.desiredJob1 && <Row label="희망 직무 1순위" value={selectedForm.desiredJob1} />}
-                {selectedForm.desiredJob2 && <Row label="희망 직무 2순위" value={selectedForm.desiredJob2} />}
+                <Row label="요청 유형" value={JOB_REQUEST_LABELS[selectedForm.jobRequest] ?? selectedForm.jobRequest} />
+                {/* ①② 직무 확대/축소 이유 */}
+                {(selectedForm.jobRequest === 'EXPAND' || selectedForm.jobRequest === 'REDUCE') && (
+                  <Row label="이유" value={selectedForm.jobRequestReason} multiline />
+                )}
+                {/* ③ 직무 변경 — 희망 직무 1·2순위 + 변경 이유 */}
+                {selectedForm.jobRequest === 'CHANGE' && (
+                  <>
+                    <Row label="희망 직무 1순위" value={selectedForm.desiredJob1} />
+                    <Row label="희망 직무 2순위" value={selectedForm.desiredJob2} />
+                    <Row label="직무 변경 희망 이유" value={selectedForm.jobChangeReason} multiline />
+                  </>
+                )}
+                {/* ④ 근무지 이동 — 희망 근무지 1·2순위 + 변경 이유 */}
+                {selectedForm.jobRequest === 'RELOCATE' && (
+                  <>
+                    <Row label="희망 근무지 1순위" value={selectedForm.desiredLocation1} />
+                    <Row label="희망 근무지 2순위" value={selectedForm.desiredLocation2} />
+                    <Row label="근무지 변경 희망 이유" value={selectedForm.locationChangeReason} multiline />
+                  </>
+                )}
               </Section>
 
               <Section title="종합 의견">
@@ -233,7 +307,15 @@ function OrgTree({ org, allOrgs, usersByOrg, forms, expandedOrgs, selectedUserId
                     : 'text-gray-600 hover:bg-gray-100',
                 )}
               >
-                <span className="truncate">{u.name}{u.position ? ` (${u.position})` : ''}</span>
+                <span className="truncate flex items-center gap-1">
+                  {u.name}{u.position ? ` (${u.position})` : ''}
+                  {f?.editRequestPending && (
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full bg-red-500"
+                      title="수정 요청 대기 중"
+                    />
+                  )}
+                </span>
                 {f && (
                   <span className={cn('shrink-0 ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium', statusColor[f.status])}>
                     {statusLabel[f.status]}

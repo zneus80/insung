@@ -3,6 +3,27 @@
 
 import type { Goal, Organization, User } from '@/types';
 
+/**
+ * Organization 정렬 비교자.
+ *  - displayOrder 가 있는 항목 우선 (오름차순)
+ *  - 둘 다 있으면 작은 값 먼저, 같으면 이름 가나다순
+ *  - 모두 없으면 이름 가나다순
+ * 부문/공장(DIVISION) 표시 순서 제어에 활용.
+ */
+export function compareOrgByDisplayOrder(a: Organization, b: Organization): number {
+  const ao = a.displayOrder;
+  const bo = b.displayOrder;
+  const aHas = typeof ao === 'number' && !Number.isNaN(ao);
+  const bHas = typeof bo === 'number' && !Number.isNaN(bo);
+  if (aHas && bHas) {
+    if (ao !== bo) return (ao as number) - (bo as number);
+    return a.name.localeCompare(b.name, 'ko');
+  }
+  if (aHas) return -1;
+  if (bHas) return 1;
+  return a.name.localeCompare(b.name, 'ko');
+}
+
 /** orgId 기준으로 자신 + 모든 하위 조직 ID 반환 */
 export function getDescendantOrgIds(orgId: string, orgs: Organization[]): string[] {
   const result: string[] = [orgId];
@@ -39,6 +60,178 @@ export function teamHasNoLead(goal: Goal, allOrgs: Organization[]): boolean {
 }
 
 export type ApprovalRole = 'TEAM_LEAD' | 'HQ_HEAD' | 'EXEC';
+
+/** 결재 체인 단계 정보 */
+export interface ApprovalStage {
+  role: ApprovalRole;
+  orgId: string;
+  orgName: string;
+  userId?: string;  // 해당 단계 책임자 (leaderId)
+}
+
+/**
+ * 결재 체인 (단계 순서대로). 오너 본인이 차지하는 단계는 자동 제외.
+ *  - 팀원 목표: [팀장, (본부장), 임원]
+ *  - 팀장 목표: [(본부장), 임원]  ← 팀 = 본인 책임이라 팀장 단계 스킵
+ *  - 본부장(HQ 직속) 목표: [임원]   ← HQ 단계 스킵
+ */
+export function buildApprovalChain(
+  goal: Goal,
+  allOrgs: Organization[],
+  ownerRole: string | undefined,
+): ApprovalStage[] {
+  const chain = getOrgChain(goal.organizationId, allOrgs);
+  const teamOrg = chain.find(o => o.type === 'TEAM');
+  const hqOrg = chain.find(o => o.type === 'HEADQUARTERS');
+  const divOrg = chain.find(o => o.type === 'DIVISION');
+  const stages: ApprovalStage[] = [];
+
+  const isOwnerTL = ownerRole === 'TEAM_LEAD';
+  const isOwnerExec = ownerRole === 'EXECUTIVE';
+  const ownerOrg = allOrgs.find(o => o.id === goal.organizationId);
+  const ownerIsHQDirect = ownerOrg?.type === 'HEADQUARTERS'; // 본부장 본인 목표
+
+  // ① 팀장 단계 — 오너가 팀원(=일반)일 때만
+  if (teamOrg && !isOwnerTL && !isOwnerExec) {
+    stages.push({ role: 'TEAM_LEAD', orgId: teamOrg.id, orgName: teamOrg.name, userId: teamOrg.leaderId ?? undefined });
+  }
+  // ② 본부장 단계 — HQ + DIV 모두 있고, 오너가 본부장 본인(HQ 직속)이 아닐 때
+  if (hqOrg && divOrg && !ownerIsHQDirect) {
+    stages.push({ role: 'HQ_HEAD', orgId: hqOrg.id, orgName: hqOrg.name, userId: hqOrg.leaderId ?? undefined });
+  }
+  // ③ 임원 단계 — DIV 가 최종, 없으면 HQ 가 최종 (본부장 본인 목표 제외)
+  if (divOrg) {
+    stages.push({ role: 'EXEC', orgId: divOrg.id, orgName: divOrg.name, userId: divOrg.leaderId ?? undefined });
+  } else if (hqOrg && !ownerIsHQDirect) {
+    stages.push({ role: 'EXEC', orgId: hqOrg.id, orgName: hqOrg.name, userId: hqOrg.leaderId ?? undefined });
+  }
+  return stages;
+}
+
+/** 현재 처리 대기 중인 stage index (없으면 -1) */
+export function currentPendingStageIdx(goal: Goal, chain: ApprovalStage[]): number {
+  if (chain.length === 0) return -1;
+  if (goal.status === 'PENDING_APPROVAL') {
+    // 첫 단계
+    return 0;
+  }
+  if (goal.status === 'LEAD_APPROVED') {
+    const hqIdx = chain.findIndex(s => s.role === 'HQ_HEAD');
+    if (hqIdx >= 0 && !goal.hqApprovedBy) return hqIdx;
+    const execIdx = chain.findIndex(s => s.role === 'EXEC');
+    if (execIdx >= 0) return execIdx;
+    return -1;
+  }
+  if (goal.status === 'COMPLETED') {
+    const tlIdx = chain.findIndex(s => s.role === 'TEAM_LEAD');
+    if (tlIdx >= 0 && !goal.completionLeadApprovedBy) return tlIdx;
+    const hqIdx = chain.findIndex(s => s.role === 'HQ_HEAD');
+    if (hqIdx >= 0 && !goal.completionHqApprovedBy) return hqIdx;
+    const execIdx = chain.findIndex(s => s.role === 'EXEC');
+    if (execIdx >= 0 && !goal.completionExecApprovedBy) return execIdx;
+    return -1;
+  }
+  if (goal.status === 'PENDING_ABANDON') {
+    const tlIdx = chain.findIndex(s => s.role === 'TEAM_LEAD');
+    if (tlIdx >= 0 && !goal.abandonLeadApprovedBy) return tlIdx;
+    const hqIdx = chain.findIndex(s => s.role === 'HQ_HEAD');
+    if (hqIdx >= 0) return hqIdx;
+    const execIdx = chain.findIndex(s => s.role === 'EXEC');
+    if (execIdx >= 0) return execIdx;
+  }
+  return -1;
+}
+
+/** 내가 체인에서 어느 stage 에 해당하는지 (-1: 미해당) */
+export function myStageIdxIn(
+  chain: ApprovalStage[],
+  myUserId: string,
+  myRole: string,
+  myOrgId: string | undefined,
+): number {
+  for (let i = 0; i < chain.length; i++) {
+    const st = chain[i];
+    if (st.userId === myUserId) return i;
+    // leaderId 미지정 fallback
+    if (!st.userId && myOrgId) {
+      if (st.role === 'TEAM_LEAD' && myRole === 'TEAM_LEAD' && st.orgId === myOrgId) return i;
+      if (st.role === 'HQ_HEAD' && (myRole === 'TEAM_LEAD' || myRole === 'EXECUTIVE') && st.orgId === myOrgId) return i;
+      if (st.role === 'EXEC' && myRole === 'EXECUTIVE') return i;
+    }
+  }
+  return -1;
+}
+
+/** 단계 라벨 (UI용) */
+export function stageLabel(role: ApprovalRole): string {
+  return role === 'TEAM_LEAD' ? '팀장' : role === 'HQ_HEAD' ? '본부장' : '임원';
+}
+
+/**
+ * 상신자(=변경 행위자)가 새 책임자의 결재 체인에 포함되는 경우,
+ * 그 단계까지 자동 승인된 결재 필드/상태를 계산한다.
+ * 셀프 승인 방지(예: 팀장 본인이 본인 팀 팀원에게 책임자 재지정 시 팀장 단계 자동 처리).
+ *
+ * 동작:
+ *  - submitter 가 체인에 없음 → { status:'PENDING_APPROVAL', fields:{} } 반환
+ *  - submitter 의 단계가 TEAM_LEAD → leadApprovedBy 채움, status='LEAD_APPROVED'
+ *  - submitter 의 단계가 HQ_HEAD  → hqApprovedBy 채움, status='LEAD_APPROVED'
+ *      (leadApprovedBy 는 비워둠 — LEAD_APPROVED 상태에서 hqApprovedBy 가 있으면 currentPendingStageIdx 가
+ *       자동으로 EXEC 단계로 진행시키므로 정상 동작)
+ *  - submitter 의 단계가 EXEC     → approvedBy 채움, status='APPROVED'
+ */
+export function computeSubmitterAutoApproval(params: {
+  newOwnerOrgId: string;
+  newOwnerRole: string | undefined;
+  allOrgs: Organization[];
+  submitterId: string;
+  submitterRole: string;
+  submitterOrgId: string | undefined;
+}): {
+  status: 'PENDING_APPROVAL' | 'LEAD_APPROVED' | 'APPROVED';
+  fields: {
+    leadApprovedBy?: string;
+    leadApprovedAt?: Date;
+    hqApprovedBy?: string;
+    hqApprovedAt?: Date;
+    approvedBy?: string;
+    approvedAt?: Date;
+  };
+  stageRole: ApprovalRole | null;
+} {
+  // 새 책임자 기준 결재 체인 합성용 Goal (organizationId 만 필요)
+  const synthetic = { organizationId: params.newOwnerOrgId } as unknown as Goal;
+  const chain = buildApprovalChain(synthetic, params.allOrgs, params.newOwnerRole);
+  const idx = myStageIdxIn(chain, params.submitterId, params.submitterRole, params.submitterOrgId);
+
+  if (idx < 0 || idx >= chain.length) {
+    return { status: 'PENDING_APPROVAL', fields: {}, stageRole: null };
+  }
+
+  const st = chain[idx];
+  const now = new Date();
+
+  if (st.role === 'TEAM_LEAD') {
+    return {
+      status: 'LEAD_APPROVED',
+      fields: { leadApprovedBy: params.submitterId, leadApprovedAt: now },
+      stageRole: 'TEAM_LEAD',
+    };
+  }
+  if (st.role === 'HQ_HEAD') {
+    return {
+      status: 'LEAD_APPROVED',
+      fields: { hqApprovedBy: params.submitterId, hqApprovedAt: now },
+      stageRole: 'HQ_HEAD',
+    };
+  }
+  // EXEC
+  return {
+    status: 'APPROVED',
+    fields: { approvedBy: params.submitterId, approvedAt: now },
+    stageRole: 'EXEC',
+  };
+}
 
 /** 현재 사용자가 특정 목표의 결재 체인에서 담당하는 역할을 결정 */
 export function getMyApprovalRole(
@@ -77,8 +270,9 @@ export function getMyApprovalRole(
 }
 
 /**
- * 사용자가 처리해야 할 목표(목표 승인 + 완료 확인 + 포기 요청) 모두 합산.
- * approvals 페이지와 동일한 필터를 한 곳에서 처리.
+ * 사용자가 처리해야 할 목표(또는 상위 단계 모니터링용) 목록.
+ * 본인 단계가 현재 처리 stage 이상이면 모두 포함 — 상위 단계자는 "검토 중" 표시로 활용.
+ * 본인이 owner 인 목표는 제외.
  */
 export function filterMyActionableGoals(
   goals: Goal[],
@@ -87,77 +281,42 @@ export function filterMyActionableGoals(
   currentUserId: string,
   currentUserRole: string,
 ): Goal[] {
-  const myOrg = allOrgs.find(o => o.id === usersMap[currentUserId]?.organizationId);
-
+  const myOrgId = usersMap[currentUserId]?.organizationId;
   return goals.filter(g => {
     if (g.userId === currentUserId) return false;
-    const role = getMyApprovalRole(g, allOrgs, currentUserId, currentUserRole, myOrg);
-    if (!role) return false;
     const ownerRole = usersMap[g.userId]?.role;
-    const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
-    const ownerOrg = allOrgs.find(o => o.id === g.organizationId);
-    const ownerOrgIsHQ = ownerOrg?.type === 'HEADQUARTERS';
-    const noTeamLead = teamHasNoLead(g, allOrgs);
-    const goalHasHQ = hasHQInChain(g, allOrgs);
-
-    // ── 신규 목표 승인 ────────────────────────────────────
-    if (g.status === 'PENDING_APPROVAL') {
-      if (role === 'TEAM_LEAD' && isSubordinate) return true;
-      if (role === 'HQ_HEAD') {
-        if (ownerRole === 'TEAM_LEAD') return true; // 팀장 신규 목표 본부 1차
-        if (isSubordinate && noTeamLead) return true; // 팀장 부재 시 본부장 대행
-      }
-      if (role === 'EXEC') {
-        if (ownerRole === 'TEAM_LEAD' && !goalHasHQ) return true;
-        if (ownerRole === 'TEAM_LEAD' && ownerOrgIsHQ) return true; // 본부장 본인 목표
-        if (ownerRole === 'EXECUTIVE') return true; // 임원 role 본부장 본인 목표
-        if (isSubordinate && noTeamLead && !goalHasHQ) return true;
-      }
-    }
-
-    // ── 신규 목표 본부장 2차 / 임원 최종 ──────────────────
-    if (g.status === 'LEAD_APPROVED') {
-      if (role === 'HQ_HEAD' && !g.hqApprovedBy) return true;
-      if (role === 'EXEC') {
-        if (!goalHasHQ) return true;
-        if (g.hqApprovedBy) return true;
-      }
-    }
-
-    // ── 완료 확인 요청 ────────────────────────────────────
-    if (g.status === 'COMPLETED') {
-      if (role === 'TEAM_LEAD' && isSubordinate && !g.completionLeadApprovedBy) return true;
-      if (role === 'HQ_HEAD') {
-        if (isSubordinate && !!g.completionLeadApprovedBy && !g.completionHqApprovedBy) return true;
-        if (ownerRole === 'TEAM_LEAD' && !g.completionHqApprovedBy) return true;
-        if (isSubordinate && !g.completionLeadApprovedBy && !g.completionHqApprovedBy && noTeamLead) return true;
-      }
-      if (role === 'EXEC' && !g.completionExecApprovedBy) {
-        if (ownerRole === 'TEAM_LEAD') {
-          if (!goalHasHQ) return true;
-          if (g.completionHqApprovedBy) return true;
-          if (ownerOrgIsHQ) return true; // 본부장 본인 목표
-        }
-        if (ownerRole === 'EXECUTIVE') return true;
-        if (isSubordinate && !!g.completionLeadApprovedBy) {
-          if (!goalHasHQ) return true;
-          if (g.completionHqApprovedBy) return true;
-        }
-      }
-    }
-
-    // ── 포기 요청 ─────────────────────────────────────────
-    if (g.status === 'PENDING_ABANDON') {
-      if (role === 'TEAM_LEAD' && isSubordinate && !g.abandonLeadApprovedBy) return true;
-      if (role === 'HQ_HEAD' && isSubordinate && !g.abandonLeadApprovedBy && noTeamLead) return true;
-      if (role === 'EXEC') {
-        if (ownerRole === 'TEAM_LEAD') return true;
-        if (ownerRole === 'EXECUTIVE') return true;
-        if (isSubordinate && !!g.abandonLeadApprovedBy) return true;
-        if (isSubordinate && !g.abandonLeadApprovedBy && noTeamLead && !goalHasHQ) return true;
-      }
-    }
-
-    return false;
+    const chain = buildApprovalChain(g, allOrgs, ownerRole);
+    const currentIdx = currentPendingStageIdx(g, chain);
+    if (currentIdx < 0) return false;  // 처리할 단계 없음
+    const myIdx = myStageIdxIn(chain, currentUserId, currentUserRole, myOrgId);
+    if (myIdx < 0) return false;  // 체인 미포함
+    return myIdx >= currentIdx;  // 현재 단계자 + 상위 단계자(모니터링) 포함
   });
+}
+
+/**
+ * 특정 목표에 대해 사용자가 "이번 단계 처리자(active)" 인지, "상위 단계자(검토 중 표시용)" 인지 판정.
+ */
+export function getApprovalRowState(
+  goal: Goal,
+  allOrgs: Organization[],
+  usersMap: Record<string, User>,
+  currentUserId: string,
+  currentUserRole: string,
+): {
+  state: 'NEXT' | 'UPSTREAM' | 'NONE';
+  myStage?: ApprovalStage;
+  pendingStage?: ApprovalStage;
+} {
+  if (goal.userId === currentUserId) return { state: 'NONE' };
+  const ownerRole = usersMap[goal.userId]?.role;
+  const chain = buildApprovalChain(goal, allOrgs, ownerRole);
+  const currentIdx = currentPendingStageIdx(goal, chain);
+  if (currentIdx < 0) return { state: 'NONE' };
+  const myOrgId = usersMap[currentUserId]?.organizationId;
+  const myIdx = myStageIdxIn(chain, currentUserId, currentUserRole, myOrgId);
+  if (myIdx < 0) return { state: 'NONE' };
+  if (myIdx === currentIdx) return { state: 'NEXT', myStage: chain[myIdx], pendingStage: chain[currentIdx] };
+  if (myIdx > currentIdx) return { state: 'UPSTREAM', myStage: chain[myIdx], pendingStage: chain[currentIdx] };
+  return { state: 'NONE' };
 }

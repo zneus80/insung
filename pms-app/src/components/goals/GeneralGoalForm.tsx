@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { createGoal, updateGoal } from '@/lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,7 @@ const IMPORTANCE_OPTIONS: { value: Importance; label: string; cls: string }[] = 
 
 export default function GeneralGoalForm({ open, onClose, onSave, editGoal }: GeneralGoalFormProps) {
   const { userProfile } = useAuth();
+  const { activeYear } = useActiveYear();
   const [generalType, setGeneralType] = useState<GeneralType>('MAJOR');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -92,7 +94,7 @@ export default function GeneralGoalForm({ open, onClose, onSave, editGoal }: Gen
           status,
           userId: userProfile.id,
           organizationId: userProfile.organizationId,
-          cycleYear: new Date().getFullYear(),
+          cycleYear: activeYear,  // v0.76: 활성 연도 기준 — 익년초까지 걸친 평가기간 호환
         });
       }
       onSave();
@@ -174,7 +176,7 @@ export default function GeneralGoalForm({ open, onClose, onSave, editGoal }: Gen
             <>
               <div className="space-y-1.5">
                 <Label>추진기한 <span className="text-red-500">*</span></Label>
-                <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+                <Input type="date" min="2000-01-01" max="2099-12-31" value={dueDate} onChange={e => setDueDate(e.target.value)} />
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input

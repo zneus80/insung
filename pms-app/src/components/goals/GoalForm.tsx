@@ -94,7 +94,7 @@ export default function GoalForm({
           <Label htmlFor="dueDate">
             추진기한 <span className="text-red-500">*</span>
           </Label>
-          <Input id="dueDate" type="date" {...register('dueDate')} />
+          <Input id="dueDate" type="date" min="2000-01-01" max="2099-12-31" {...register('dueDate')} />
           {errors.dueDate && (
             <p className="text-xs text-red-500">{errors.dueDate.message}</p>
           )}

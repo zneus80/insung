@@ -16,6 +16,7 @@ import {
   getGradeQuotas,
   getAllIndividualEvaluations,
   getSelfEvaluationsByUsers,
+  clearExecConfirmation,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,7 @@ import AuthGuard from '@/components/layout/AuthGuard';
 import { History, Check, AlertCircle, RefreshCw, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
+import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import type {
   Organization,
   OrganizationEvaluation,
@@ -154,7 +156,7 @@ function OrgEvaluationContent() {
         return !ancestors.some(a => a.type === 'DIVISION');
       }
       return false;
-    });
+    }).sort(compareOrgByDisplayOrder);
     const activeUsers = users.filter(u => u.isActive);
 
     setAllOrgs(orgs);
@@ -269,6 +271,25 @@ function OrgEvaluationContent() {
       return;
     }
 
+    // 이 부문/공장 산하에 이미 임원 확정/공개된 개인평가가 있는지 미리 조회.
+    // 있다면 — 쿼터 (재)확정으로 그 등급들을 무효화해야 함.
+    // (참고: 재조정 버튼이 quota status 를 DRAFT 로 먼저 바꾸기 때문에,
+    //        "이전 quota 가 CONFIRMED 였나" 로 판단하면 항상 false 가 되어 무효화 안 됨.
+    //        그래서 실제 임원 확정 IE 의 존재 여부로 판단한다.)
+    const descIds = [org.id, ...findDescendantIds(org.id, allOrgs)];
+    const allIEs = await getAllIndividualEvaluations(year);
+    const affected = allIEs.filter(ie =>
+      descIds.includes(ie.organizationId) &&
+      (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED')
+    );
+
+    if (affected.length > 0) {
+      const msg =
+        `${org.name} 쿼터를 (재)확정하면 이 조직에서 이미 임원이 확정한 ${affected.length}건의 개인 등급이 모두 무효화되고, ` +
+        `임원이 다시 등급을 부여해야 합니다.\n\n계속하시겠습니까?`;
+      if (!confirm(msg)) return;
+    }
+
     setSavingQuota(org.id);
     try {
       await upsertDivisionGradeQuota(org.id, year, {
@@ -284,8 +305,20 @@ function OrgEvaluationContent() {
         confirmedAt: new Date(),
         updatedBy: userProfile.id,
       });
-      toast.success(`${org.name} 쿼터가 확정되었습니다.`);
+
+      // 임원 확정 등급 무효화 (산하 EXEC_CONFIRMED/PUBLISHED 모두)
+      if (affected.length > 0) {
+        await Promise.all(affected.map(ie => clearExecConfirmation(ie)));
+        toast.success(
+          `${org.name} 쿼터가 확정되고, 임원 확정 등급 ${affected.length}건이 무효화되었습니다.`,
+        );
+      } else {
+        toast.success(`${org.name} 쿼터가 확정되었습니다.`);
+      }
       await load();
+    } catch (err) {
+      console.error('[쿼터 확정] 실패:', err);
+      toast.error('쿼터 확정에 실패했습니다.');
     } finally { setSavingQuota(null); }
   }
 

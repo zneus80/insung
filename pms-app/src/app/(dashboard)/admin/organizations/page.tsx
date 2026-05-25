@@ -35,6 +35,7 @@ const EMPTY_FORM = {
   type: 'TEAM' as OrgType,
   parentId: null as string | null,
   leaderId: null as string | null,
+  displayOrder: '' as string, // 입력 편의를 위해 string 으로 다루다 저장 시 number 변환
 };
 
 // ── 트리 빌더 ────────────────────────────────────
@@ -51,6 +52,23 @@ function buildOrgTree(orgs: Organization[]): OrgTreeNode[] {
     if (!childrenMap.has(pid)) childrenMap.set(pid, []);
     childrenMap.get(pid)!.push(org);
   }
+  // 각 부모 단위의 자식들을 정렬:
+  //  displayOrder 가 있는 항목 우선 (오름차순), 없는 항목은 그 뒤에 이름순
+  childrenMap.forEach(arr => {
+    arr.sort((a, b) => {
+      const ao = a.displayOrder;
+      const bo = b.displayOrder;
+      const aHas = typeof ao === 'number' && !Number.isNaN(ao);
+      const bHas = typeof bo === 'number' && !Number.isNaN(bo);
+      if (aHas && bHas) {
+        if (ao !== bo) return (ao as number) - (bo as number);
+        return a.name.localeCompare(b.name, 'ko');
+      }
+      if (aHas) return -1;
+      if (bHas) return 1;
+      return a.name.localeCompare(b.name, 'ko');
+    });
+  });
 
   const result: OrgTreeNode[] = [];
 
@@ -112,7 +130,10 @@ function OrganizationsContent() {
 
   function openEdit(org: Organization) {
     setEditing(org);
-    setForm({ name: org.name, type: org.type, parentId: org.parentId, leaderId: org.leaderId });
+    setForm({
+      name: org.name, type: org.type, parentId: org.parentId, leaderId: org.leaderId,
+      displayOrder: org.displayOrder != null ? String(org.displayOrder) : '',
+    });
     setShowDialog(true);
   }
 
@@ -152,17 +173,21 @@ function OrganizationsContent() {
           const processed = await abandonGoalsForOrg(editing.id, userProfile.id);
           if (processed > 0) toast.success(`기존 목표 ${processed}건이 포기 처리되었습니다.`);
         }
+        const orderNum = form.displayOrder.trim() === '' ? undefined : Number(form.displayOrder);
         await updateOrganization(editing.id, {
           name: form.name, type: form.type,
           parentId: form.parentId || null,
           leaderId: form.leaderId || null,
+          ...(orderNum !== undefined && !Number.isNaN(orderNum) ? { displayOrder: orderNum } : {}),
         });
         toast.success('조직 정보가 수정되었습니다.');
       } else {
+        const orderNum = form.displayOrder.trim() === '' ? undefined : Number(form.displayOrder);
         await createOrganization({
           name: form.name, type: form.type,
           parentId: form.parentId || null,
           leaderId: form.leaderId || null,
+          ...(orderNum !== undefined && !Number.isNaN(orderNum) ? { displayOrder: orderNum } : {}),
         });
         toast.success('조직이 추가되었습니다.');
       }
@@ -237,23 +262,23 @@ function OrganizationsContent() {
   return (
     <div className="flex flex-col h-full">
       <Header title="조직 관리" />
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 min-h-0 flex flex-col gap-4 p-6 overflow-hidden">
 
         {/* 안내 */}
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shrink-0">
           <strong>권장 등록 순서:</strong> 조직 등록 (책임자 없이) → 사용자 등록 (소속 지정) → 조직 수정으로 책임자 지정
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex justify-end shrink-0">
           <Button onClick={openNew} size="sm" className="gap-1.5">
             <Plus className="h-4 w-4" /> 조직 추가
           </Button>
         </div>
 
         {/* 조직도 테이블 */}
-        <div className="rounded-xl border bg-white overflow-hidden">
+        <div className="flex-1 min-h-0 rounded-xl border bg-white overflow-y-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs">
+            <thead className="bg-gray-50 text-gray-500 text-xs sticky top-0 z-10">
               <tr>
                 <th className="px-4 py-3 text-left">조직명</th>
                 <th className="px-4 py-3 text-left">구분</th>
@@ -468,6 +493,20 @@ function OrganizationsContent() {
                   </SelectContent>
                 </Select>
               </div>
+              {/* 부문/공장 표시 순서 — DIVISION 타입에만 노출 */}
+              {form.type === 'DIVISION' && (
+                <div className="space-y-1.5">
+                  <Label>
+                    표시 순서 <span className="text-gray-400 text-xs font-normal">(작은 값이 먼저 표시)</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    value={form.displayOrder}
+                    onChange={e => setForm(f => ({ ...f, displayOrder: e.target.value }))}
+                    placeholder="예) 1, 2, 3"
+                  />
+                </div>
+              )}
               <Button onClick={handleSave} disabled={saving} className="w-full">
                 {saving ? '저장 중...' : editing ? '수정' : '추가'}
               </Button>

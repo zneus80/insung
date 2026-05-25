@@ -16,19 +16,31 @@ interface Props {
   memberName: string;
   leadOpinion?: string;
   execOpinion?: string;
+  /** 커스텀 트리거. 미지정 시 기본 "육성면담서 전체 보기" 텍스트 버튼 사용. */
+  trigger?: React.ReactNode;
 }
 
-export default function MentoringFormModal({ form, memberName, leadOpinion, execOpinion }: Props) {
+export default function MentoringFormModal({ form, memberName, leadOpinion, execOpinion, trigger }: Props) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="text-xs text-blue-600 hover:underline font-medium"
-      >
-        육성면담서 전체 보기
-      </button>
+      {trigger ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="text-left hover:opacity-80 transition-opacity cursor-pointer"
+        >
+          {trigger}
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="text-xs text-blue-600 hover:underline font-medium"
+        >
+          육성면담서 전체 보기
+        </button>
+      )}
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

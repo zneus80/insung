@@ -650,14 +650,50 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
   const { userProfile } = useAuth();
   const me = userProfile;  // Comment 작성자 정보
   const [members, setMembers] = useState<User[]>([]);
+  const [orgsById, setOrgsById] = useState<Map<string, Organization>>(new Map());
   const [tasksByUser, setTasksByUser] = useState<Record<string, WeeklyTask>>({});
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
   const [savingComment, setSavingComment] = useState<string | null>(null);
+  // v0.76 A2: 코멘트 수정 상태
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
   const today = getISOWeek(new Date());
   const { start, end } = getWeekRange(year, week);
   const isCurrentWeek = year === today.year && week === today.week;
+
+  // 코멘트 수정 저장
+  async function handleEditComment(memberId: string, commentId: string) {
+    if (!editingText.trim()) return;
+    const { updateLeadComment } = await import('@/lib/firestore');
+    await updateLeadComment(memberId, year, week, commentId, editingText.trim());
+    setTasksByUser(p => ({
+      ...p,
+      [memberId]: {
+        ...p[memberId],
+        leadComments: (p[memberId].leadComments ?? []).map(c =>
+          c.id === commentId ? { ...c, text: editingText.trim(), editedAt: new Date() } : c
+        ),
+      },
+    }));
+    setEditingCommentId(null);
+    setEditingText('');
+  }
+
+  // 코멘트 삭제
+  async function handleDeleteComment(memberId: string, commentId: string) {
+    if (!confirm('이 코멘트를 삭제하시겠습니까?')) return;
+    const { deleteLeadComment } = await import('@/lib/firestore');
+    await deleteLeadComment(memberId, year, week, commentId);
+    setTasksByUser(p => ({
+      ...p,
+      [memberId]: {
+        ...p[memberId],
+        leadComments: (p[memberId].leadComments ?? []).filter(c => c.id !== commentId),
+      },
+    }));
+  }
 
   useEffect(() => {
     if (!userProfile) return;
@@ -672,6 +708,7 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
         u.id !== userProfile!.id && scopeOrgIds.includes(u.organizationId),
       );
       setMembers(users);
+      setOrgsById(new Map(allOrgs.map(o => [o.id, o])));
       const tasks = await getWeeklyTasksByUsersAndWeek(users.map(u => u.id), year, week);
       const map: Record<string, WeeklyTask> = {};
       tasks.forEach(t => { map[t.userId] = t; });
@@ -754,7 +791,9 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
                   </div>
                   <div className="flex-1 text-left">
                     <span className="text-sm font-semibold text-gray-900">{member.name}</span>
-                    {member.position && <span className="ml-2 text-xs text-gray-400">{member.position}</span>}
+                    <span className="ml-2 text-xs text-gray-400">
+                      {[orgsById.get(member.organizationId)?.name, member.position].filter(Boolean).join(' · ')}
+                    </span>
                   </div>
                   {hasAny ? (
                     <div className="flex items-center gap-4 text-xs shrink-0">
@@ -827,19 +866,56 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
                     <div className="border-t bg-blue-50/40 px-4 py-3 space-y-3">
                       <p className="text-xs font-semibold text-blue-700">팀 코멘트</p>
 
-                      {/* 기존 Comment 스레드 */}
+                      {/* 기존 Comment 스레드 — 본인 코멘트는 수정·삭제 가능 (v0.76 A2) */}
                       {(wt?.leadComments ?? []).length > 0 && (
                         <div className="space-y-2">
-                          {(wt!.leadComments).map(c => (
-                            <div key={c.id} className="rounded-lg bg-white border border-blue-100 px-3 py-2.5 space-y-1">
-                              <div className="flex items-center gap-2 text-xs text-gray-400">
-                                <span className="font-medium text-blue-700">{c.authorName}</span>
-                                <span>·</span>
-                                <span>{c.createdAt.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          {(wt!.leadComments).map(c => {
+                            const isOwn = me && c.authorId === me.id;
+                            const isEditing = editingCommentId === c.id;
+                            return (
+                              <div key={c.id} className="rounded-lg bg-white border border-blue-100 px-3 py-2.5 space-y-1 group">
+                                <div className="flex items-center gap-2 text-xs text-gray-400">
+                                  <span className="font-medium text-blue-700">{c.authorName}</span>
+                                  <span>·</span>
+                                  <span>{c.createdAt.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                  {c.editedAt && <span className="text-gray-300">(수정됨)</span>}
+                                  {isOwn && !isEditing && (
+                                    <span className="ml-auto opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+                                      <button
+                                        onClick={() => { setEditingCommentId(c.id); setEditingText(c.text); }}
+                                        className="text-blue-500 hover:text-blue-700"
+                                      >
+                                        수정
+                                      </button>
+                                      <span>·</span>
+                                      <button
+                                        onClick={() => handleDeleteComment(member.id, c.id)}
+                                        className="text-red-500 hover:text-red-700"
+                                      >
+                                        삭제
+                                      </button>
+                                    </span>
+                                  )}
+                                </div>
+                                {isEditing ? (
+                                  <div className="space-y-1.5">
+                                    <textarea
+                                      rows={2}
+                                      value={editingText}
+                                      onChange={e => setEditingText(e.target.value)}
+                                      className="w-full resize-none rounded-md border border-blue-300 bg-white px-2 py-1.5 text-sm"
+                                    />
+                                    <div className="flex justify-end gap-2 text-xs">
+                                      <button onClick={() => { setEditingCommentId(null); setEditingText(''); }} className="text-gray-500 hover:text-gray-700">취소</button>
+                                      <button onClick={() => handleEditComment(member.id, c.id)} className="text-blue-600 font-medium hover:text-blue-800">저장</button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.text}</p>
+                                )}
                               </div>
-                              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.text}</p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
 
@@ -892,8 +968,41 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
   const [savingComment, setSavingComment] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // v0.76 A2: 본인 코멘트 수정 상태
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
   const { start, end } = getWeekRange(year, week);
   const isCurrentWeek = year === today.year && week === today.week;
+
+  async function handleEditComment(memberId: string, commentId: string) {
+    if (!editingText.trim()) return;
+    const { updateLeadComment } = await import('@/lib/firestore');
+    await updateLeadComment(memberId, year, week, commentId, editingText.trim());
+    setTasksByUser(p => ({
+      ...p,
+      [memberId]: {
+        ...p[memberId],
+        leadComments: (p[memberId].leadComments ?? []).map(c =>
+          c.id === commentId ? { ...c, text: editingText.trim(), editedAt: new Date() } : c
+        ),
+      },
+    }));
+    setEditingCommentId(null);
+    setEditingText('');
+  }
+
+  async function handleDeleteComment(memberId: string, commentId: string) {
+    if (!confirm('이 코멘트를 삭제하시겠습니까?')) return;
+    const { deleteLeadComment } = await import('@/lib/firestore');
+    await deleteLeadComment(memberId, year, week, commentId);
+    setTasksByUser(p => ({
+      ...p,
+      [memberId]: {
+        ...p[memberId],
+        leadComments: (p[memberId].leadComments ?? []).filter(c => c.id !== commentId),
+      },
+    }));
+  }
 
   async function handleSaveComment(memberId: string) {
     const wt = tasksByUser[memberId];
@@ -951,14 +1060,19 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
     load().catch(console.error);
   }, [userProfile, year, week, isAllOrgs]);
 
-  // 산하 팀 목록 — TEAM + 본부 멤버가 있는 HEADQUARTERS도 탭으로 노출
-  // (본부장이 어떤 팀에도 속하지 않고 본부 직속이므로 누락 방지)
+  // 산하 팀 목록 — TEAM + 주간업무 작성 대상자가 있는 HEADQUARTERS
+  // (본부장이 임원 role이면 주간업무 작성 안 함 → 그런 본부는 탭에 노출 안 함)
   // 정렬: 부문 → 본부 → 팀 순서 (조직 트리 DFS 순회)
   const teams = (() => {
     const filtered = orgs.filter(o => {
       if (o.type === 'TEAM') return true;
       if (o.type === 'HEADQUARTERS') {
-        return users.some(u => u.organizationId === o.id);
+        // HEADQUARTERS 본부장은 임원 role 또는 팀장 role 인데, 임원 role 본부장은
+        // 본인 주간업무 작성 안 함 (CLAUDE.md 본부장 권한 케이스 정의). 따라서 본부 직속
+        // 멤버 중 주간업무 작성 대상(MEMBER 또는 TEAM_LEAD)이 있을 때만 탭에 노출.
+        return users.some(u =>
+          u.organizationId === o.id && (u.role === 'MEMBER' || u.role === 'TEAM_LEAD'),
+        );
       }
       return false;
     });
@@ -1087,7 +1201,11 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
                               </div>
                               <div className="flex-1 text-left">
                                 <span className="text-sm font-semibold text-gray-900">{member.name}</span>
-                                <span className="ml-2 text-xs text-gray-400">{roleLabel}{member.position && ` · ${member.position}`}</span>
+                                <span className="ml-2 text-xs text-gray-400">
+                                  {[orgs.find(o => o.id === member.organizationId)?.name, roleLabel, member.position]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </span>
                               </div>
                               {hasAny ? (
                                 <div className="flex items-center gap-4 text-xs shrink-0">
@@ -1161,16 +1279,43 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
                                   <p className="text-xs font-semibold text-blue-700">팀 코멘트</p>
                                   {(wt?.leadComments ?? []).length > 0 && (
                                     <div className="space-y-2">
-                                      {(wt!.leadComments).map(c => (
-                                        <div key={c.id} className="rounded-lg bg-white border border-blue-100 px-3 py-2.5 space-y-1">
-                                          <div className="flex items-center gap-2 text-xs text-gray-400">
-                                            <span className="font-medium text-blue-700">{c.authorName}</span>
-                                            <span>·</span>
-                                            <span>{c.createdAt.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                      {(wt!.leadComments).map(c => {
+                                        const isOwn = userProfile && c.authorId === userProfile.id;
+                                        const isEditing = editingCommentId === c.id;
+                                        return (
+                                          <div key={c.id} className="rounded-lg bg-white border border-blue-100 px-3 py-2.5 space-y-1 group">
+                                            <div className="flex items-center gap-2 text-xs text-gray-400">
+                                              <span className="font-medium text-blue-700">{c.authorName}</span>
+                                              <span>·</span>
+                                              <span>{c.createdAt.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                              {c.editedAt && <span className="text-gray-300">(수정됨)</span>}
+                                              {isOwn && !isEditing && (
+                                                <span className="ml-auto opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+                                                  <button onClick={() => { setEditingCommentId(c.id); setEditingText(c.text); }} className="text-blue-500 hover:text-blue-700">수정</button>
+                                                  <span>·</span>
+                                                  <button onClick={() => handleDeleteComment(member.id, c.id)} className="text-red-500 hover:text-red-700">삭제</button>
+                                                </span>
+                                              )}
+                                            </div>
+                                            {isEditing ? (
+                                              <div className="space-y-1.5">
+                                                <textarea
+                                                  rows={2}
+                                                  value={editingText}
+                                                  onChange={e => setEditingText(e.target.value)}
+                                                  className="w-full resize-none rounded-md border border-blue-300 bg-white px-2 py-1.5 text-sm"
+                                                />
+                                                <div className="flex justify-end gap-2 text-xs">
+                                                  <button onClick={() => { setEditingCommentId(null); setEditingText(''); }} className="text-gray-500 hover:text-gray-700">취소</button>
+                                                  <button onClick={() => handleEditComment(member.id, c.id)} className="text-blue-600 font-medium hover:text-blue-800">저장</button>
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.text}</p>
+                                            )}
                                           </div>
-                                          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.text}</p>
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   )}
                                   {!wt ? (

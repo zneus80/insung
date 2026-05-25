@@ -3,6 +3,8 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { signOut } from '@/lib/auth';
+import { toast } from 'sonner';
 import type { UserRole } from '@/types';
 
 interface AuthGuardProps {
@@ -37,6 +39,13 @@ export default function AuthGuard({ children, allowedRoles, requireHrAdmin }: Au
 
     if (!isAuthenticated) {
       router.replace('/login');
+      return;
+    }
+
+    // 비활성화된 사용자는 즉시 로그아웃 (HR 가 deactivate 한 경우)
+    if (!IS_MOCK && userProfile && userProfile.isActive === false) {
+      toast.error('비활성화된 계정입니다. HR 관리자에게 문의하세요.');
+      signOut().finally(() => router.replace('/login'));
       return;
     }
 
