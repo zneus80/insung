@@ -103,6 +103,20 @@ const navItems: NavItem[] = [
     roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
 
+  // ── 7-1. 전사 인원현황 (CEO + HR관리자) — 그룹 없이 단독 ─
+  {
+    label: '전사 인원현황',
+    href: '/admin/all-members',
+    icon: <Users className="h-5 w-5" />,
+    roles: ['CEO'],
+  },
+  {
+    label: '전사 인원현황',
+    href: '/admin/all-members',
+    icon: <Users className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
+
   // ══ EGG Meeting ═════════════════════════════
   {
     label: '1on1',
@@ -186,22 +200,6 @@ const navItems: NavItem[] = [
     icon: <CheckSquare className="h-5 w-5" />,
     requireHrAdmin: true,
     group: '인사고과',
-  },
-
-  // ══ 인원현황 (CEO + HR관리자 공통) ═══════════════════
-  {
-    label: '전사 인원현황',
-    href: '/admin/all-members',
-    icon: <Users className="h-5 w-5" />,
-    roles: ['CEO'],
-    group: '인원현황',
-  },
-  {
-    label: '전사 인원현황',
-    href: '/admin/all-members',
-    icon: <Users className="h-5 w-5" />,
-    requireHrAdmin: true,
-    group: '인원현황',
   },
 
   // ── HR관리자 전용 — 기본정보입력 ─────────────────────
