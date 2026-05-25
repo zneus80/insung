@@ -57,6 +57,7 @@ function EvaluationHistoryContent() {
         ...d.data(),
         id: d.id,
         leadSubmittedAt: fromTimestamp(d.data().leadSubmittedAt),
+        hqReviewedAt: fromTimestamp(d.data().hqReviewedAt),
         execConfirmedAt: fromTimestamp(d.data().execConfirmedAt),
         createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
         updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
@@ -71,6 +72,20 @@ function EvaluationHistoryContent() {
     if (!user) return false;
     return user.name.includes(search) || user.email.includes(search);
   });
+
+  // 사용자의 조직 체인에 본부(HEADQUARTERS)가 포함되는지 판별
+  function hasHQInChain(userId: string): boolean {
+    const user = users[userId];
+    if (!user) return false;
+    let cur = orgs[user.organizationId];
+    while (cur) {
+      if (cur.type === 'HEADQUARTERS') return true;
+      cur = cur.parentId ? orgs[cur.parentId] : (undefined as any);
+    }
+    return false;
+  }
+  // 필터링된 결과 중 한 명이라도 HQ 체인이 있으면 본부장 컬럼 표시
+  const showHqColumn = filtered.some(e => hasHQInChain(e.userId));
 
   return (
     <div className="flex flex-col h-full">
@@ -110,6 +125,9 @@ function EvaluationHistoryContent() {
                 <th className="px-4 py-3 text-left">부서</th>
                 <th className="px-4 py-3 text-left">직책</th>
                 <th className="px-4 py-3 text-center">팀장 의견 등급</th>
+                {showHqColumn && (
+                  <th className="px-4 py-3 text-center">본부장 의견 등급</th>
+                )}
                 <th className="px-4 py-3 text-center">최종 등급</th>
                 <th className="px-4 py-3 text-left">확정일</th>
                 <th className="px-4 py-3 text-left">상태</th>
@@ -119,20 +137,21 @@ function EvaluationHistoryContent() {
               {loading ? (
                 [1, 2, 3].map(i => (
                   <tr key={i}>
-                    <td colSpan={7} className="px-4 py-3">
+                    <td colSpan={showHqColumn ? 8 : 7} className="px-4 py-3">
                       <div className="h-4 animate-pulse rounded bg-gray-100" />
                     </td>
                   </tr>
                 ))
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">
+                  <td colSpan={showHqColumn ? 8 : 7} className="px-4 py-8 text-center text-gray-400 text-sm">
                     {selectedYear}년 평가 데이터가 없습니다.
                   </td>
                 </tr>
               ) : filtered.map(e => {
                 const user = users[e.userId];
                 const org = orgs[user?.organizationId ?? ''];
+                const rowHasHQ = hasHQInChain(e.userId);
                 return (
                   <tr key={e.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">{user?.name ?? '-'}</td>
@@ -145,6 +164,17 @@ function EvaluationHistoryContent() {
                         </span>
                       ) : <span className="text-gray-300">-</span>}
                     </td>
+                    {showHqColumn && (
+                      <td className="px-4 py-3 text-center">
+                        {!rowHasHQ ? (
+                          <span className="text-gray-300" title="본부 단계 없음">—</span>
+                        ) : e.hqGrade ? (
+                          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${GRADE_COLORS[e.hqGrade]}`}>
+                            {e.hqGrade}
+                          </span>
+                        ) : <span className="text-gray-300">-</span>}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-center">
                       {e.execGrade ? (
                         <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLORS[e.execGrade]}`}>
@@ -159,11 +189,13 @@ function EvaluationHistoryContent() {
                       <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         e.status === 'PUBLISHED' ? 'bg-green-100 text-green-700' :
                         e.status === 'EXEC_CONFIRMED' ? 'bg-blue-100 text-blue-700' :
+                        e.status === 'HQ_REVIEWED' ? 'bg-indigo-100 text-indigo-700' :
                         e.status === 'LEAD_REVIEWED' ? 'bg-yellow-100 text-yellow-700' :
                         'bg-gray-100 text-gray-500'
                       }`}>
                         {e.status === 'PUBLISHED' ? '공개완료' :
                          e.status === 'EXEC_CONFIRMED' ? '등급확정' :
+                         e.status === 'HQ_REVIEWED' ? '본부장검토' :
                          e.status === 'LEAD_REVIEWED' ? '팀장검토' :
                          e.status === 'SELF_SUBMITTED' ? '자기평가완료' : '미시작'}
                       </span>

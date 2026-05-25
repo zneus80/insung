@@ -322,7 +322,8 @@ function MemberGroup({
                 <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', stageMeta.color)}>
                   {stageMeta.label}
                 </span>
-                {grade && isPublished ? (
+                {/* 임원이 확정한 등급 — 임원 확정 또는 공개 이후 단계에서 표시 (CEO/HR 만 보는 페이지) */}
+                {grade && (stage === 'EXEC_CONFIRMED' || stage === 'PUBLISHED') ? (
                   <span className={cn('rounded-full px-3 py-0.5 text-sm font-bold', GRADE_STYLE[grade])}>
                     {grade}등급
                   </span>

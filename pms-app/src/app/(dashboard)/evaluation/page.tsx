@@ -73,12 +73,14 @@ function LoadingSpinner() {
 
 // ─── 라우터 ───────────────────────────────────────────────
 export default function EvaluationPage() {
-  const { userProfile } = useAuth();
+  const { userProfile, effectiveEvalRole } = useAuth();
 
   if (!userProfile) return null;
   const { role } = userProfile;
-  if (role === 'MEMBER' || role === 'TEAM_LEAD') return <MemberEvalView />;
-  if (role === 'EXECUTIVE') return <ExecutiveEvalView />;
+  // 자기평가는 본인이 평가 대상이면 모두(팀원·팀장·본부장) 진입 가능 → MEMBER/TEAM_LEAD/HQ_HEAD
+  if (role === 'MEMBER' || role === 'TEAM_LEAD' || effectiveEvalRole === 'HQ_HEAD') return <MemberEvalView />;
+  // 평가등급확정은 EXEC_TOP(최상위 임원) 만 — 본부장(차순위 임원)은 인사평가로 이동
+  if (effectiveEvalRole === 'EXEC_TOP') return <ExecutiveEvalView />;
   return (
     <div className="flex flex-col h-full">
       <Header title="평가 관리" />
@@ -409,8 +411,22 @@ function ExecutiveEvalView() {
       ]);
       setAllOrgs(orgs);
 
-      // 내가 leaderId인 모든 조직 → 각각 하위 탐색 → 합산 (복수 조직 담당 임원 대응)
-      const myLeadOrgs = orgs.filter(o => o.leaderId === userProfile.id);
+      // 내가 leaderId 인 조직 중 DIVISION 또는 (상위에 DIVISION 없는) HQ 만 — 최상위 임원 영역으로 한정
+      // (CLAUDE.md §2 임원 권한 케이스: 차순위 임원/본부장은 이 화면 진입 자체가 차단되어야 함)
+      function isTopLevelLeaderOrg(o: Organization): boolean {
+        if (o.type === 'DIVISION') return true;
+        if (o.type === 'HEADQUARTERS') {
+          // 상위 체인에 DIVISION 없으면 최상위 HQ
+          let cur = o.parentId ? orgs.find(p => p.id === o.parentId) : null;
+          while (cur) {
+            if (cur.type === 'DIVISION') return false;
+            cur = cur.parentId ? orgs.find(p => p.id === cur!.parentId) : null;
+          }
+          return true;
+        }
+        return false;
+      }
+      const myLeadOrgs = orgs.filter(o => o.leaderId === userProfile.id && isTopLevelLeaderOrg(o));
       const rootIds = myLeadOrgs.length > 0
         ? myLeadOrgs.map(o => o.id)
         : [userProfile.organizationId]; // fallback: leaderId 미설정 환경
