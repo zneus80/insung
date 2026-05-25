@@ -162,6 +162,70 @@ export function myStageIdxIn(
   return -1;
 }
 
+/**
+ * 사용자의 "유효 평가 권한" — 조직 체인 기반(leaderId)으로 동적 결정.
+ *
+ * CLAUDE.md §2 임원 권한 케이스에 따른 핵심 원칙:
+ *   - 임원 역할 구분은 계정 단위가 아닌 조직 배정 단위로 관리
+ *   - 동일 인물이 조직 A에서는 최상위 임원, 조직 B에서는 차순위 임원이 될 수 있음
+ *
+ * 반환 값:
+ *   - 'EXEC_TOP'  : 부문/공장(DIVISION) leader, 또는 상위에 DIVISION 이 없는 최상위 HQ leader
+ *                   → 평가등급확정·조직평가관리·최종 확정 권한
+ *   - 'HQ_HEAD'   : DIVISION 산하 본부(HEADQUARTERS) leader (= 차순위 임원/본부장)
+ *                   → 2차 의견(hqGrade) 권한만, 등급 확정 불가
+ *   - 'TEAM_LEAD' : 팀(TEAM) leader
+ *                   → 1차 의견(leadGrade) 권한
+ *   - 'MEMBER'    : 그 외 일반 팀원
+ *
+ * 우선순위: 본인이 leader 인 조직 중 가장 상위 type 으로 판단.
+ *   (예: 동일 인물이 TEAM + HQ 모두 leader → HQ_HEAD)
+ */
+export type EffectiveEvalRole = 'EXEC_TOP' | 'HQ_HEAD' | 'TEAM_LEAD' | 'MEMBER';
+
+export function getEffectiveEvalRole(
+  userId: string,
+  userRole: string,
+  userOrgId: string | undefined,
+  allOrgs: Organization[],
+): EffectiveEvalRole {
+  const myLedOrgs = allOrgs.filter(o => o.leaderId === userId);
+
+  // 부모 체인에서 DIVISION 이 있는지 확인하는 헬퍼
+  function hasDivisionAncestor(org: Organization): boolean {
+    let cur = org.parentId ? allOrgs.find(o => o.id === org.parentId) : null;
+    while (cur) {
+      if (cur.type === 'DIVISION') return true;
+      cur = cur.parentId ? allOrgs.find(o => o.id === cur!.parentId) : null;
+    }
+    return false;
+  }
+
+  // ① DIVISION leader → 최상위 임원
+  if (myLedOrgs.some(o => o.type === 'DIVISION')) return 'EXEC_TOP';
+
+  // ② HQ leader — 상위에 DIVISION 없으면 최상위, 있으면 차순위(본부장)
+  const myLedHQs = myLedOrgs.filter(o => o.type === 'HEADQUARTERS');
+  if (myLedHQs.length > 0) {
+    const isTopLevelHQ = myLedHQs.some(o => !hasDivisionAncestor(o));
+    if (isTopLevelHQ) return 'EXEC_TOP';
+    return 'HQ_HEAD';
+  }
+
+  // ③ TEAM leader → 팀장
+  if (myLedOrgs.some(o => o.type === 'TEAM')) return 'TEAM_LEAD';
+
+  // ④ leadership 없음 → 본인 소속 조직 + 선언 role 기반 fallback (leaderId 미설정 환경)
+  const myOrg = userOrgId ? allOrgs.find(o => o.id === userOrgId) : undefined;
+  if (userRole === 'EXECUTIVE') {
+    // 본인 소속이 HQ + 상위에 DIVISION 있음 → 차순위 임원(본부장)
+    if (myOrg?.type === 'HEADQUARTERS' && hasDivisionAncestor(myOrg)) return 'HQ_HEAD';
+    return 'EXEC_TOP';
+  }
+  if (userRole === 'TEAM_LEAD') return 'TEAM_LEAD';
+  return 'MEMBER';
+}
+
 /** 단계 라벨 (UI용) */
 export function stageLabel(role: ApprovalRole): string {
   return role === 'TEAM_LEAD' ? '팀장' : role === 'HQ_HEAD' ? '본부장' : '임원';

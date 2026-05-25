@@ -31,6 +31,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { signOut } from '@/lib/auth';
 import { getUnreadNotificationCount } from '@/lib/firestore';
 import type { UserRole } from '@/types';
+import type { EffectiveEvalRole } from '@/lib/approval-filters';
 
 interface NavItem {
   label: string;
@@ -38,6 +39,8 @@ interface NavItem {
   icon: React.ReactNode;
   roles?: UserRole[];
   requireHrAdmin?: boolean;
+  /** 조직 체인 기반 유효 평가 권한으로 필터 (있으면 roles 대신 이쪽 우선) */
+  evalRoles?: EffectiveEvalRole[];
   exact?: boolean;
   group?: string;
 }
@@ -161,14 +164,16 @@ const navItems: NavItem[] = [
     label: '인사평가',
     href: '/evaluation/team',
     icon: <BarChart3 className="h-5 w-5" />,
-    roles: ['TEAM_LEAD'],
+    // 1차 의견(팀장) + 2차 의견(본부장 = HQ leader) 모두 진입
+    evalRoles: ['TEAM_LEAD', 'HQ_HEAD'],
     group: '인사고과',
   },
   {
     label: '평가등급확정',
     href: '/evaluation',
     icon: <BarChart3 className="h-5 w-5" />,
-    roles: ['EXECUTIVE'],
+    // 최상위 임원(DIVISION leader / 상위에 DIVISION 없는 HQ leader) 만 확정 권한
+    evalRoles: ['EXEC_TOP'],
     exact: true,
     group: '인사고과',
   },
@@ -296,7 +301,7 @@ const navItems: NavItem[] = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { userProfile } = useAuth();
+  const { userProfile, effectiveEvalRole } = useAuth();
   const { activeYear, calendarYear } = useActiveYear();
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -316,13 +321,15 @@ export default function Sidebar() {
   }
 
   const visibleItemsRaw = navItems.filter(item => {
-    // 역할·HR 제한이 모두 없으면 전체 표시
-    if (!item.roles && !item.requireHrAdmin) return true;
+    // 역할·HR·평가권한 제한이 모두 없으면 전체 표시
+    if (!item.roles && !item.requireHrAdmin && !item.evalRoles) return true;
     // 역할 조건: roles 배열이 있을 때만 체크
     const roleOk = !!item.roles && !!userProfile && item.roles.includes(userProfile.role);
     // HR 관리자 조건
     const hrOk = !!item.requireHrAdmin && !!userProfile?.isHrAdmin;
-    return roleOk || hrOk;
+    // 유효 평가 권한 조건 (조직 체인 기반)
+    const evalOk = !!item.evalRoles && item.evalRoles.includes(effectiveEvalRole);
+    return roleOk || hrOk || evalOk;
   });
   // CEO+HR 등 중복 진입(같은 href + group)을 한 번만 표시
   const seenKeys = new Set<string>();

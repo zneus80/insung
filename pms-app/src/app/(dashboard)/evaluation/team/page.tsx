@@ -59,12 +59,17 @@ function LoadingSpinner() {
 }
 
 export default function EvaluationTeamPage() {
-  const { userProfile } = useAuth();
+  const { userProfile, effectiveEvalRole } = useAuth();
 
   if (!userProfile) return null;
 
-  // 팀장 또는 본부장(TEAM_LEAD role + HEADQUARTERS 소속/리더) 만 진입
-  if (userProfile.role !== 'TEAM_LEAD') {
+  // 팀장 또는 본부장(HQ leader — TEAM_LEAD/EXECUTIVE role 무관) 진입 허용
+  // 조직 체인 기반 effectiveEvalRole 로 판단 — role 필드는 보조 fallback
+  const canEnter =
+    effectiveEvalRole === 'TEAM_LEAD' ||
+    effectiveEvalRole === 'HQ_HEAD' ||
+    userProfile.role === 'TEAM_LEAD'; // legacy fallback
+  if (!canEnter) {
     return (
       <div className="flex flex-col h-full">
         <Header title="팀원 평가 의견 제출" />
@@ -112,9 +117,15 @@ function TeamLeadEvalView() {
     try {
       const allOrgs = await getOrganizations();
       // 본부장 판별: leaderId 가 본인이고 HEADQUARTERS 인 조직 또는 본인 소속이 HQ
+      // (role 이 TEAM_LEAD 든 EXECUTIVE 든 HQ leader 이면 본부장으로 간주 — CLAUDE.md 차순위 임원 케이스)
       const myLedHQ = allOrgs.filter(o => o.leaderId === userProfile.id && o.type === 'HEADQUARTERS');
       const myOrg = allOrgs.find(o => o.id === userProfile.organizationId);
-      const fallbackHQ = myLedHQ.length === 0 && myOrg?.type === 'HEADQUARTERS' ? [myOrg] : [];
+      // fallback: leader 미지정 환경에서 본인 소속이 HQ + 본인이 EXECUTIVE/TEAM_LEAD 면 본부장으로 간주
+      const fallbackHQ = myLedHQ.length === 0
+        && myOrg?.type === 'HEADQUARTERS'
+        && (userProfile.role === 'EXECUTIVE' || userProfile.role === 'TEAM_LEAD')
+          ? [myOrg]
+          : [];
       const hqOrgs = [...myLedHQ, ...fallbackHQ];
       const detectedHQHead = hqOrgs.length > 0;
       setIsHQHead(detectedHQHead);

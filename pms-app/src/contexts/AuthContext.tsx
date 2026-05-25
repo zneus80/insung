@@ -9,8 +9,9 @@ import {
 } from 'react';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { onAuthChange } from '@/lib/auth';
-import { getUser, updateUser } from '@/lib/firestore';
-import type { User, UserRole } from '@/types';
+import { getUser, updateUser, getOrganizations } from '@/lib/firestore';
+import { getEffectiveEvalRole, type EffectiveEvalRole } from '@/lib/approval-filters';
+import type { User, UserRole, Organization } from '@/types';
 
 interface AuthContextValue {
   firebaseUser: FirebaseUser | null;
@@ -19,6 +20,8 @@ interface AuthContextValue {
   loading: boolean;
   previewAs: (key: string) => void;  // 역할 미리보기 전환
   previewKey: string | null;         // 현재 미리보기 중인 역할 키
+  /** 조직 체인 기반 유효 평가 권한 (EXEC_TOP / HQ_HEAD / TEAM_LEAD / MEMBER) */
+  effectiveEvalRole: EffectiveEvalRole;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -28,6 +31,7 @@ const AuthContext = createContext<AuthContextValue>({
   loading: true,
   previewAs: () => {},
   previewKey: null,
+  effectiveEvalRole: 'MEMBER',
 });
 
 // ── 역할별 미리보기 유저 ──
@@ -55,6 +59,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [realProfile, setRealProfile] = useState<User | null>(IS_MOCK ? MOCK_USERS.MEMBER : null);
   const [previewKey, setPreviewKey] = useState<string | null>(IS_MOCK ? 'MEMBER' : null);
   const [loading, setLoading] = useState(!IS_MOCK);
+  const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
+
+  // 조직 목록 로드 — effectiveEvalRole 산출용 (로그인 후 1회, 조직 변경 시는 새로고침으로 반영)
+  useEffect(() => {
+    if (IS_MOCK || !realProfile) return;
+    getOrganizations().then(setAllOrgs).catch(() => {});
+  }, [realProfile]);
 
   useEffect(() => {
     if (IS_MOCK) return;
@@ -99,8 +110,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   })();
 
+  const effectiveEvalRole: EffectiveEvalRole = userProfile
+    ? getEffectiveEvalRole(userProfile.id, userProfile.role, userProfile.organizationId, allOrgs)
+    : 'MEMBER';
+
   return (
-    <AuthContext.Provider value={{ firebaseUser, userProfile, realProfile, loading, previewAs, previewKey }}>
+    <AuthContext.Provider value={{ firebaseUser, userProfile, realProfile, loading, previewAs, previewKey, effectiveEvalRole }}>
       {children}
     </AuthContext.Provider>
   );
