@@ -9,6 +9,7 @@ import {
   getAllOrgAnnualGoals,
   getOrganizations,
 } from '@/lib/firestore';
+import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,7 +64,7 @@ function AnnualGoalsContent() {
         getAllOrgAnnualGoals(year),
       ]);
       // 부문/공장(DIVISION) 만 표시. 본부·팀은 별도 관리하지 않음.
-      setOrgs(orgList.filter(o => o.type === 'DIVISION'));
+      setOrgs(orgList.filter(o => o.type === 'DIVISION').sort(compareOrgByDisplayOrder));
       setCompanyGoal(cGoal);
       setOrgGoals(Object.fromEntries(oGoals.map(g => [g.organizationId!, g])));
     } finally {
@@ -108,11 +109,8 @@ function AnnualGoalsContent() {
 
   async function saveOrgGoal(orgId: string) {
     if (!userProfile) return;
+    // 부문/공장 목표는 비워둘 수 있음 (모두 빈 입력이면 빈 배열로 저장)
     const trimmed = orgDraftItems.map(i => ({ ...i, content: i.content.trim() })).filter(i => i.content);
-    if (trimmed.length === 0) {
-      toast.error('최소 1개 이상의 목표를 입력해주세요.');
-      return;
-    }
     setSaving(true);
     try {
       await setAnnualGoal('org', year, {
@@ -120,7 +118,7 @@ function AnnualGoalsContent() {
         updatedBy: userProfile.id,
         organizationId: orgId,
       });
-      toast.success('조직 목표가 저장되었습니다.');
+      toast.success(trimmed.length === 0 ? '조직 목표를 비워두었습니다.' : '조직 목표가 저장되었습니다.');
       setEditingOrgId(null);
       await load();
     } catch {

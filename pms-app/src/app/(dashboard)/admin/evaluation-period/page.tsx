@@ -175,11 +175,11 @@ function EvaluationPeriodContent() {
 
           <div className="space-y-2">
             <Label>평가 시작일</Label>
-            <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} disabled={period?.isPublished} />
+            <Input type="date" min="2000-01-01" max="2099-12-31" value={startDate} onChange={e => setStartDate(e.target.value)} disabled={period?.isPublished} />
           </div>
           <div className="space-y-2">
             <Label>평가 종료일</Label>
-            <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} disabled={period?.isPublished} />
+            <Input type="date" min="2000-01-01" max="2099-12-31" value={endDate} onChange={e => setEndDate(e.target.value)} disabled={period?.isPublished} />
           </div>
 
           {!period?.isPublished && (

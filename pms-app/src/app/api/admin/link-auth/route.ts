@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
       id: authUser.uid,
       email,
       isActive: true,
+      wasActivated: true,
       updatedAt: new Date(),
     }, { merge: true });
 

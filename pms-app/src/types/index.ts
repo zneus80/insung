@@ -17,6 +17,8 @@ export interface Organization {
   type: 'COMPANY' | 'DIVISION' | 'HEADQUARTERS' | 'TEAM';
   parentId: string | null;
   leaderId: string | null;   // 팀장 또는 임원 userId
+  /** 표시 순서 (작은 값이 먼저). 부문/공장(DIVISION)에 주로 사용. 미설정 시 0 또는 무한대로 취급. */
+  displayOrder?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,7 +37,13 @@ export interface User {
   rank?: string;            // 직급 (예: 사원, 주임, 대리, 과장...)
   photoURL?: string;
   isActive: boolean;
+  // 계정이 활성화된 이력이 있는지. 초대 수락·직접 등록 시 true 로 설정.
+  // - isActive=true: 활성
+  // - isActive=false && wasActivated=true: 비활성화(과거 활성→차단)
+  // - isActive=false && wasActivated!==true: 초대 대기
+  wasActivated?: boolean;
   isHrAdmin?: boolean;      // HR 관리자 권한 (역할과 독립적으로 부여)
+  isActingLead?: boolean;   // 팀장대행 — role === TEAM_LEAD 인 경우에만 유효, 정식 팀장은 false/undefined
   createdAt: Date;
   updatedAt: Date;
 }
@@ -69,6 +77,21 @@ export interface Goal {
   userId: string;
   organizationId: string;
   cycleYear: number;            // 평가 연도 (e.g. 2026)
+
+  // 공동 추진자 (collaborator) — userId 와 함께 목표 owner 로 인정. 임원 최종 승인(APPROVED) 후
+  // 해당 인원에게도 목표 목록·대시보드 카운트에 표시됨. 본인(userId) 은 포함하지 않음.
+  collaboratorIds?: string[];
+  // 연관 조직 — owner 의 organizationId + collaborator 들의 organizationId 합집합 (denormalized).
+  // 팀 목표·전사 업무추진현황 등 조직 단위 조회에서 공동 추진자의 소속 조직에서도 노출되도록 사용.
+  relatedOrgIds?: string[];
+
+  // 사용자 삭제로 인한 이관 기록 (v0.76)
+  // previousOwnerId/Name/transferredAt: 영구 보존 (이관업무 분류 + audit 용도)
+  // needsReassignment: 책임자 재지정이 필요한 상태 (재지정 완료 시 false)
+  previousOwnerId?: string;
+  previousOwnerName?: string;
+  transferredAt?: Date;
+  needsReassignment?: boolean;
 
   // 공통
   goalType?: GoalType;
@@ -130,14 +153,28 @@ export interface Goal {
 // ─────────────────────────────────────────────
 // 목표 이력 (변경 로그)
 // ─────────────────────────────────────────────
+/** 변경 이력 — 항목별 이전/변경 값 스냅샷 */
+export interface GoalFieldChanges {
+  title?: { from: string; to: string };
+  description?: { from: string; to: string };
+  dueDate?: { from: string; to: string };           // ISO yyyy-MM-dd
+  progress?: { from: number; to: number };
+  ownerId?: { from: string; to: string };           // 책임자 userId
+  collaboratorIds?: { from: string[]; to: string[] };  // 공동추진자
+}
+
 export interface GoalHistory {
   id: string;
   goalId: string;
   changedBy: string;            // userId
-  changeType: 'CREATED' | 'UPDATED' | 'STATUS_CHANGED' | 'APPROVED' | 'REJECTED';
+  changeType: 'CREATED' | 'UPDATED' | 'STATUS_CHANGED' | 'APPROVED' | 'REJECTED' | 'OWNER_REASSIGNED' | 'OWNER_TRANSFERRED';
   previousStatus?: GoalStatus;
   newStatus?: GoalStatus;
   comment?: string;
+  /** 변경된 항목 스냅샷 (수정 상신 시 채워짐) */
+  fieldChanges?: GoalFieldChanges;
+  /** 상신/요청 의견 (승인 요청, 완료 요청, 포기 요청, 수정 요청 등에서 사용자가 적은 의견) */
+  submitComment?: string;
   createdAt: Date;
 }
 
@@ -443,6 +480,12 @@ export interface MentoringForm {
 
   status: MentoringFormStatus;
   submittedAt?: Date;
+  // 제출 후 수정 요청 (A4): HR이 승인하기 전까지 폼은 SUBMITTED 상태로 잠금 유지
+  editRequestPending?: boolean;
+  editRequestReason?: string;
+  editRequestedAt?: Date;
+  editRequestApprovedBy?: string;   // HR userId (감사용 — 마지막 승인자)
+  editRequestApprovedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -529,9 +572,12 @@ export type NotificationType =
   | 'GOAL_COMMENT'        // 핵심목표 진행 코멘트 (v0.75)
   | 'WEEKLY_TASK_COMMENT' // 주간업무 팀 코멘트 (v0.75)
   | 'ONEONONE_MESSAGE'    // 1on1 새 메시지/질문 (v0.75)
-  | 'EVALUATION_PUBLISHED'; // 평가결과 공개 (v0.75)
+  | 'EVALUATION_PUBLISHED' // 평가결과 공개 (v0.75)
+  | 'MENTORING_EDIT_REQUESTED'  // 육성면담서 수정 요청 (개인 → HR)
+  | 'MENTORING_EDIT_APPROVED'   // HR 가 수정 허가 (HR → 개인)
+  | 'MENTORING_EDIT_REJECTED';  // HR 가 수정 거절 (HR → 개인)
 
-export type NotificationCategory = 'GOAL' | 'WEEKLY_TASK' | 'ONEONONE' | 'EVALUATION';
+export type NotificationCategory = 'GOAL' | 'WEEKLY_TASK' | 'ONEONONE' | 'EVALUATION' | 'MENTORING';
 
 export interface AppNotification {
   id: string;
@@ -570,6 +616,7 @@ export interface LeadCommentEntry {
   authorId: string;
   authorName: string;
   createdAt: Date;
+  editedAt?: Date;   // v0.76 A2: 수정된 코멘트 표시용
 }
 
 export interface SimpleTaskItem {

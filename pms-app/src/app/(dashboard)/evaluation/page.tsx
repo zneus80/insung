@@ -108,7 +108,7 @@ function MemberEvalView() {
     setLoading(true);
     try {
       const [cyc, goals, se, ie, allOrgs] = await Promise.all([
-        getActiveCycle(),
+        getActiveCycle(year),  // v0.76: 활성 연도를 명시 — 안내문이 activeYear 와 어긋나지 않도록
         getGoalsByUser(userProfile.id, year),
         getSelfEvaluation(userProfile.id, year),
         getIndividualEvaluation(userProfile.id, year),
@@ -150,7 +150,8 @@ function MemberEvalView() {
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, [userProfile]);
+  // userProfile 또는 activeYear(year) 변경 시 재로드 — 연도 전환에 즉시 반응
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [userProfile, year]);
 
   const now = new Date();
   const isInEvalPeriod = cycle
@@ -423,6 +424,22 @@ function ExecutiveEvalView() {
       );
       const ieMap: Record<string, IndividualEvaluation> = {};
       evalResults.flat().forEach(ie => { ieMap[ie.userId] = ie; });
+
+      // 데이터 힐링: 조직 기준 쿼리에 잡히지 않은 IE 직접 조회 (과거 organizationId 누락 버그 영향)
+      const missingMembers = active.filter(m => !ieMap[m.id]);
+      if (missingMembers.length > 0) {
+        const orphans = await Promise.all(missingMembers.map(m => getIndividualEvaluation(m.id, year)));
+        orphans.forEach((ie, i) => {
+          if (!ie) return;
+          const m = missingMembers[i];
+          ieMap[ie.userId] = { ...ie, organizationId: ie.organizationId ?? m.organizationId };
+          // 백그라운드 보강 (UI 차단 안 함)
+          if (!ie.organizationId) {
+            upsertIndividualEvaluation(ie.userId, year, { organizationId: m.organizationId })
+              .catch(err => console.error('[데이터 힐링] IE organizationId 보강 실패:', err));
+          }
+        });
+      }
       setIndivEvals(ieMap);
 
       const [seList, mfList, weeklyTasks, allGoals] = await Promise.all([
@@ -470,7 +487,7 @@ function ExecutiveEvalView() {
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, [userProfile]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [userProfile, year]);
 
   function getUsed(grade: EvaluationGrade): number {
     return Object.values(indivEvals).filter(ie =>
@@ -495,7 +512,11 @@ function ExecutiveEvalView() {
     setSaving(memberId);
     try {
       const member = members.find(m => m.id === memberId);
+      // organizationId 누락 시 후속 getIndividualEvaluationsByOrg 쿼리에 잡히지 않아 "확정 표시" 안 되는 버그 방지.
+      // 새 문서 생성 경로(팀장 의견 단계 없이 임원이 바로 확정) 에서 반드시 필요.
+      const orgId = member?.organizationId ?? userProfile.organizationId;
       await upsertIndividualEvaluation(memberId, year, {
+        organizationId: orgId,
         execGrade: input.grade as EvaluationGrade,
         execComment: input.comment,
         execConfirmedBy: userProfile.id,
@@ -504,6 +525,9 @@ function ExecutiveEvalView() {
       });
       toast.success(`${member?.name ?? ''} 등급을 확정했습니다.`);
       await load();
+    } catch (err) {
+      console.error('[등급확정] 실패:', err);
+      toast.error('등급 확정에 실패했습니다.');
     } finally { setSaving(null); }
   }
 

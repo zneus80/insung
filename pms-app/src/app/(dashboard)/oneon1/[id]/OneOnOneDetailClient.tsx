@@ -179,7 +179,14 @@ export default function OneOnOneDetailPage() {
                   />
                 )}
                 <span className="ml-2 text-xs font-normal text-gray-400">
-                  {isLeader ? '팀원' : '팀장'}
+                  {(() => {
+                    const cp = isLeader ? member : leader;
+                    if (cp?.position) return cp.position;
+                    if (cp?.role === 'CEO') return '최고관리자';
+                    if (cp?.role === 'EXECUTIVE') return '임원';
+                    if (cp?.role === 'TEAM_LEAD') return '팀장';
+                    return '팀원';
+                  })()}
                 </span>
               </p>
               {room.title && <p className="text-sm text-gray-500">{room.title}</p>}

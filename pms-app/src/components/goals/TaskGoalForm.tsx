@@ -1,8 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { createGoal, updateGoal, getOrganizations, createNotification, addGoalHistory } from '@/lib/firestore';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
+import { createGoal, updateGoal, getOrganizations, getAllUsers, createNotification, addGoalHistory } from '@/lib/firestore';
+import { notifyNextApprover } from '@/lib/goal-notifications';
+import { computeSubmitterAutoApproval, stageLabel } from '@/lib/approval-filters';
+import type { Organization, GoalFieldChanges } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,7 +15,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { X } from 'lucide-react';
-import type { Goal } from '@/types';
+import { toast } from 'sonner';
+import type { Goal, User } from '@/types';
 
 interface TaskGoalFormProps {
   open: boolean;
@@ -24,12 +29,19 @@ export default function TaskGoalForm({
   open, onClose, onSave, editGoal,
 }: TaskGoalFormProps) {
   const { userProfile } = useAuth();
+  const { activeYear } = useActiveYear();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [modifyComment, setModifyComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
+  const [ownerId, setOwnerId] = useState<string>('');   // 책임자 (Goal.userId) — 기본 본인
+  const [ownerSearch, setOwnerSearch] = useState('');
+  const [users, setUsers] = useState<User[]>([]);
+  const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
+  const [userSearch, setUserSearch] = useState('');
 
   // 폼이 열릴 때의 status를 스냅샷 — 부모 prop 재렌더로 인한 status 변경 방지
   const openedStatusRef = useRef<Goal['status'] | null>(null);
@@ -54,64 +66,25 @@ export default function TaskGoalForm({
       setTitle(editGoal.title);
       setDescription(editGoal.description);
       setDueDate(editGoal.dueDate.toISOString().split('T')[0]);
+      setCollaboratorIds(editGoal.collaboratorIds ?? []);
+      setOwnerId(editGoal.userId);
     } else {
       openedStatusRef.current = null;
       setTitle('');
       setDescription('');
       setDueDate('');
+      setCollaboratorIds([]);
+      setOwnerId(userProfile?.id ?? '');  // 본인이 기본 책임자
     }
     setError('');
+    setUserSearch('');
+    setOwnerSearch('');
+    // 사용자 목록 lazy load
+    getAllUsers().then(list => setUsers(list.filter(u => u.isActive !== false))).catch(() => {});
+    getOrganizations().then(setAllOrgs).catch(() => {});
   }, [open, editGoal]);
 
-  // 승인 요청 시 팀장/임원에게 알림 발송
-  async function sendApprovalNotification(goalId: string, goalTitle: string) {
-    try {
-      const orgs = await getOrganizations();
-
-      // 조직 체인 탐색 (GoalDetailClient와 동일한 로직)
-      function getOrgChain(orgId: string) {
-        const chain: typeof orgs = [];
-        let cur = orgs.find(o => o.id === orgId);
-        while (cur) {
-          chain.push(cur);
-          cur = cur.parentId ? orgs.find(o => o.id === cur!.parentId) : undefined;
-        }
-        return chain;
-      }
-
-      const chain  = getOrgChain(userProfile!.organizationId);
-      const teamOrg = chain.find(o => o.type === 'TEAM');
-      const hqOrg   = chain.find(o => o.type === 'HEADQUARTERS');
-      const divOrg  = chain.find(o => o.type === 'DIVISION');
-
-      // 팀장 (1차 승인자)
-      const teamLeadId = teamOrg?.leaderId ?? null;
-      // 임원 (최종 승인자): DIVISION이 있으면 DIV leaderId, 없으면 HQ leaderId
-      const execId = divOrg?.leaderId ?? (!divOrg ? hqOrg?.leaderId : null) ?? null;
-
-      const notifBase = {
-        goalId,
-        goalTitle,
-        type: 'GOAL_SUBMITTED' as const,
-        message: `${userProfile!.name}님이 '${goalTitle}' 목표 승인을 요청했습니다.`,
-        read: false,
-      };
-
-      if (userProfile!.role === 'TEAM_LEAD') {
-        // 팀장 목표 → 임원에게 직접 (본부장 단계 없음)
-        if (execId && execId !== userProfile!.id) {
-          await createNotification({ userId: execId, ...notifBase });
-        }
-      } else {
-        // 팀원 목표 → 팀장에게 (1차 승인자)
-        if (teamLeadId && teamLeadId !== userProfile!.id) {
-          await createNotification({ userId: teamLeadId, ...notifBase });
-        }
-      }
-    } catch {
-      // 알림 발송 실패는 조용히 처리 (목표 상신 자체는 성공)
-    }
-  }
+  // (sendApprovalNotification 제거됨 — handleSubmit 내 postSubmitNotifications 가 통합 처리)
 
   async function handleSubmit(isDraft: boolean) {
     if (!userProfile) return;
@@ -123,52 +96,270 @@ export default function TaskGoalForm({
 
     setSubmitting(true);
     try {
+      // 책임자 결정 — 미선택 시 본인
+      const effectiveOwnerId = ownerId || userProfile.id;
+      const ownerUser = users.find(u => u.id === effectiveOwnerId);
+      const ownerOrgId = ownerUser?.organizationId ?? userProfile.organizationId;
+      // collaboratorIds 에서 책임자 자신·중복 제거
+      const cleanedCollaborators = collaboratorIds.filter(id => id !== effectiveOwnerId);
+      // 연관 조직 — 책임자 organizationId + collaborator 들의 organizationId 합집합
+      const collaboratorOrgIds = cleanedCollaborators
+        .map(id => users.find(u => u.id === id)?.organizationId)
+        .filter((v): v is string => !!v);
+      const relatedOrgIds = Array.from(new Set([ownerOrgId, ...collaboratorOrgIds].filter(Boolean)));
+
       const payload = {
         title: title.trim(),
         description: description.trim(),
         dueDate: dueDate ? new Date(dueDate) : new Date(),
         progress: 0,
+        collaboratorIds: cleanedCollaborators,
+        relatedOrgIds,
       };
+
+      // ── 변경 항목 diff 계산 (편집 모드일 때) ──
+      function computeFieldChanges(newOwnerId: string, newCollabs: string[]): GoalFieldChanges | undefined {
+        if (!isEdit || !editGoal) return undefined;
+        const ch: GoalFieldChanges = {};
+        const newTitle = title.trim();
+        const newDesc = description.trim();
+        const oldTitle = editGoal.title ?? '';
+        const oldDesc = editGoal.description ?? '';
+        if (oldTitle !== newTitle) ch.title = { from: oldTitle, to: newTitle };
+        if (oldDesc !== newDesc) ch.description = { from: oldDesc, to: newDesc };
+
+        // dueDate 비교 (날짜 단위 yyyy-MM-dd)
+        const fmtDate = (d: Date | null | undefined) => {
+          if (!d) return '';
+          const dt = new Date(d);
+          const y = dt.getFullYear();
+          const m = String(dt.getMonth() + 1).padStart(2, '0');
+          const dd = String(dt.getDate()).padStart(2, '0');
+          return `${y}-${m}-${dd}`;
+        };
+        const oldDue = fmtDate(editGoal.dueDate);
+        const newDue = dueDate || '';
+        if (oldDue !== newDue) ch.dueDate = { from: oldDue, to: newDue };
+
+        if (editGoal.userId !== newOwnerId) {
+          ch.ownerId = { from: editGoal.userId, to: newOwnerId };
+        }
+        // collaborator 비교 (순서 무관 집합 비교)
+        const oldCollabs = (editGoal.collaboratorIds ?? []).slice().sort();
+        const sortedNew = newCollabs.slice().sort();
+        const collabsChanged = oldCollabs.length !== sortedNew.length
+          || oldCollabs.some((id, i) => id !== sortedNew[i]);
+        if (collabsChanged) {
+          ch.collaboratorIds = { from: editGoal.collaboratorIds ?? [], to: newCollabs };
+        }
+        return Object.keys(ch).length > 0 ? ch : undefined;
+      }
+      const fieldChanges = computeFieldChanges(effectiveOwnerId, cleanedCollaborators);
+      const submitComment = modifyComment.trim() || undefined;
 
       // 폼이 열릴 때 스냅샷한 status 기준으로 판단 (prop 재렌더 영향 차단)
       const capturedStatus = openedStatusRef.current ?? editGoal?.status ?? 'DRAFT';
       const isApprovedGoal = isEdit && !['DRAFT', 'REJECTED'].includes(capturedStatus);
 
-      if (isEdit && !isApprovedGoal) {
-        // DRAFT 목표 수정 → 상신
-        await updateGoal(editGoal.id, {
-          ...payload,
-          status: isDraft ? 'DRAFT' : 'PENDING_APPROVAL',
-        });
-        if (!isDraft) {
-          await sendApprovalNotification(editGoal.id, payload.title);
+      // 책임자 변경 감지 — 편집 모드일 때만
+      const isOwnerChanged = isEdit && editGoal.userId !== effectiveOwnerId;
+      const newOwnerName = isOwnerChanged ? (users.find(u => u.id === effectiveOwnerId)?.name ?? '') : '';
+      // 이관 받은 목표(previousOwnerId 존재) + 책임자 변경 여부
+      const isTransferReassignment = isEdit && !!editGoal.previousOwnerId && isOwnerChanged;
+
+      // 새 책임자에게 알림을 보내는 헬퍼 (본인이 본인에게 재지정하는 경우는 제외)
+      async function notifyNewOwner(goalId: string, goalTitle: string, comment?: string) {
+        if (!isOwnerChanged || effectiveOwnerId === userProfile!.id) return;
+        try {
+          await createNotification({
+            userId: effectiveOwnerId,
+            goalId,
+            goalTitle,
+            type: 'GOAL_COMMENT',  // 책임자 재지정 전용 type 없어서 GOAL_COMMENT 재활용
+            message: comment ?? `${userProfile!.name}님이 '${goalTitle}' 핵심목표의 책임자로 귀하를 지정했습니다.`,
+            read: false,
+          });
+        } catch (err) {
+          console.error('[알림] 새 책임자 알림 발송 실패:', err);
         }
-      } else if (isApprovedGoal && !isDraft) {
-        // 승인된 목표 → 수정 상신: 기존 목표를 PENDING_MODIFY 상태로 업데이트
+      }
+
+      // 이전 책임자(=기안자)에게 알림 — 본인이 변경 행위자이거나 새 책임자와 같으면 skip
+      async function notifyPreviousOwner(goalId: string, goalTitle: string) {
+        if (!isOwnerChanged) return;
+        const prevOwnerId = editGoal!.userId;
+        if (!prevOwnerId || prevOwnerId === userProfile!.id || prevOwnerId === effectiveOwnerId) return;
+        try {
+          await createNotification({
+            userId: prevOwnerId,
+            goalId,
+            goalTitle,
+            type: 'GOAL_COMMENT',
+            message: `${userProfile!.name}님이 '${goalTitle}' 핵심목표의 책임자를 ${newOwnerName}님으로 변경했습니다.`,
+            read: false,
+          });
+        } catch (err) {
+          console.error('[알림] 이전 책임자 알림 발송 실패:', err);
+        }
+      }
+
+      // ── 자동 승인 계산 ──
+      // 변경 행위자(현재 사용자) 가 새 책임자의 결재 체인에 포함되면 그 단계까지 자동 승인.
+      // 예) 팀장이 본인 팀 팀원에게 책임자 재지정/대리 작성 → 팀장 단계 자동 통과 → LEAD_APPROVED
+      //    임원이 직접 작성/재지정 → 즉시 APPROVED
+      const newOwnerRole = users.find(u => u.id === effectiveOwnerId)?.role;
+      const autoApproval = (!isDraft)
+        ? computeSubmitterAutoApproval({
+            newOwnerOrgId: ownerOrgId,
+            newOwnerRole,
+            allOrgs,
+            submitterId: userProfile.id,
+            submitterRole: userProfile.role,
+            submitterOrgId: userProfile.organizationId,
+          })
+        : { status: 'DRAFT' as const, fields: {}, stageRole: null };
+
+      const submitStatus = isDraft ? 'DRAFT' : autoApproval.status;
+      const autoApprovedHistoryComment = autoApproval.stageRole
+        ? ` (${stageLabel(autoApproval.stageRole)} 단계 자동 승인)`
+        : '';
+
+      // 변경 후 알림 발송 헬퍼 — 다음 결재자 + 새 책임자 + 이전 책임자
+      async function postSubmitNotifications(goalId: string, goalTitle: string, ownerChangedExtraMsg?: string) {
+        // ① 다음 결재자에게 알림 (autoApproval 반영된 합성 Goal)
+        if (!isDraft) {
+          try {
+            const synthesizedGoal = {
+              id: goalId,
+              title: goalTitle,
+              userId: effectiveOwnerId,
+              organizationId: ownerOrgId,
+              status: autoApproval.status,
+              ...autoApproval.fields,
+            } as any;
+            const orgsForNotif = allOrgs.length > 0 ? allOrgs : await getOrganizations();
+            await notifyNextApprover({
+              goal: synthesizedGoal,
+              allOrgs: orgsForNotif,
+              allUsers: users,
+              fromUserId: userProfile!.id,
+              fromUserName: userProfile!.name,
+              action: 'SUBMIT',
+            });
+          } catch (err) {
+            console.error('[알림] 다음 결재자 알림 발송 실패:', err);
+          }
+        }
+        // ② 새 책임자 / 이전 책임자 알림
+        await notifyNewOwner(goalId, goalTitle, ownerChangedExtraMsg);
+        await notifyPreviousOwner(goalId, goalTitle);
+      }
+
+      if (isEdit && !isApprovedGoal) {
+        // DRAFT/REJECTED 목표 수정 → 상신 (책임자 변경 가능)
+        // 책임자 변경 시 → 이관업무로 분류 (previousOwnerId/Name/transferredAt 갱신)
+        const prevOwnerName = users.find(u => u.id === editGoal.userId)?.name ?? '';
         await updateGoal(editGoal.id, {
           ...payload,
-          status: 'PENDING_MODIFY',
+          userId: effectiveOwnerId,
+          organizationId: ownerOrgId,
+          ...(isOwnerChanged ? {
+            previousOwnerId: editGoal.userId,
+            previousOwnerName: prevOwnerName,
+            transferredAt: new Date(),
+          } : {}),
+          status: submitStatus,
+          ...(!isDraft ? autoApproval.fields : {}),
+        });
+        if (isOwnerChanged || autoApproval.stageRole || fieldChanges) {
+          await addGoalHistory({
+            goalId: editGoal.id,
+            changedBy: userProfile.id,
+            changeType: isOwnerChanged ? 'OWNER_REASSIGNED' : 'UPDATED',
+            previousStatus: editGoal.status,
+            newStatus: submitStatus,
+            comment: (isOwnerChanged
+              ? `책임자 재지정: ${editGoal.userId} → ${effectiveOwnerId} (${newOwnerName})`
+              : '재상신') + autoApprovedHistoryComment,
+            ...(fieldChanges ? { fieldChanges } : {}),
+            ...(submitComment ? { submitComment } : {}),
+          });
+        }
+        await postSubmitNotifications(editGoal.id, payload.title);
+      } else if (isApprovedGoal && !isDraft) {
+        // 승인된 목표 수정 상신 (책임자 변경 포함) → 결재 체인 처음부터 재시작
+        // previousOwnerId/Name/transferredAt: 이관업무 분류용으로 영구 보존
+        const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, Timestamp: FsTimestamp, deleteField } = await import('firebase/firestore');
+        const { db: fsDb } = await import('@/lib/firebase');
+        const prevOwnerNameForTransfer = users.find(u => u.id === editGoal.userId)?.name ?? '';
+        await rawUpdate(fsDoc(fsDb, 'goals', editGoal.id), {
+          ...payload,
+          dueDate: FsTimestamp.fromDate(dueDate ? new Date(dueDate) : new Date()),
+          ...(isOwnerChanged ? {
+            userId: effectiveOwnerId,
+            organizationId: ownerOrgId,
+            // 책임자 재지정 → 이관업무로 분류
+            previousOwnerId: editGoal.userId,
+            previousOwnerName: prevOwnerNameForTransfer,
+            transferredAt: sts(),
+          } : {}),
+          status: submitStatus,
+          needsReassignment: false,
+          // 이전 결재 체인 초기화 (자동 승인 필드는 아래에서 덮어씀)
+          leadApprovedBy: deleteField(),
+          leadApprovedAt: deleteField(),
+          hqApprovedBy: deleteField(),
+          hqApprovedAt: deleteField(),
+          approvedBy: deleteField(),
+          approvedAt: deleteField(),
+          ...autoApproval.fields,
+          updatedAt: sts(),
         });
         await addGoalHistory({
           goalId: editGoal.id,
           changedBy: userProfile.id,
-          changeType: 'STATUS_CHANGED',
+          changeType: isOwnerChanged ? 'OWNER_REASSIGNED' : 'UPDATED',
           previousStatus: editGoal.status,
-          newStatus: 'PENDING_MODIFY',
-          comment: modifyComment.trim() ? `수정 요청: ${modifyComment.trim()}` : '수정 요청',
+          newStatus: submitStatus,
+          comment: (isOwnerChanged
+            ? (isTransferReassignment
+              ? `이관 목표 책임자 재지정 후 재상신: ${newOwnerName} (이전 책임자: ${editGoal.previousOwnerName ?? '—'})`
+              : `책임자 재지정 후 재상신: ${newOwnerName}`)
+            : '수정 후 재상신'
+          ) + autoApprovedHistoryComment,
+          ...(fieldChanges ? { fieldChanges } : {}),
+          ...(submitComment ? { submitComment } : {}),
         });
+        await postSubmitNotifications(
+          editGoal.id, payload.title,
+          isTransferReassignment
+            ? `${userProfile!.name}님이 이관된 '${payload.title}' 핵심목표를 귀하에게 재지정했습니다. 결재 승인이 필요합니다. (이전 책임자: ${editGoal.previousOwnerName ?? '—'})`
+            : undefined,
+        );
       } else {
         // 신규 목표 또는 승인된 목표의 임시저장(새 DRAFT 생성)
         const newGoalId = await createGoal({
           ...payload,
-          status: isDraft ? 'DRAFT' : 'PENDING_APPROVAL',
-          userId: userProfile.id,
-          organizationId: userProfile.organizationId,
-          cycleYear: new Date().getFullYear(),
+          status: submitStatus,
+          userId: effectiveOwnerId,                       // v0.76: 책임자가 owner — 본인 또는 지정된 사용자
+          organizationId: ownerOrgId,                     // 책임자의 소속 조직 기준
+          cycleYear: activeYear,
+          ...(!isDraft ? autoApproval.fields : {}),
         });
-        if (!isDraft) {
-          await sendApprovalNotification(newGoalId, payload.title);
+        if (!isDraft && autoApproval.stageRole) {
+          await addGoalHistory({
+            goalId: newGoalId,
+            changedBy: userProfile.id,
+            changeType: 'APPROVED',
+            previousStatus: 'PENDING_APPROVAL',
+            newStatus: submitStatus,
+            comment: `상신자가 결재자(${stageLabel(autoApproval.stageRole)})임 — 해당 단계 자동 승인`,
+          });
         }
+        await postSubmitNotifications(newGoalId, payload.title);
+      }
+      if (isOwnerChanged) {
+        toast.success(`목표가 ${newOwnerName}님에게 이관되었습니다. (해당 사용자의 목표 목록에서 확인 가능)`);
       }
       onSave();
       onClose();
@@ -221,7 +412,7 @@ export default function TaskGoalForm({
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
-        className="max-w-3xl [&>button:last-child]:hidden"
+        className="max-w-[78rem] [&>button:last-child]:hidden"
       >
         <DialogHeader>
           <div className="flex items-center justify-between">
@@ -261,26 +452,45 @@ export default function TaskGoalForm({
 
           {/* 목표명 */}
           <div className="space-y-1.5">
-            <Label>{isApprovedEdit ? '수정할 목표명' : '목표명'} <span className="text-red-500">*</span></Label>
+            <Label className="whitespace-nowrap">{isApprovedEdit ? '수정할 목표명' : '목표명'} <span className="text-red-500">*</span></Label>
             <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 신제품 라인 생산성 10% 향상" />
           </div>
 
           {/* 세부내용 */}
           <div className="space-y-1.5">
-            <Label>{isApprovedEdit ? '수정할 세부내용' : '세부내용'} <span className="text-red-500">*</span></Label>
+            <Label className="whitespace-nowrap">{isApprovedEdit ? '수정할 세부내용' : '세부내용'} <span className="text-red-500">*</span></Label>
             <Textarea rows={isApprovedEdit ? 5 : 10} value={description} onChange={e => setDescription(e.target.value)} placeholder="구체적인 실행 계획을 입력하세요" />
           </div>
 
           {/* 추진기한 */}
           <div className="space-y-1.5">
-            <Label>{isApprovedEdit ? '수정할 추진기한' : '추진기한'} <span className="text-red-500">*</span></Label>
-            <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+            <Label className="whitespace-nowrap">{isApprovedEdit ? '수정할 추진기한' : '추진기한'} <span className="text-red-500">*</span></Label>
+            <Input type="date" min="2000-01-01" max="2099-12-31" value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </div>
+
+          {/* 책임자 (owner) — 본인 자동 기본값, 다른 사용자 지정 가능 */}
+          <OwnerPicker
+            users={users}
+            value={ownerId || (userProfile?.id ?? '')}
+            onChange={setOwnerId}
+            search={ownerSearch}
+            onSearchChange={setOwnerSearch}
+            selfId={userProfile?.id ?? ''}
+          />
+
+          {/* 공동 추진자 (collaborators) — 책임자는 제외 */}
+          <CollaboratorPicker
+            users={users.filter(u => u.id !== (ownerId || userProfile?.id))}
+            value={collaboratorIds}
+            onChange={setCollaboratorIds}
+            search={userSearch}
+            onSearchChange={setUserSearch}
+          />
 
           {/* 수정 요청 의견 (승인된 목표 수정 시) */}
           {isApprovedEdit && (
             <div className="space-y-1.5">
-              <Label>수정 요청 의견 <span className="text-gray-400 font-normal text-xs">(선택)</span></Label>
+              <Label className="whitespace-nowrap">수정 요청 의견 <span className="text-gray-400 font-normal text-xs">(선택)</span></Label>
               <Textarea
                 rows={2}
                 value={modifyComment}
@@ -311,5 +521,140 @@ export default function TaskGoalForm({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── 공동 추진자 검색·선택 픽커 ─────────────────────────
+function CollaboratorPicker({ users, value, onChange, search, onSearchChange }: {
+  users: User[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+  search: string;
+  onSearchChange: (s: string) => void;
+}) {
+  const filtered = useMemo(() => {
+    if (!search.trim()) return [];
+    const k = search.toLowerCase();
+    return users
+      .filter(u => !value.includes(u.id))
+      .filter(u => u.name?.toLowerCase().includes(k) || u.email?.toLowerCase().includes(k))
+      .slice(0, 12);
+  }, [users, value, search]);
+  const selected = value.map(id => users.find(u => u.id === id)).filter(Boolean) as User[];
+  return (
+    <div className="space-y-1.5">
+      <Label className="flex flex-wrap items-baseline gap-x-1.5">
+        <span className="whitespace-nowrap">공동 추진자</span>
+        <span className="text-xs text-gray-400 font-normal">
+          (선택) 임원 승인 후 해당 인원의 목표 목록에도 표시됩니다.
+        </span>
+      </Label>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map(u => (
+            <span key={u.id} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs text-blue-700">
+              {u.name}
+              <button
+                type="button"
+                onClick={() => onChange(value.filter(v => v !== u.id))}
+                className="text-blue-400 hover:text-red-500"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <Input
+        value={search}
+        onChange={e => onSearchChange(e.target.value)}
+        placeholder="이름·이메일로 검색해서 추가"
+      />
+      {search.trim() && (
+        <div className="rounded-lg border max-h-44 overflow-y-auto divide-y bg-white">
+          {filtered.length === 0 ? (
+            <p className="text-xs text-gray-400 px-3 py-2">검색 결과 없음</p>
+          ) : filtered.map(u => (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => { onChange([...value, u.id]); onSearchChange(''); }}
+              className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm"
+            >
+              <span className="font-medium">{u.name}</span>
+              {u.position && <span className="text-xs text-gray-400 ml-2">{u.position}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 책임자 검색·선택 픽커 (단일 선택, 본인 자동 기본값) ──
+function OwnerPicker({ users, value, onChange, search, onSearchChange, selfId }: {
+  users: User[];
+  value: string;
+  onChange: (id: string) => void;
+  search: string;
+  onSearchChange: (s: string) => void;
+  selfId: string;
+}) {
+  const filtered = useMemo(() => {
+    if (!search.trim()) return users.slice(0, 8);
+    const k = search.toLowerCase();
+    return users
+      .filter(u => u.name?.toLowerCase().includes(k) || u.email?.toLowerCase().includes(k))
+      .slice(0, 12);
+  }, [users, search]);
+  const selected = users.find(u => u.id === value);
+  const isSelf = value === selfId;
+  return (
+    <div className="space-y-1.5">
+      <Label className="flex flex-wrap items-baseline gap-x-1.5">
+        <span className="whitespace-nowrap">책임자 <span className="text-red-500">*</span></span>
+        <span className="text-xs text-gray-400 font-normal">
+          (본인이 추가하면 본인이 기본 책임자, 다른 사용자도 지정 가능)
+        </span>
+      </Label>
+      {selected ? (
+        <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${isSelf ? 'bg-blue-50 border-blue-200' : 'bg-gray-50'}`}>
+          <span className="text-sm font-medium">{selected.name}</span>
+          {selected.position && <span className="text-xs text-gray-400">{selected.position}</span>}
+          {isSelf && <span className="text-[10px] font-semibold text-blue-600 rounded-full bg-blue-100 px-2 py-0.5 ml-1">본인</span>}
+          {!isSelf && (
+            <button type="button" onClick={() => onChange(selfId)} className="ml-auto text-xs text-blue-600 hover:underline">
+              본인으로
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-lg border bg-gray-50 px-3 py-2 text-xs text-gray-400">
+          (책임자 미설정 — 저장 시 본인으로 기본 설정)
+        </div>
+      )}
+      <Input
+        value={search}
+        onChange={e => onSearchChange(e.target.value)}
+        placeholder="다른 사람을 책임자로 지정하려면 이름·이메일로 검색"
+      />
+      {search.trim() && (
+        <div className="rounded-lg border max-h-44 overflow-y-auto divide-y bg-white">
+          {filtered.length === 0 ? (
+            <p className="text-xs text-gray-400 px-3 py-2">검색 결과 없음</p>
+          ) : filtered.map(u => (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => { onChange(u.id); onSearchChange(''); }}
+              className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm"
+            >
+              <span className="font-medium">{u.name}</span>
+              {u.position && <span className="text-xs text-gray-400 ml-2">{u.position}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

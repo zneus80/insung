@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Plus, Pencil, UserX, Download, Upload, AlertCircle, Trash2, Mail, Copy, Check, UserCheck, KeyRound } from 'lucide-react';
+import { Plus, Pencil, UserX, Download, Upload, AlertCircle, Trash2, Mail, Copy, Check, UserCheck, KeyRound, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { toast } from 'sonner';
 import type { User, Organization, UserRole } from '@/types';
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -57,10 +57,32 @@ function UsersContent() {
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', isHrAdmin: false });
+  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', isHrAdmin: false, isActingLead: false });
+  const [orgSearch, setOrgSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // ── 정렬·필터 ─────────────────────────────────
+  type SortKey = 'name' | 'role' | 'org' | 'status';
+  type SortDir = 'asc' | 'desc';
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [filterRole, setFilterRole] = useState<string>('ALL');
+  const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [filterOrg, setFilterOrg] = useState<string>('ALL');
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  }
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <ChevronsUpDown className="inline h-3 w-3 ml-1 text-gray-300" />;
+    return sortDir === 'asc'
+      ? <ChevronUp className="inline h-3 w-3 ml-1 text-blue-500" />
+      : <ChevronDown className="inline h-3 w-3 ml-1 text-blue-500" />;
+  }
 
   // 초대 링크 상태
   const [inviteLink, setInviteLink] = useState<string | null>(null);
@@ -210,13 +232,15 @@ function UsersContent() {
   // ── 단건 저장 ─────────────────────────────────
   function openNew() {
     setEditing(null);
-    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', isHrAdmin: false });
+    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', isHrAdmin: false, isActingLead: false });
+    setOrgSearch('');
     setShowDialog(true);
   }
 
   function openEdit(user: User) {
     setEditing(user);
-    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', isHrAdmin: !!user.isHrAdmin });
+    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', isHrAdmin: !!user.isHrAdmin, isActingLead: !!user.isActingLead });
+    setOrgSearch('');
     setShowDialog(true);
   }
 
@@ -261,6 +285,8 @@ function UsersContent() {
           organizationId: form.organizationId || '',
           position: form.position,
           isHrAdmin: form.isHrAdmin,
+          // 팀장 역할일 때만 의미 있음 — 다른 역할은 false 로 저장
+          isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
         });
         toast.success('수정되었습니다.');
         setShowDialog(false);
@@ -272,6 +298,7 @@ function UsersContent() {
           organizationId: form.organizationId || '',
           position: form.position || '',
           isHrAdmin: form.isHrAdmin,
+          isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
           isActive: false,
         });
         toast.success('사용자가 등록되었습니다. 초대 또는 직접 등록 버튼으로 계정을 활성화하세요.');
@@ -309,6 +336,7 @@ function UsersContent() {
         organizationId: user.organizationId, position: user.position ?? '',
         isHrAdmin: user.isHrAdmin,
         isActive: true,
+        wasActivated: true,
       });
       if (user.id !== cred.user.uid) await deleteUser(user.id);
       setDirectResult({ name: user.name, email: user.email, password: TEMP_PASSWORD });
@@ -385,9 +413,20 @@ function UsersContent() {
       const summary = result.counts
         ? Object.entries(result.counts).filter(([, v]: any) => v > 0).map(([k, v]) => `${k} ${v}`).join(', ')
         : '';
+      let transferMsg = '';
+      if (result.transferredGoalCount > 0) {
+        const targetName = users.find(u => u.id === result.transferTarget?.targetUserId)?.name ?? '책임자';
+        const notifMsg = result.notifSentCount > 0
+          ? ` (알림 ${result.notifSentCount}건 발송)`
+          : ' (알림 발송 실패 — 서버 로그 확인)';
+        transferMsg = ` · 활성 목표 ${result.transferredGoalCount}건 → ${targetName} 이관${notifMsg}`;
+      } else if (result.transferTarget == null) {
+        transferMsg = ' · 이관 대상자 없음 (모두 백업)';
+      }
       toast.success(
         `${deleteTarget.name}님이 삭제되었습니다.` +
-        (summary ? ` (백업: ${summary})` : '')
+        (summary ? ` (백업: ${summary})` : '') +
+        transferMsg
       );
       setDeleteTarget(null);
       await load();
@@ -397,20 +436,59 @@ function UsersContent() {
   }
 
   async function toggleActive(user: User) {
-    await updateUser(user.id, { isActive: !user.isActive });
+    const nextActive = !user.isActive;
+    // 활성화 시 wasActivated=true 영구 표기 (재활성화 포함). 비활성화 시 wasActivated 는 유지.
+    await updateUser(user.id, nextActive
+      ? { isActive: true, wasActivated: true }
+      : { isActive: false }
+    );
     toast.success(user.isActive ? '비활성화했습니다.' : '활성화했습니다.');
     await load();
   }
 
-  const filtered = users.filter(u => u.name.includes(search) || u.email.includes(search));
+  const STATUS_ORDER: Record<string, number> = { active: 0, pending: 1, inactive: 2 };
+  const ROLE_ORDER: Record<string, number> = { CEO: 0, EXECUTIVE: 1, TEAM_LEAD: 2, MEMBER: 3 };
+
+  const filtered = users
+    .filter(u => {
+      const txt = search.toLowerCase();
+      if (txt && !u.name.toLowerCase().includes(txt) && !u.email.toLowerCase().includes(txt)) return false;
+      if (filterRole !== 'ALL') {
+        if (filterRole === 'HR_ADMIN') { if (!u.isHrAdmin) return false; }
+        else if (u.role !== filterRole) return false;
+      }
+      if (filterStatus !== 'ALL') {
+        const st = u.isActive ? 'active' : u.wasActivated ? 'inactive' : 'pending';
+        if (st !== filterStatus) return false;
+      }
+      if (filterOrg !== 'ALL' && u.organizationId !== filterOrg) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'name') {
+        cmp = a.name.localeCompare(b.name, 'ko');
+      } else if (sortKey === 'role') {
+        cmp = (ROLE_ORDER[a.role] ?? 9) - (ROLE_ORDER[b.role] ?? 9);
+      } else if (sortKey === 'org') {
+        const na = orgs.find(o => o.id === a.organizationId)?.name ?? '';
+        const nb = orgs.find(o => o.id === b.organizationId)?.name ?? '';
+        cmp = na.localeCompare(nb, 'ko');
+      } else if (sortKey === 'status') {
+        const sa = a.isActive ? 'active' : a.wasActivated ? 'inactive' : 'pending';
+        const sb = b.isActive ? 'active' : b.wasActivated ? 'inactive' : 'pending';
+        cmp = (STATUS_ORDER[sa] ?? 9) - (STATUS_ORDER[sb] ?? 9);
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
 
   return (
     <div className="flex flex-col h-full">
       <Header title="사용자 관리" />
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 min-h-0 flex flex-col gap-4 p-6 overflow-hidden">
 
         {orgs.length === 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shrink-0">
             조직이 없습니다.{' '}
             <a href="/admin/organizations" className="font-semibold underline">조직 관리</a>에서 먼저 조직을 등록하거나,
             조직 없이 사용자를 초대한 뒤 나중에 소속을 지정할 수 있습니다.
@@ -418,8 +496,51 @@ function UsersContent() {
         )}
 
         {/* 툴바 */}
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center shrink-0">
           <Input placeholder="이름 또는 이메일 검색" value={search} onChange={e => setSearch(e.target.value)} className="max-w-xs" />
+          {/* 역할 필터 */}
+          <select
+            value={filterRole}
+            onChange={e => setFilterRole(e.target.value)}
+            className="h-9 rounded-md border border-gray-200 bg-white px-3 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="ALL">전체 역할</option>
+            <option value="MEMBER">팀원</option>
+            <option value="TEAM_LEAD">팀장</option>
+            <option value="EXECUTIVE">임원</option>
+            <option value="CEO">최고관리자</option>
+            <option value="HR_ADMIN">HR관리자</option>
+          </select>
+          {/* 상태 필터 */}
+          <select
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+            className="h-9 rounded-md border border-gray-200 bg-white px-3 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="ALL">전체 상태</option>
+            <option value="active">활성</option>
+            <option value="pending">초대 대기</option>
+            <option value="inactive">비활성화</option>
+          </select>
+          {/* 소속 필터 */}
+          <select
+            value={filterOrg}
+            onChange={e => setFilterOrg(e.target.value)}
+            className="h-9 rounded-md border border-gray-200 bg-white px-3 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="ALL">전체 소속</option>
+            {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+          {/* 필터 초기화 */}
+          {(filterRole !== 'ALL' || filterStatus !== 'ALL' || filterOrg !== 'ALL' || search) && (
+            <button
+              onClick={() => { setFilterRole('ALL'); setFilterStatus('ALL'); setFilterOrg('ALL'); setSearch(''); }}
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+            >
+              초기화
+            </button>
+          )}
+          <span className="text-xs text-gray-400 ml-1">총 {filtered.length}명</span>
           <div className="flex gap-2 ml-auto">
             <Button variant="outline" size="sm" className="gap-1.5" onClick={downloadTemplate}>
               <Download className="h-4 w-4" /> 양식 다운로드
@@ -436,7 +557,7 @@ function UsersContent() {
 
         {/* 업로드 결과 */}
         {uploadResult && (
-          <div className="rounded-xl border bg-white p-4 space-y-2">
+          <div className="rounded-xl border bg-white p-4 space-y-2 shrink-0">
             <p className="text-sm font-medium text-gray-900">
               업로드 결과 — 성공 <span className="text-green-600">{uploadResult.success}건</span>
               {uploadResult.failed.length > 0 && <>, 실패 <span className="text-red-500">{uploadResult.failed.length}건</span></>}
@@ -455,16 +576,24 @@ function UsersContent() {
         )}
 
         {/* 사용자 테이블 */}
-        <div className="rounded-xl border bg-white overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs">
+        <div className="flex-1 min-h-0 rounded-xl border bg-white overflow-y-auto overflow-x-auto">
+          <table className="w-full text-sm min-w-[680px]">
+            <thead className="bg-gray-50 text-gray-500 text-xs sticky top-0 z-10">
               <tr>
-                <th className="px-4 py-3 text-left">이름</th>
+                <th className="px-4 py-3 text-left cursor-pointer select-none hover:text-gray-700" onClick={() => handleSort('name')}>
+                  이름 <SortIcon col="name" />
+                </th>
                 <th className="px-4 py-3 text-left">이메일</th>
-                <th className="px-4 py-3 text-left">역할</th>
-                <th className="px-4 py-3 text-left">소속</th>
+                <th className="px-4 py-3 text-left cursor-pointer select-none hover:text-gray-700" onClick={() => handleSort('role')}>
+                  역할 <SortIcon col="role" />
+                </th>
+                <th className="px-4 py-3 text-left cursor-pointer select-none hover:text-gray-700" onClick={() => handleSort('org')}>
+                  소속 <SortIcon col="org" />
+                </th>
                 <th className="px-4 py-3 text-left">직책</th>
-                <th className="px-4 py-3 text-left">상태</th>
+                <th className="px-4 py-3 text-left cursor-pointer select-none hover:text-gray-700" onClick={() => handleSort('status')}>
+                  상태 <SortIcon col="status" />
+                </th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -498,6 +627,10 @@ function UsersContent() {
                   <td className="px-4 py-3">
                     {user.isActive ? (
                       <span className="text-xs text-green-600">활성</span>
+                    ) : user.wasActivated ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700">
+                        <UserX className="h-3 w-3" /> 비활성화
+                      </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">
                         <Mail className="h-3 w-3" /> 초대 대기
@@ -509,7 +642,12 @@ function UsersContent() {
                       <button onClick={() => openEdit(user)} className="p-1.5 rounded hover:bg-gray-100" title="수정">
                         <Pencil className="h-3.5 w-3.5 text-gray-400" />
                       </button>
-                      {!user.isActive ? (
+                      {!user.isActive && user.wasActivated ? (
+                        // 비활성화 상태 — 재활성화 버튼 (기록 보존하며 활성으로 전환)
+                        <button onClick={() => toggleActive(user)} className="p-1.5 rounded hover:bg-gray-100" title="재활성화">
+                          <UserCheck className="h-3.5 w-3.5 text-green-500" />
+                        </button>
+                      ) : !user.isActive ? (
                         <>
                           <button onClick={() => handleInvite(user)} className="p-1.5 rounded hover:bg-gray-100" title="초대 링크 생성">
                             <Mail className="h-3.5 w-3.5 text-blue-400" />
@@ -650,6 +788,23 @@ function UsersContent() {
                   </SelectContent>
                 </Select>
               </div>
+              {form.role === 'TEAM_LEAD' && (
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <input
+                    id="isActingLead"
+                    type="checkbox"
+                    checked={form.isActingLead}
+                    onChange={e => setForm(f => ({ ...f, isActingLead: e.target.checked }))}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label htmlFor="isActingLead" className="cursor-pointer">
+                    팀장 대행
+                    <span className="ml-1.5 text-xs text-gray-500 font-normal">
+                      (정식 팀장이 아닌 대행자 — 권한은 동일, 승진요건만 팀장 조건 표시)
+                    </span>
+                  </Label>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <input
                   id="isHrAdmin"
@@ -663,16 +818,13 @@ function UsersContent() {
                   <span className="ml-1.5 text-xs text-gray-400 font-normal">(역할과 별개로 HR 관리 기능 접근 가능)</span>
                 </Label>
               </div>
-              <div className="space-y-1.5">
-                <Label>소속 <span className="text-gray-400 text-xs font-normal">(나중에 지정 가능)</span></Label>
-                <Select value={form.organizationId} onValueChange={v => setForm(f => ({ ...f, organizationId: v || '' }))}>
-                  <SelectTrigger><SelectValue placeholder="조직 선택 안함" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">지정 안함</SelectItem>
-                    {orgs.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
+              <OrgPicker
+                orgs={orgs}
+                value={form.organizationId}
+                search={orgSearch}
+                onSearchChange={setOrgSearch}
+                onChange={id => setForm(f => ({ ...f, organizationId: id }))}
+              />
               {!editing && (
                 <p className="text-xs text-gray-500 bg-blue-50 rounded-lg px-3 py-2">
                   저장 후 목록에서 <strong>초대(✉)</strong> 버튼을 눌러 초대 링크를 발송하세요.
@@ -685,6 +837,73 @@ function UsersContent() {
           </DialogContent>
         </Dialog>
       </div>
+    </div>
+  );
+}
+
+// ── 조직 검색 픽커 (사용자 등록·수정 폼) ─────────────────
+function OrgPicker({
+  orgs, value, search, onSearchChange, onChange,
+}: {
+  orgs: Organization[];
+  value: string;
+  search: string;
+  onSearchChange: (s: string) => void;
+  onChange: (id: string) => void;
+}) {
+  const selected = orgs.find(o => o.id === value);
+  const filtered = (() => {
+    if (!search.trim()) return orgs.slice(0, 10);
+    const k = search.toLowerCase();
+    return orgs.filter(o => o.name.toLowerCase().includes(k)).slice(0, 15);
+  })();
+  // 표시용 라벨 (계층 표시)
+  function orgPathLabel(o: Organization): string {
+    const labels: string[] = [o.name];
+    let cur = o.parentId ? orgs.find(x => x.id === o.parentId) : undefined;
+    while (cur) {
+      labels.unshift(cur.name);
+      cur = cur.parentId ? orgs.find(x => x.id === cur!.parentId) : undefined;
+    }
+    return labels.join(' · ');
+  }
+  return (
+    <div className="space-y-1.5">
+      <Label>소속 <span className="text-gray-400 text-xs font-normal">(나중에 지정 가능 · 검색 가능)</span></Label>
+      {selected ? (
+        <div className="flex items-center gap-2 rounded-lg border px-3 py-2 bg-gray-50">
+          <span className="text-sm font-medium">{selected.name}</span>
+          <span className="text-xs text-gray-400 truncate">{orgPathLabel(selected)}</span>
+          <button type="button" onClick={() => { onChange(''); onSearchChange(''); }} className="ml-auto text-gray-400 hover:text-red-500 text-xs">
+            해제 ✕
+          </button>
+        </div>
+      ) : (
+        <>
+          <Input
+            value={search}
+            onChange={e => onSearchChange(e.target.value)}
+            placeholder="조직명으로 검색 (예: 재경팀)"
+          />
+          {(search.trim() || filtered.length > 0) && (
+            <div className="rounded-lg border max-h-56 overflow-y-auto divide-y bg-white">
+              {filtered.length === 0 ? (
+                <p className="text-xs text-gray-400 px-3 py-2">검색 결과 없음</p>
+              ) : filtered.map(o => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => { onChange(o.id); onSearchChange(''); }}
+                  className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm"
+                >
+                  <span className="font-medium">{o.name}</span>
+                  <span className="text-xs text-gray-400 ml-2">{orgPathLabel(o)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

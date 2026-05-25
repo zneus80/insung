@@ -5,7 +5,8 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Plus, Target, Trash2, Users, ChevronDown, ChevronRight, Calendar, Building2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
-import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory, createNotification } from '@/lib/firestore';
+import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory } from '@/lib/firestore';
+import { notifyNextApprover } from '@/lib/goal-notifications';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -48,6 +49,7 @@ function MyGoalsView() {
   const [myGoals, setMyGoals] = useState<Goal[]>([]);
   const [teamGoals, setTeamGoals] = useState<Goal[]>([]);
   const [teamUsers, setTeamUsers] = useState<Record<string, User>>({});
+  const [orgsMap, setOrgsMap] = useState<Record<string, string>>({}); // orgId → 조직명
 
   const [loading, setLoading] = useState(true);
   const [teamLoading, setTeamLoading] = useState(false);
@@ -85,22 +87,37 @@ function MyGoalsView() {
     try {
       // 같은 조직 구성원 전체 조회 (팀장 포함)
       const [orgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
+      setOrgsMap(Object.fromEntries(orgs.map(o => [o.id, o.name])));
       const myOrg = orgs.find(o => o.id === userProfile!.organizationId);
 
-      // 같은 조직 + 조직 리더(leaderId)까지 포함 (팀장이 다른 org에 속하는 경우 대비)
+      // 본부장(TEAM_LEAD + HEADQUARTERS 직속/리더) 이면 산하 descendant 까지 스코프 확장
+      function descendantIds(orgId: string): string[] {
+        const ids: string[] = [orgId];
+        for (const c of orgs.filter(o => o.parentId === orgId)) {
+          ids.push(...descendantIds(c.id));
+        }
+        return ids;
+      }
+      const myLedHQ = orgs.find(o => o.leaderId === userProfile!.id && o.type === 'HEADQUARTERS');
+      const isHQHead = userProfile!.role === 'TEAM_LEAD' && (myOrg?.type === 'HEADQUARTERS' || !!myLedHQ);
+      const scopeOrgIds = isHQHead
+        ? descendantIds((myLedHQ ?? myOrg)!.id)
+        : [userProfile!.organizationId];
+
+      // 스코프 내 모든 멤버
       const teamMemberIds = new Set(
         allUsers
-          .filter(u => u.organizationId === userProfile!.organizationId && u.id !== userProfile!.id)
+          .filter(u => scopeOrgIds.includes(u.organizationId) && u.id !== userProfile!.id)
           .map(u => u.id)
       );
       if (myOrg?.leaderId && myOrg.leaderId !== userProfile!.id) {
         teamMemberIds.add(myOrg.leaderId);
       }
 
-      // 같은 org 목표 + 팀장 userId 기반 목표를 병렬 조회 (org 이동 등으로 누락되는 경우 대비)
+      // 스코프 내 모든 조직의 목표 + 팀장 userId 기반 목표 병렬 조회 (org 이동 누락 대비)
       const leaderId = myOrg?.leaderId;
       const [list, leadGoals] = await Promise.all([
-        getGoalsByOrganization(userProfile.organizationId, year),
+        getGoalsByOrganizations(scopeOrgIds, year),
         leaderId && leaderId !== userProfile!.id
           ? getGoalsByUser(leaderId, year)
           : Promise.resolve([] as Goal[]),
@@ -112,14 +129,24 @@ function MyGoalsView() {
       for (const g of [...list, ...leadGoals]) {
         if (!seenIds.has(g.id)) { seenIds.add(g.id); combined.push(g); }
       }
-      // 핵심목표관리 팀 목표 탭: 진행 중인 목표만 표시
-      // 포기(ABANDONED)·반려(REJECTED)·휴지통(trashedAt) 모두 숨김 (인사평가는 별도 페이지에서 처리)
-      const VISIBLE_STATUSES = new Set<string>(['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'PENDING_ABANDON']);
-      const active = combined.filter(g =>
-        teamMemberIds.has(g.userId) &&
-        VISIBLE_STATUSES.has(g.status) &&
-        !g.trashedAt
-      );
+      // 핵심목표관리 팀 목표 탭 — 결재 진행 중 + 진행 중 + 완료 모두 표시
+      // 신규 상신·승인 진행 중 목표도 산하 팀에 보이도록 PENDING_APPROVAL / LEAD_APPROVED / PENDING_MODIFY 포함
+      // 숨김: 포기(ABANDONED) · 반려(REJECTED) · 임시저장(DRAFT) · 휴지통(trashedAt)
+      const VISIBLE_STATUSES = new Set<string>([
+        'PENDING_APPROVAL', 'LEAD_APPROVED', 'PENDING_MODIFY',
+        'APPROVED', 'IN_PROGRESS', 'COMPLETED', 'PENDING_ABANDON',
+      ]);
+      const active = combined.filter(g => {
+        if (!VISIBLE_STATUSES.has(g.status) || g.trashedAt) return false;
+        // 본인이 owner 인 목표는 "내 목표" 탭에서 별도 처리 — 팀 탭에서는 제외
+        if (g.userId === userProfile!.id) return false;
+        // owner 또는 공동 추진자 중 한 명이라도 스코프 내 인원이면 표시
+        if (teamMemberIds.has(g.userId)) return true;
+        if ((g.collaboratorIds ?? []).some(id => teamMemberIds.has(id))) return true;
+        // relatedOrgIds 가 스코프와 교차 (단, 본인 owner 는 위에서 이미 제외)
+        if ((g.relatedOrgIds ?? []).some(orgId => scopeOrgIds.includes(orgId))) return true;
+        return false;
+      });
       setTeamGoals(active);
 
       // 팀원 프로필 조회
@@ -216,15 +243,16 @@ function MyGoalsView() {
       if (userProfile) {
         await addGoalHistory({ goalId: goal.id, changedBy: userProfile.id, changeType: 'STATUS_CHANGED', previousStatus: 'REJECTED', newStatus: 'PENDING_APPROVAL', comment: '재상신' });
         try {
-          const orgs = await getOrganizations();
-          const myOrg = orgs.find(o => o.id === userProfile.organizationId);
-          const approverId = userProfile.role === 'MEMBER'
-            ? myOrg?.leaderId
-            : (myOrg?.parentId ? orgs.find(o => o.id === myOrg.parentId)?.leaderId : undefined);
-          if (approverId) {
-            await createNotification({ userId: approverId, goalId: goal.id, goalTitle: goal.title, type: 'GOAL_SUBMITTED', message: `${userProfile.name}님이 "${goal.title}" 목표 승인을 재요청했습니다.`, read: false });
-          }
-        } catch { /* 알림 실패 무시 */ }
+          const [orgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
+          await notifyNextApprover({
+            goal: { ...goal, status: 'PENDING_APPROVAL' },
+            allOrgs: orgs,
+            allUsers,
+            fromUserId: userProfile.id,
+            fromUserName: userProfile.name,
+            action: 'SUBMIT',
+          });
+        } catch (err) { console.error('[알림] 재상신 알림 발송 실패:', err); }
       }
       toast.success('승인 요청을 제출했습니다.');
       loadMy();
@@ -352,8 +380,13 @@ function MyGoalsView() {
                       g.status === 'DRAFT' ||
                       g.status === 'REJECTED' ||
                       (g.status === 'ABANDONED' && !!g.approvedBy);
+                    // 책임자명: 본인 owner 면 본인, 아니면 teamUsers 조회 (공동 추진자로 보이는 경우)
+                    const ownerName = g.userId === userProfile?.id
+                      ? userProfile?.name
+                      : (teamUsers[g.userId]?.name ?? undefined);
                     return (
                       <GoalCard key={g.id} goal={g}
+                        ownerName={ownerName}
                         onEdit={['DRAFT', 'REJECTED'].includes(g.status) ? handleEdit : undefined}
                         onTrash={canTrash ? handleTrash : undefined}
                         onWithdraw={g.status === 'PENDING_APPROVAL' ? handleWithdraw : undefined}
@@ -415,7 +448,10 @@ function MyGoalsView() {
                               <p className="font-semibold text-gray-900 text-sm">
                                 {user?.name ?? uid}
                                 <span className="ml-1.5 text-xs font-normal text-gray-400">
-                                  {user ? ROLE_LABEL[user.role] ?? user.role : ''}
+                                  {[
+                                    user ? ROLE_LABEL[user.role] ?? user.role : '',
+                                    user ? orgsMap[user.organizationId] : '',
+                                  ].filter(Boolean).join(' · ')}
                                 </span>
                               </p>
                               <p className="text-xs text-gray-400 mt-0.5">
@@ -439,6 +475,7 @@ function MyGoalsView() {
                                 <GoalCard
                                   key={g.id}
                                   goal={g}
+                                  ownerName={teamUsers[g.userId]?.name ?? (g.userId === userProfile?.id ? userProfile?.name : undefined)}
                                   onEdit={g.userId === userProfile?.id && ['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined}
                                 />
                               ))}
@@ -482,6 +519,7 @@ function MyGoalsView() {
                 <GoalCard
                   key={g.id}
                   goal={g}
+                  ownerName={g.userId === userProfile?.id ? userProfile?.name : (teamUsers[g.userId]?.name ?? undefined)}
                   onClick={() => { setTrashOpen(false); setPreviewGoal(g); }}
                 />
               ))}
@@ -751,9 +789,10 @@ function OrgGoalsView() {
                                 <span className="text-sm font-medium text-gray-700">
                                   {user?.name ?? uid}
                                 </span>
-                                {user?.position && (
-                                  <span className="text-xs text-gray-400">{user.position}</span>
-                                )}
+                                <span className="text-xs text-gray-400">
+                                  {[user ? orgs.find(o => o.id === user.organizationId)?.name : '', user?.position]
+                                    .filter(Boolean).join(' · ')}
+                                </span>
                                 <span className="text-xs text-gray-400 ml-1">
                                   목표 {memberGoals.length}개
                                 </span>
@@ -766,7 +805,7 @@ function OrgGoalsView() {
                               <div className="px-6 pb-4">
                                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                                   {memberGoals.map(g => (
-                                    <GoalCard key={g.id} goal={g} />
+                                    <GoalCard key={g.id} goal={g} ownerName={userMap[g.userId]?.name} />
                                   ))}
                                 </div>
                               </div>

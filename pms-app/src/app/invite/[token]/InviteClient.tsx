@@ -44,6 +44,19 @@ export default function InvitePage() {
 
     setSubmitting(true);
     try {
+      // 가드: 기존 pending 문서가 이미 비활성화된 사용자(wasActivated=true && !isActive)면 거부
+      if (invitation.userId) {
+        try {
+          const { getUser } = await import('@/lib/firestore');
+          const existing = await getUser(invitation.userId);
+          if (existing && existing.wasActivated === true && existing.isActive === false) {
+            toast.error('관리자가 비활성화한 계정입니다. HR 관리자에게 문의하세요.');
+            setSubmitting(false);
+            return;
+          }
+        } catch { /* getUser 실패 시 진행 — 신규 케이스 */ }
+      }
+
       const cred = await createUserWithEmailAndPassword(auth, invitation.email, password);
       await createUser(cred.user.uid, {
         email: invitation.email,
@@ -52,6 +65,7 @@ export default function InvitePage() {
         organizationId: invitation.organizationId ?? '',
         position: invitation.position ?? '',
         isActive: true,
+        wasActivated: true,
       });
       if (invitation.userId && invitation.userId !== cred.user.uid) {
         await deleteUser(invitation.userId);

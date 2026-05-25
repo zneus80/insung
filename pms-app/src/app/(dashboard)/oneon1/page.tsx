@@ -22,13 +22,17 @@ export default function OneOnOnePage() {
     if (!userProfile) return;
     async function load() {
       try {
-        const [list, allUsers] = await Promise.all([
-          userProfile!.role === 'TEAM_LEAD'
-            ? getOneOnOnesByLeader(userProfile!.id)
-            : getOneOnOnesByMember(userProfile!.id),
+        // role 무관하게 leader/member 양쪽 모두 조회 (병합 + dedupe + hiddenFor 필터)
+        const [asLeader, asMember, allUsers] = await Promise.all([
+          getOneOnOnesByLeader(userProfile!.id),
+          getOneOnOnesByMember(userProfile!.id),
           getAllUsers(),
         ]);
-        const sorted = list.sort((a, b) => {
+        const map = new Map<string, OneOnOne>();
+        [...asLeader, ...asMember].forEach(r => map.set(r.id, r));
+        const merged = Array.from(map.values())
+          .filter(r => !(r.hiddenFor ?? []).includes(userProfile!.id));
+        const sorted = merged.sort((a, b) => {
           const ta = a.lastMessageAt ?? a.createdAt;
           const tb = b.lastMessageAt ?? b.createdAt;
           return tb.getTime() - ta.getTime();
@@ -42,15 +46,13 @@ export default function OneOnOnePage() {
     load();
   }, [userProfile]);
 
-  const isLead = userProfile?.role === 'TEAM_LEAD';
-
   return (
     <div className="flex flex-col h-full">
       <Header title="1on1" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
         <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">팀장·팀원 간 1on1 질의응답을 진행합니다.</p>
+          <p className="text-sm text-gray-500">상위 결재권자 또는 본인 책임 조직 인원과 1on1 대화를 진행합니다.</p>
           <Link href="/oneon1/new">
             <Button size="sm" className="gap-1.5">
               <Plus className="h-4 w-4" /> 대화 시작
@@ -64,13 +66,15 @@ export default function OneOnOnePage() {
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed bg-gray-50 py-16">
             <MessageCircle className="h-10 w-10 text-gray-300 mb-3" />
             <p className="text-sm text-gray-400">
-              {isLead ? '대화를 시작해보세요.' : '팀장이 대화를 시작하면 여기에 표시됩니다.'}
+              대화를 시작해보세요. 상위 결재권자 또는 본인 책임 조직 인원과 매칭할 수 있습니다.
             </p>
           </div>
         ) : (
           <div className="space-y-2">
             {rooms.map(room => {
-              const counterpart = users[isLead ? room.memberId : room.leaderId];
+              // 본인이 leader 면 상대는 member, 그 반대도 마찬가지
+              const counterpartId = room.leaderId === userProfile?.id ? room.memberId : room.leaderId;
+              const counterpart = users[counterpartId];
               const lastAt = room.lastMessageAt ?? room.createdAt;
               return (
                 <div key={room.id} className="group relative">

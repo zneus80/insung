@@ -17,6 +17,8 @@ import {
   getDescendantOrgIds as sharedGetDescendantOrgIds,
   getOrgChain as sharedGetOrgChain,
   getMyApprovalRole as sharedGetMyApprovalRole,
+  getApprovalRowState,
+  stageLabel,
 } from '@/lib/approval-filters';
 
 export default function ApprovalsPage() {
@@ -36,8 +38,10 @@ const getMyApprovalRole = sharedGetMyApprovalRole;
 // ── 뱃지 ─────────────────────────────────────────────────────
 
 const GOAL_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
-  TASK:          { label: '과제업무', cls: 'bg-blue-50 text-blue-700' },
-  GENERAL_MAJOR: { label: '주요업무', cls: 'bg-green-50 text-green-700' },
+  TASK:          { label: '과제업무',     cls: 'bg-blue-50 text-blue-700' },
+  GENERAL_MAJOR: { label: '주요업무',     cls: 'bg-green-50 text-green-700' },
+  COLLAB:        { label: '공동과제업무', cls: 'bg-purple-50 text-purple-700' },
+  TRANSFERRED:   { label: '이관업무',     cls: 'bg-amber-50 text-amber-700' },
 };
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────
@@ -122,109 +126,28 @@ function ApprovalsContent() {
     return !!teamOrg && !teamOrg.leaderId;
   }
 
-  /** 목표 승인 요청 (PENDING_APPROVAL / LEAD_APPROVED) */
+  /** 목표 승인 요청 (PENDING_APPROVAL / LEAD_APPROVED) — 본인 단계 이상 모두 포함 */
   const approvalGoals = goals.filter(g => {
-    const role = myRole(g);
-    const ownerRole = users[g.userId]?.role;
-    const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
-
-    if (role === 'TEAM_LEAD') {
-      // 팀원(MEMBER) 1차 승인. 팀장/임원 역할이 아닌 모든 목표 (role 미설정 포함)
-      if (g.status === 'PENDING_APPROVAL' && isSubordinate && g.userId !== userProfile?.id) return true;
-    }
-    if (role === 'HQ_HEAD') {
-      // 팀장 1차 승인 완료 후 본부장 2차 승인 대기 (hqApprovedBy 없는 것)
-      if (g.status === 'LEAD_APPROVED' && !g.hqApprovedBy) return true;
-      // 팀장 부재 시 본부장이 1차 승인 대행 (팀원 목표)
-      if (g.status === 'PENDING_APPROVAL' && isSubordinate && g.userId !== userProfile?.id && teamHasNoLead(g)) return true;
-      // 팀장의 신규 목표 — 본부장 1차 승인
-      if (g.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD' && g.userId !== userProfile?.id) return true;
-    }
-    if (role === 'EXEC') {
-      const ownerOrg = allOrgs.find(o => o.id === g.organizationId);
-      // 팀장 owner: 본부 없으면 직접, 있으면 본부장 거친 후
-      //   단, owner가 본부 직속(HEADQUARTERS)인 경우(= 본부장 본인 목표) 본부 단계 건너뜀
-      if (g.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD' && g.userId !== userProfile?.id) {
-        if (!hasHQ(g)) return true;
-        if (ownerOrg?.type === 'HEADQUARTERS') return true; // 본부장 본인 목표
-        // 그 외에는 본부장 처리 대기
-      }
-      // EXECUTIVE owner (본부장이 임원 role 인 케이스): 부문장이 직접 최종
-      if (g.status === 'PENDING_APPROVAL' && ownerRole === 'EXECUTIVE' && g.userId !== userProfile?.id) return true;
-      // 팀원의 LEAD_APPROVED:
-      //   - 본부 없는 경우: 팀장 승인 후 바로 임원 최종
-      //   - 본부 있는 경우: 본부장 승인(hqApprovedBy) 후 임원 최종
-      if (g.status === 'LEAD_APPROVED') {
-        if (!hasHQ(g)) return true;
-        if (g.hqApprovedBy) return true;
-      }
-      // 팀장·본부장 모두 부재 시 임원이 1차 승인 대행
-      if (g.status === 'PENDING_APPROVAL' && isSubordinate && g.userId !== userProfile?.id && teamHasNoLead(g) && !hasHQ(g)) return true;
-    }
-    return false;
+    if (g.status !== 'PENDING_APPROVAL' && g.status !== 'LEAD_APPROVED') return false;
+    if (!userProfile) return false;
+    const rs = getApprovalRowState(g, allOrgs, users, userProfile.id, userProfile.role);
+    return rs.state === 'NEXT' || rs.state === 'UPSTREAM';
   });
 
   /** 완료 확인 요청 — 완료 승인 전용 필드(completion*) 기준으로 판별 */
   const completionGoals = goals.filter(g => {
     if (g.status !== 'COMPLETED') return false;
-    const role = myRole(g);
-    const ownerRole = users[g.userId]?.role;
-
-    if (role === 'TEAM_LEAD') {
-      const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
-      return isSubordinate && !g.completionLeadApprovedBy && g.userId !== userProfile?.id;
-    }
-    if (role === 'HQ_HEAD') {
-      // 팀원 목표: 팀장 1차 후 본부장 2차 / 팀장 목표: 본부장 1차 (직접)
-      if (ownerRole === 'MEMBER' && !!g.completionLeadApprovedBy && !g.completionHqApprovedBy) return true;
-      if (ownerRole === 'TEAM_LEAD' && !g.completionHqApprovedBy && g.userId !== userProfile?.id) return true;
-      // 팀장 부재 시 본부장이 1차 완료 확인 대행 (MEMBER 목표 + 1차 미확인)
-      if (ownerRole === 'MEMBER' && !g.completionLeadApprovedBy && !g.completionHqApprovedBy && teamHasNoLead(g)) return true;
-      return false;
-    }
-    if (role === 'EXEC') {
-      const ownerOrg = allOrgs.find(o => o.id === g.organizationId);
-      if (ownerRole === 'TEAM_LEAD' && !g.completionExecApprovedBy && g.userId !== userProfile?.id) {
-        if (!hasHQ(g)) return true;
-        if (g.completionHqApprovedBy) return true;
-        // 본부장 본인 목표: 본부 단계 건너뜀
-        if (ownerOrg?.type === 'HEADQUARTERS') return true;
-        return false;
-      }
-      // EXECUTIVE owner (본부장이 임원 role): 부문장이 직접 최종 확인
-      if (ownerRole === 'EXECUTIVE' && !g.completionExecApprovedBy && g.userId !== userProfile?.id) return true;
-      if (ownerRole === 'MEMBER' && !!g.completionLeadApprovedBy && !g.completionExecApprovedBy) {
-        if (!hasHQ(g)) return true;
-        if (g.completionHqApprovedBy) return true;
-      }
-    }
-    return false;
+    if (!userProfile) return false;
+    const rs = getApprovalRowState(g, allOrgs, users, userProfile.id, userProfile.role);
+    return rs.state === 'NEXT' || rs.state === 'UPSTREAM';
   });
 
   /** 포기 요청 */
   const abandonGoals = goals.filter(g => {
     if (g.status !== 'PENDING_ABANDON') return false;
-    const role = myRole(g);
-    const ownerRole = users[g.userId]?.role;
-    const isSubordinate = ownerRole !== 'TEAM_LEAD' && ownerRole !== 'EXECUTIVE' && ownerRole !== 'CEO';
-
-    if (role === 'TEAM_LEAD') {
-      // 팀원 포기 요청 중 아직 1차 승인하지 않은 것만
-      return isSubordinate && g.userId !== userProfile?.id && !g.abandonLeadApprovedBy;
-    }
-    if (role === 'HQ_HEAD') {
-      // 팀장 부재 시 본부장이 포기 1차 승인 대행
-      if (isSubordinate && g.userId !== userProfile?.id && !g.abandonLeadApprovedBy && teamHasNoLead(g)) return true;
-      return false;
-    }
-    if (role === 'EXEC') {
-      if (ownerRole === 'TEAM_LEAD') return true;
-      if (ownerRole === 'MEMBER' && !!g.abandonLeadApprovedBy) return true;
-      // 팀장 부재 시에는 임원도 1차 + 최종 동시 (단, HQ 없을 때)
-      if (isSubordinate && !g.abandonLeadApprovedBy && teamHasNoLead(g) && !hasHQ(g)) return true;
-      return false;
-    }
-    return false;
+    if (!userProfile) return false;
+    const rs = getApprovalRowState(g, allOrgs, users, userProfile.id, userProfile.role);
+    return rs.state === 'NEXT' || rs.state === 'UPSTREAM';
   });
 
   const isEmpty = approvalGoals.length === 0 && completionGoals.length === 0 && abandonGoals.length === 0;
@@ -325,16 +248,24 @@ function ApprovalsContent() {
             )}
             {loading ? <SkeletonList /> : (
               <div className="space-y-2">
-                {approvalGoals.map(goal => (
-                  <ApprovalRow
-                    key={goal.id}
-                    goal={goal}
-                    requester={users[goal.userId]}
-                    approvalRole={myRole(goal) ?? 'TEAM_LEAD'}
-                    actionLoading={actionLoading === goal.id}
-                    onPromotionApprove={handlePromotionApprove}
-                  />
-                ))}
+                {approvalGoals.map(goal => {
+                  const rs = userProfile
+                    ? getApprovalRowState(goal, allOrgs, users, userProfile.id, userProfile.role)
+                    : { state: 'NONE' as const };
+                  return (
+                    <ApprovalRow
+                      key={goal.id}
+                      goal={goal}
+                      requester={users[goal.userId]}
+                      requesterOrgName={allOrgs.find(o => o.id === users[goal.userId]?.organizationId)?.name}
+                      approvalRole={myRole(goal) ?? 'TEAM_LEAD'}
+                      actionLoading={actionLoading === goal.id}
+                      onPromotionApprove={handlePromotionApprove}
+                      isUpstream={rs.state === 'UPSTREAM'}
+                      pendingStageLabel={rs.pendingStage ? stageLabel(rs.pendingStage.role) : undefined}
+                    />
+                  );
+                })}
               </div>
             )}
           </section>
@@ -348,16 +279,24 @@ function ApprovalsContent() {
             </h3>
             {loading ? <SkeletonList /> : (
               <div className="space-y-2">
-                {completionGoals.map(goal => (
-                  <ApprovalRow
-                    key={goal.id}
-                    goal={goal}
-                    requester={users[goal.userId]}
-                    approvalRole={myRole(goal) ?? 'TEAM_LEAD'}
-                    actionLoading={actionLoading === goal.id}
-                    onPromotionApprove={handlePromotionApprove}
-                  />
-                ))}
+                {completionGoals.map(goal => {
+                  const rs = userProfile
+                    ? getApprovalRowState(goal, allOrgs, users, userProfile.id, userProfile.role)
+                    : { state: 'NONE' as const };
+                  return (
+                    <ApprovalRow
+                      key={goal.id}
+                      goal={goal}
+                      requester={users[goal.userId]}
+                      requesterOrgName={allOrgs.find(o => o.id === users[goal.userId]?.organizationId)?.name}
+                      approvalRole={myRole(goal) ?? 'TEAM_LEAD'}
+                      actionLoading={actionLoading === goal.id}
+                      onPromotionApprove={handlePromotionApprove}
+                      isUpstream={rs.state === 'UPSTREAM'}
+                      pendingStageLabel={rs.pendingStage ? stageLabel(rs.pendingStage.role) : undefined}
+                    />
+                  );
+                })}
               </div>
             )}
           </section>
@@ -371,16 +310,24 @@ function ApprovalsContent() {
             </h3>
             {loading ? <SkeletonList /> : (
               <div className="space-y-2">
-                {abandonGoals.map(goal => (
-                  <ApprovalRow
-                    key={goal.id}
-                    goal={goal}
-                    requester={users[goal.userId]}
-                    approvalRole={myRole(goal) ?? 'TEAM_LEAD'}
-                    actionLoading={actionLoading === goal.id}
-                    onPromotionApprove={handlePromotionApprove}
-                  />
-                ))}
+                {abandonGoals.map(goal => {
+                  const rs = userProfile
+                    ? getApprovalRowState(goal, allOrgs, users, userProfile.id, userProfile.role)
+                    : { state: 'NONE' as const };
+                  return (
+                    <ApprovalRow
+                      key={goal.id}
+                      goal={goal}
+                      requester={users[goal.userId]}
+                      requesterOrgName={allOrgs.find(o => o.id === users[goal.userId]?.organizationId)?.name}
+                      approvalRole={myRole(goal) ?? 'TEAM_LEAD'}
+                      actionLoading={actionLoading === goal.id}
+                      onPromotionApprove={handlePromotionApprove}
+                      isUpstream={rs.state === 'UPSTREAM'}
+                      pendingStageLabel={rs.pendingStage ? stageLabel(rs.pendingStage.role) : undefined}
+                    />
+                  );
+                })}
               </div>
             )}
           </section>
@@ -395,14 +342,20 @@ function ApprovalsContent() {
 interface ApprovalRowProps {
   goal: Goal;
   requester?: AppUser;
+  requesterOrgName?: string;
   approvalRole: 'TEAM_LEAD' | 'HQ_HEAD' | 'EXEC';
   actionLoading: boolean;
   onPromotionApprove: (goal: Goal, promoteToTask: boolean) => void;
+  isUpstream?: boolean;          // 차하위 승인권자가 처리하기 전 단계 — 비활성 표시
+  pendingStageLabel?: string;    // 다음 처리 대기 단계 라벨 (예: '팀장', '본부장')
 }
 
-function ApprovalRow({ goal, requester, approvalRole, actionLoading, onPromotionApprove }: ApprovalRowProps) {
+function ApprovalRow({ goal, requester, requesterOrgName, approvalRole, actionLoading, onPromotionApprove, isUpstream, pendingStageLabel }: ApprovalRowProps) {
+  // v0.76: 이관·공동 분류 우선
   let typeBadge: { label: string; cls: string } | null = null;
-  if (goal.goalType === 'TASK') typeBadge = GOAL_TYPE_BADGE['TASK'];
+  if (goal.previousOwnerId) typeBadge = GOAL_TYPE_BADGE['TRANSFERRED'];
+  else if ((goal.collaboratorIds?.length ?? 0) > 0) typeBadge = GOAL_TYPE_BADGE['COLLAB'];
+  else if (goal.goalType === 'TASK') typeBadge = GOAL_TYPE_BADGE['TASK'];
   else if (goal.goalType === 'GENERAL' && goal.generalType === 'MAJOR') typeBadge = GOAL_TYPE_BADGE['GENERAL_MAJOR'];
 
   const isLead = approvalRole === 'TEAM_LEAD';
@@ -442,7 +395,9 @@ function ApprovalRow({ goal, requester, approvalRole, actionLoading, onPromotion
             <div className="flex items-center gap-4 text-xs text-gray-400">
               <span className="flex items-center gap-1">
                 <User className="h-3.5 w-3.5" />
-                {requester?.name ?? '알 수 없음'}{requester?.position ? ` (${requester.position})` : ''}
+                {requester?.name ?? '알 수 없음'}
+                {requesterOrgName ? ` · ${requesterOrgName}` : ''}
+                {requester?.position ? ` · ${requester.position}` : ''}
               </span>
               <span className="flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" />
@@ -453,7 +408,14 @@ function ApprovalRow({ goal, requester, approvalRole, actionLoading, onPromotion
           </div>
         </Link>
         <div className="shrink-0 flex items-center gap-2">
-          {showPromotionButtons ? (
+          {isUpstream ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500"
+              title="차하위 승인권자가 먼저 처리해야 합니다"
+            >
+              {pendingStageLabel ?? '하위 단계'} 검토 중
+            </span>
+          ) : showPromotionButtons ? (
             <div className="flex gap-2">
               <Button size="sm" variant="outline" disabled={actionLoading}
                 onClick={() => onPromotionApprove(goal, false)}

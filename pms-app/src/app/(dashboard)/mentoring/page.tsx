@@ -3,7 +3,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
-import { getMentoringForm, upsertMentoringForm } from '@/lib/firestore';
+import {
+  getMentoringForm, upsertMentoringForm,
+  requestMentoringFormEdit, withdrawMentoringFormEditRequest,
+  getHrAdmins, createNotification,
+} from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
@@ -12,8 +16,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
-  Save, Send, CheckCircle2, Briefcase,
-  TrendingUp, MapPin, MessageSquare, RefreshCw, Plus, X,
+  Save, Send, CheckCircle2, Briefcase, Pencil, XCircle,
+  TrendingUp, MapPin, MessageSquare, RefreshCw, Plus, X, AlertCircle,
 } from 'lucide-react';
 import type { MentoringForm, JobRequestType } from '@/types';
 
@@ -68,6 +72,11 @@ function MentoringContent() {
   const [carriedOver, setCarriedOver] = useState(false); // 이전 데이터 불러왔는지 여부
   // 자격증 개별 입력 목록
   const [certList, setCertList] = useState<string[]>(['']);
+  // 수정 요청 (A4) 관련 state
+  const [editRequestPending, setEditRequestPending] = useState(false);
+  const [editRequestReason, setEditRequestReason] = useState('');
+  const [showEditRequestInput, setShowEditRequestInput] = useState(false);
+  const [editRequestInputValue, setEditRequestInputValue] = useState('');
 
   const set = (field: string, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
@@ -94,9 +103,15 @@ function MentoringContent() {
         // 현재 연도 폼 먼저 조회
         const record = await getMentoringForm(userProfile.id, year);
         if (record) {
-          const { id, userId, organizationId, cycleYear, createdAt, updatedAt, status: s, submittedAt, ...rest } = record;
+          const {
+            id, userId, organizationId, cycleYear, createdAt, updatedAt, status: s, submittedAt,
+            editRequestPending: erp, editRequestReason: err, editRequestedAt, editRequestApprovedBy, editRequestApprovedAt,
+            ...rest
+          } = record;
           setForm(rest);
           setStatus(s);
+          setEditRequestPending(!!erp);
+          setEditRequestReason(err ?? '');
           setCertList(record.certifications ? record.certifications.split('\n').filter(Boolean) : ['']);
         } else {
           // 현재 연도 폼 없으면 작년 폼에서 고정 필드(직책·자격증·승진일) 자동 불러오기
@@ -150,6 +165,59 @@ function MentoringContent() {
     }
   }
 
+  // ── 수정 요청 (A4) ──────────────────────────────────
+  async function submitEditRequest() {
+    if (!userProfile) return;
+    if (!editRequestInputValue.trim()) {
+      toast.error('수정 요청 사유를 입력해주세요.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await requestMentoringFormEdit(userProfile.id, year, editRequestInputValue.trim());
+      // HR 관리자들에게 알림 발송
+      try {
+        const hrAdmins = await getHrAdmins();
+        await Promise.all(hrAdmins.map(hr => createNotification({
+          userId: hr.id,
+          type: 'MENTORING_EDIT_REQUESTED',
+          category: 'MENTORING',
+          title: `${userProfile.name}님 육성면담서 수정 요청`,
+          message: `사유: ${editRequestInputValue.trim().slice(0, 80)}${editRequestInputValue.trim().length > 80 ? '…' : ''}`,
+          link: `/mentoring/all?user=${userProfile.id}&year=${year}`,
+          read: false,
+        })));
+      } catch (err) {
+        console.error('[알림] HR 알림 발송 실패:', err);
+      }
+      setEditRequestPending(true);
+      setEditRequestReason(editRequestInputValue.trim());
+      setEditRequestInputValue('');
+      setShowEditRequestInput(false);
+      toast.success('HR 관리자에게 수정 요청을 보냈습니다.');
+    } catch {
+      toast.error('수정 요청 발송에 실패했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function withdrawEditRequest() {
+    if (!userProfile) return;
+    if (!confirm('수정 요청을 회수하시겠습니까?')) return;
+    setSaving(true);
+    try {
+      await withdrawMentoringFormEditRequest(userProfile.id, year);
+      setEditRequestPending(false);
+      setEditRequestReason('');
+      toast.success('수정 요청을 회수했습니다.');
+    } catch {
+      toast.error('회수에 실패했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col h-full">
@@ -194,21 +262,80 @@ function MentoringContent() {
           )}
 
           {/* 상단 상태 배너 */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h2 className="text-lg font-bold text-gray-900">Career Development Program</h2>
               <p className="text-sm text-gray-400 mt-0.5">{year}년도</p>
             </div>
-            {isSubmitted ? (
-              <span className="flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1.5 text-xs font-semibold text-green-700">
-                <CheckCircle2 className="h-3.5 w-3.5" /> 제출 완료
-              </span>
-            ) : (
-              <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700">
-                작성 중
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {isSubmitted ? (
+                <span className="flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1.5 text-xs font-semibold text-green-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> 제출 완료
+                </span>
+              ) : (
+                <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700">
+                  작성 중
+                </span>
+              )}
+              {/* A4: 제출 후 수정 요청 버튼 (당해연도만, 수정 요청 진행 중 아닌 경우만) */}
+              {status === 'SUBMITTED' && !isPastYear && !editRequestPending && !showEditRequestInput && (
+                <Button
+                  size="sm" variant="outline" onClick={() => setShowEditRequestInput(true)}
+                  className="gap-1.5 text-blue-600 border-blue-300 hover:bg-blue-50"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> HR 수정 요청
+                </Button>
+              )}
+              {editRequestPending && !isPastYear && (
+                <Button
+                  size="sm" variant="outline" onClick={withdrawEditRequest} disabled={saving}
+                  className="gap-1.5 text-orange-600 border-orange-300 hover:bg-orange-50"
+                >
+                  <XCircle className="h-3.5 w-3.5" /> 수정 요청 회수
+                </Button>
+              )}
+            </div>
           </div>
+
+          {/* A4: 수정 요청 입력 박스 */}
+          {showEditRequestInput && !editRequestPending && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
+                <Pencil className="h-4 w-4" /> HR 수정 요청
+              </div>
+              <p className="text-xs text-gray-600">
+                제출된 육성면담서를 수정하려면 HR 관리자에게 사유와 함께 요청하세요. HR 승인 후 다시 작성 가능 상태로 전환됩니다.
+              </p>
+              <Textarea
+                rows={3}
+                value={editRequestInputValue}
+                onChange={e => setEditRequestInputValue(e.target.value)}
+                placeholder="수정이 필요한 사유를 구체적으로 입력하세요"
+              />
+              <div className="flex gap-2 justify-end">
+                <Button size="sm" variant="ghost" onClick={() => { setShowEditRequestInput(false); setEditRequestInputValue(''); }} disabled={saving}>
+                  취소
+                </Button>
+                <Button size="sm" onClick={submitEditRequest} disabled={saving || !editRequestInputValue.trim()}>
+                  {saving ? '요청 중...' : 'HR에 요청 보내기'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* A4: 수정 요청 진행 중 배너 */}
+          {editRequestPending && (
+            <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
+              <AlertCircle className="h-4 w-4 shrink-0 text-blue-600 mt-0.5" />
+              <div className="flex-1 text-blue-800">
+                <p className="font-medium">HR 수정 승인 대기 중</p>
+                {editRequestReason && (
+                  <p className="text-xs text-blue-700/80 mt-0.5 whitespace-pre-wrap">사유: {editRequestReason}</p>
+                )}
+                <p className="text-xs text-blue-700/70 mt-1">HR 관리자가 승인하면 다시 작성 가능 상태로 전환됩니다.</p>
+              </div>
+            </div>
+          )}
 
           {/* 이전 데이터 불러오기 안내 */}
           {carriedOver && !isSubmitted && (

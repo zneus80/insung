@@ -118,9 +118,8 @@ service cloud.firestore {
 
     // 마일리지
     match /mileages/{userId} {
-      allow read: if isAuthenticated() && (
-        isOwner(userId) || isHrAdmin() || isCeo()
-      );
+      // 조직현황 공유 목적 — 인증된 모든 사용자가 마일리지 점수 조회 가능 (쓰기는 HR/CEO 한정)
+      allow read: if isAuthenticated();
       allow write: if isHrAdmin() || isCeo();
     }
 
@@ -156,6 +155,7 @@ service cloud.firestore {
       allow list: if isAuthenticated();
       allow create: if isAuthenticated();
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
     // 주간 업무 (docId = userId_year_Wnn)
@@ -203,7 +203,11 @@ service cloud.firestore {
         isLead() || isExec() || isCeo() || isHrAdmin()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // 본인 작성/수정 OR HR관리자가 수정 요청 승인/거절 처리
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isHrAdmin()
+      );
     }
 
     // 공지사항 (전체 읽기, HR관리자만 쓰기)

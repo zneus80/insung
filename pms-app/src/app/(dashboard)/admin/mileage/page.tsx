@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Pencil, Lock, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Lock, Plus, Trash2, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -38,6 +38,25 @@ function MileageContent() {
   const [mileages, setMileages] = useState<Record<string, Mileage>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+
+  // ── 정렬·필터 ─────────────────────────────────
+  type SortKey = 'name' | 'points';
+  type SortDir = 'asc' | 'desc';
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [filterTier, setFilterTier] = useState<string>('ALL');
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  }
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <ChevronsUpDown className="inline h-3 w-3 ml-1 text-gray-300" />;
+    return sortDir === 'asc'
+      ? <ChevronUp className="inline h-3 w-3 ml-1 text-blue-500" />
+      : <ChevronDown className="inline h-3 w-3 ml-1 text-blue-500" />;
+  }
 
   const [editing, setEditing] = useState<User | null>(null);
   const [points, setPoints] = useState('');
@@ -111,7 +130,44 @@ function MileageContent() {
   }
 
   const isReadOnly = userProfile?.role === 'CEO';
-  const filtered = users.filter(u => u.name.includes(search) || u.email.includes(search));
+
+  // 등급 범위 매핑 (filterTier 값 → 포인트 범위)
+  const TIER_RANGES: Record<string, [number, number]> = {
+    '새싹':    [0, 199],
+    '주니어':  [200, 399],
+    '시니어':  [400, 599],
+    '전문가':  [600, 799],
+    '마스터':  [800, 999],
+    '지식스타': [1000, Infinity],
+  };
+
+  const filtered = users
+    .filter(u => {
+      const txt = search.toLowerCase();
+      if (txt && !u.name.toLowerCase().includes(txt) && !u.email.toLowerCase().includes(txt)) return false;
+      if (filterTier !== 'ALL') {
+        const m = mileages[u.id];
+        if (filterTier === '미입력') { if (m) return false; }
+        else {
+          const pts = m?.points ?? 0;
+          const range = TIER_RANGES[filterTier];
+          if (!m) return false;
+          if (range && (pts < range[0] || pts > range[1])) return false;
+        }
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'name') {
+        cmp = a.name.localeCompare(b.name, 'ko');
+      } else if (sortKey === 'points') {
+        const pa = mileages[a.id]?.points ?? -1;
+        const pb = mileages[b.id]?.points ?? -1;
+        cmp = pa - pb;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
 
   function entrySummary(m?: Mileage): string {
     if (!m?.entries || m.entries.length === 0) return '-';
@@ -126,27 +182,50 @@ function MileageContent() {
   return (
     <div className="flex flex-col h-full">
       <Header title="마일리지 관리" />
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 min-h-0 flex flex-col gap-4 p-6 overflow-hidden">
 
         {isReadOnly && (
-          <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
+          <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700 shrink-0">
             <Lock className="h-4 w-4 shrink-0" />
             최고관리자는 마일리지를 조회만 할 수 있습니다. 수정은 HR관리자 계정으로 로그인하세요.
           </div>
         )}
 
-        <div className="flex gap-3 items-center">
+        <div className="flex flex-wrap gap-2 items-center shrink-0">
           <Input
             placeholder="이름 또는 이메일 검색"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="max-w-xs"
           />
+          {/* 등급 필터 */}
+          <select
+            value={filterTier}
+            onChange={e => setFilterTier(e.target.value)}
+            className="h-9 rounded-md border border-gray-200 bg-white px-3 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="ALL">전체 등급</option>
+            <option value="새싹">🌱 새싹 (0–199)</option>
+            <option value="주니어">📘 주니어 (200–399)</option>
+            <option value="시니어">💡 시니어 (400–599)</option>
+            <option value="전문가">🚀 전문가 (600–799)</option>
+            <option value="마스터">🏆 마스터 (800–999)</option>
+            <option value="지식스타">⭐ 지식스타 (1000+)</option>
+            <option value="미입력">미입력</option>
+          </select>
+          {(filterTier !== 'ALL' || search) && (
+            <button
+              onClick={() => { setFilterTier('ALL'); setSearch(''); }}
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+            >
+              초기화
+            </button>
+          )}
           <span className="text-xs text-gray-400 ml-auto">총 {filtered.length}명</span>
         </div>
 
         {/* 등급 범례 */}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0">
           {[
             { label: '🌱 새싹', sub: '0–199', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
             { label: '📘 주니어', sub: '200–399', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
@@ -161,14 +240,18 @@ function MileageContent() {
           ))}
         </div>
 
-        <div className="rounded-xl border bg-white overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs">
+        <div className="flex-1 min-h-0 rounded-xl border bg-white overflow-y-auto overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
+            <thead className="bg-gray-50 text-gray-500 text-xs sticky top-0 z-10">
               <tr>
-                <th className="px-4 py-3 text-left">이름</th>
+                <th className="px-4 py-3 text-left cursor-pointer select-none hover:text-gray-700" onClick={() => handleSort('name')}>
+                  이름 <SortIcon col="name" />
+                </th>
                 <th className="px-4 py-3 text-left">직책</th>
                 <th className="px-4 py-3 text-left">등급</th>
-                <th className="px-4 py-3 text-right">마일리지</th>
+                <th className="px-4 py-3 text-right cursor-pointer select-none hover:text-gray-700" onClick={() => handleSort('points')}>
+                  마일리지 <SortIcon col="points" />
+                </th>
                 <th className="px-4 py-3 text-left">지급 내역</th>
                 <th className="px-4 py-3 text-left">최종 수정</th>
                 {!isReadOnly && <th className="px-4 py-3" />}

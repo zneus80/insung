@@ -21,7 +21,7 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem, InnovationActivity } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, IndividualEvalStatus, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem, InnovationActivity } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -276,26 +276,45 @@ export async function deleteGoal(id: string) {
 }
 
 export async function getGoalsByUser(userId: string, year?: number): Promise<Goal[]> {
-  const constraints: QueryConstraint[] = [where('userId', '==', userId)];
-  if (year) constraints.push(where('cycleYear', '==', year));
-  // orderBy 제거 → 복합 인덱스 불필요, 메모리 정렬로 대체
-  const snap = await getDocs(query(collection(db, COLLECTIONS.GOALS), ...constraints));
-  const goals = snap.docs.map(d => ({
-    ...d.data(),
-    id: d.id,
-    dueDate: fromTimestamp(d.data().dueDate) ?? new Date(),
-    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
-    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-    approvedAt: fromTimestamp(d.data().approvedAt),
-    leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
-    trashedAt: fromTimestamp(d.data().trashedAt),
-    softDeletedAt: fromTimestamp(d.data().softDeletedAt),
-    completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
-    completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
-    completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
-    autoAbandonedByOrgChange: d.data().autoAbandonedByOrgChange ?? false,
-  } as Goal));
-  return goals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  // 본인 owner 목표 + 본인이 collaborator 로 포함된 목표(임원 승인 후) 병합
+  const ownerQuery: QueryConstraint[] = [where('userId', '==', userId)];
+  if (year) ownerQuery.push(where('cycleYear', '==', year));
+  const collabQuery: QueryConstraint[] = [where('collaboratorIds', 'array-contains', userId)];
+  if (year) collabQuery.push(where('cycleYear', '==', year));
+  const [ownerSnap, collabSnap] = await Promise.all([
+    getDocs(query(collection(db, COLLECTIONS.GOALS), ...ownerQuery)),
+    // collaboratorIds 필드가 존재하지 않는 구버전 문서는 array-contains 에서 자동 제외됨
+    getDocs(query(collection(db, COLLECTIONS.GOALS), ...collabQuery)),
+  ]);
+  function mapDoc(d: any): Goal {
+    return {
+      ...d.data(),
+      id: d.id,
+      dueDate: fromTimestamp(d.data().dueDate) ?? new Date(),
+      createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+      updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
+      approvedAt: fromTimestamp(d.data().approvedAt),
+      leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
+      trashedAt: fromTimestamp(d.data().trashedAt),
+      softDeletedAt: fromTimestamp(d.data().softDeletedAt),
+      completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
+      completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
+      completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
+      autoAbandonedByOrgChange: d.data().autoAbandonedByOrgChange ?? false,
+    } as Goal;
+  }
+  const owned = ownerSnap.docs.map(mapDoc);
+  // collaborator 목표는 임원 최종 승인 이후 (APPROVED / IN_PROGRESS / COMPLETED) 만 노출
+  const COLLAB_VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'PENDING_ABANDON']);
+  const collab = collabSnap.docs.map(mapDoc).filter(g =>
+    g.userId !== userId && COLLAB_VISIBLE.has(g.status) && !g.trashedAt && !g.softDeletedAt,
+  );
+  const seen = new Set<string>();
+  const merged: Goal[] = [];
+  for (const g of [...owned, ...collab]) {
+    if (!seen.has(g.id)) { seen.add(g.id); merged.push(g); }
+  }
+  return merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
 export async function getAllGoalsByYear(year: number): Promise<Goal[]> {
@@ -320,11 +339,8 @@ export async function getAllGoalsByYear(year: number): Promise<Goal[]> {
   return goals.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
 
-export async function getGoalsByOrganization(orgId: string, year?: number): Promise<Goal[]> {
-  const constraints: QueryConstraint[] = [where('organizationId', '==', orgId)];
-  if (year) constraints.push(where('cycleYear', '==', year));
-  const snap = await getDocs(query(collection(db, COLLECTIONS.GOALS), ...constraints));
-  const goals = snap.docs.map(d => ({
+function mapGoalDoc(d: any): Goal {
+  return {
     ...d.data(),
     id: d.id,
     dueDate: fromTimestamp(d.data().dueDate) ?? new Date(),
@@ -338,36 +354,56 @@ export async function getGoalsByOrganization(orgId: string, year?: number): Prom
     completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
     completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
     autoAbandonedByOrgChange: d.data().autoAbandonedByOrgChange ?? false,
-  } as Goal));
-  return goals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  } as Goal;
 }
 
-// 여러 조직의 목표 조회 (임원/CEO용) — 10개 초과 시 배치 처리
+export async function getGoalsByOrganization(orgId: string, year?: number): Promise<Goal[]> {
+  // organizationId 또는 relatedOrgIds 에 포함된 목표를 합쳐 반환 (공동 추진자 소속 조직 포함)
+  const orgConstraints: QueryConstraint[] = [where('organizationId', '==', orgId)];
+  const relConstraints: QueryConstraint[] = [where('relatedOrgIds', 'array-contains', orgId)];
+  if (year) {
+    orgConstraints.push(where('cycleYear', '==', year));
+    relConstraints.push(where('cycleYear', '==', year));
+  }
+  const [snapByOrg, snapByRel] = await Promise.all([
+    getDocs(query(collection(db, COLLECTIONS.GOALS), ...orgConstraints)),
+    getDocs(query(collection(db, COLLECTIONS.GOALS), ...relConstraints)),
+  ]);
+  const seen = new Set<string>();
+  const merged: Goal[] = [];
+  for (const d of [...snapByOrg.docs, ...snapByRel.docs]) {
+    if (seen.has(d.id)) continue;
+    seen.add(d.id);
+    merged.push(mapGoalDoc(d));
+  }
+  return merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+// 여러 조직의 목표 조회 (임원/CEO용) — 10개 초과 시 배치 처리. relatedOrgIds 도 함께 매칭.
 export async function getGoalsByOrganizations(orgIds: string[], year?: number): Promise<Goal[]> {
   if (orgIds.length === 0) return [];
   const CHUNK = 10;
-  const results: Goal[] = [];
+  const seen = new Set<string>();
+  const merged: Goal[] = [];
   for (let i = 0; i < orgIds.length; i += CHUNK) {
     const chunk = orgIds.slice(i, i + CHUNK);
-    const constraints: QueryConstraint[] = [where('organizationId', 'in', chunk)];
-    if (year) constraints.push(where('cycleYear', '==', year));
-    const snap = await getDocs(query(collection(db, COLLECTIONS.GOALS), ...constraints));
-    results.push(...snap.docs.map(d => ({
-      ...d.data(), id: d.id,
-      dueDate: fromTimestamp(d.data().dueDate) ?? new Date(),
-      createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
-      updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-      approvedAt: fromTimestamp(d.data().approvedAt),
-      leadApprovedAt: fromTimestamp(d.data().leadApprovedAt),
-    trashedAt: fromTimestamp(d.data().trashedAt),
-    softDeletedAt: fromTimestamp(d.data().softDeletedAt),
-    completionLeadApprovedAt: fromTimestamp(d.data().completionLeadApprovedAt),
-    completionHqApprovedAt: fromTimestamp(d.data().completionHqApprovedAt),
-    completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
-    autoAbandonedByOrgChange: d.data().autoAbandonedByOrgChange ?? false,
-    } as Goal)));
+    const baseConstraintsOrg: QueryConstraint[] = [where('organizationId', 'in', chunk)];
+    const baseConstraintsRel: QueryConstraint[] = [where('relatedOrgIds', 'array-contains-any', chunk)];
+    if (year) {
+      baseConstraintsOrg.push(where('cycleYear', '==', year));
+      baseConstraintsRel.push(where('cycleYear', '==', year));
+    }
+    const [snapByOrg, snapByRel] = await Promise.all([
+      getDocs(query(collection(db, COLLECTIONS.GOALS), ...baseConstraintsOrg)),
+      getDocs(query(collection(db, COLLECTIONS.GOALS), ...baseConstraintsRel)),
+    ]);
+    for (const d of [...snapByOrg.docs, ...snapByRel.docs]) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      merged.push(mapGoalDoc(d));
+    }
   }
-  return results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
 // 팀장: 승인 대기 목표 조회
@@ -435,8 +471,13 @@ export async function getPendingGoalsByOrganizations(orgIds: string[]): Promise<
 
 // ─── 목표 이력 ────────────────────────────────
 export async function addGoalHistory(data: Omit<GoalHistory, 'id' | 'createdAt'>) {
+  // Firestore 는 undefined 값을 거부하므로 undefined 필드는 제거
+  const cleaned: Record<string, any> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v !== undefined) cleaned[k] = v;
+  }
   await addDoc(collection(db, COLLECTIONS.GOAL_HISTORIES), {
-    ...data,
+    ...cleaned,
     createdAt: serverTimestamp(),
   });
 }
@@ -451,7 +492,8 @@ export async function getGoalHistories(goalId: string): Promise<GoalHistory[]> {
     id: d.id,
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
   } as GoalHistory));
-  return items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  // 최신순 정렬
+  return items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
 // ─── 진행상황 ──────────────────────────────────
@@ -574,11 +616,19 @@ export async function upsertIndividualEvaluation(
     (safeData as any).execConfirmedAt = Timestamp.fromDate(safeData.execConfirmedAt);
   }
   if (existing) {
-    await updateDoc(doc(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS, existing.id), {
-      ...safeData,
-      updatedAt: serverTimestamp(),
-    });
+    // 데이터 힐링: 기존 문서가 organizationId 없이 저장된 경우(과거 버그 영향)
+    //   현재 data 에 organizationId 가 있으면 보강 저장. 한 번 저장된 organizationId 가 있으면 변경하지 않음.
+    const patch: any = { ...safeData, updatedAt: serverTimestamp() };
+    if (!existing.organizationId && safeData.organizationId) {
+      patch.organizationId = safeData.organizationId;
+    }
+    await updateDoc(doc(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS, existing.id), patch);
   } else {
+    if (!safeData.organizationId) {
+      // organizationId 가 없으면 getIndividualEvaluationsByOrg 쿼리에 잡히지 않아 화면에 표시되지 않음.
+      // 데이터 무결성 보장을 위해 새 문서 생성을 거부.
+      throw new Error('[upsertIndividualEvaluation] organizationId 가 필요합니다. (호출 위치에서 member.organizationId 전달 누락)');
+    }
     await addDoc(collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS), {
       userId,
       cycleYear: year,
@@ -596,6 +646,28 @@ export async function getAllIndividualEvaluations(year: number): Promise<Individ
     where('cycleYear', '==', year)
   ));
   return snap.docs.map(d => mapIndividualEval(d.id, d.data()));
+}
+
+/**
+ * 임원 확정 등급 무효화: execGrade/execComment/execConfirmedBy/execConfirmedAt 제거.
+ * status 는 이전 단계로 자동 복원 — hqReviewedBy 있으면 HQ_REVIEWED, leadSubmittedBy 있으면 LEAD_REVIEWED, 모두 없으면 NOT_STARTED.
+ * 쿼터 재조정 시 호출되어 임원이 다시 등급을 부여하도록 강제한다.
+ */
+export async function clearExecConfirmation(ie: IndividualEvaluation) {
+  const { deleteField: del } = await import('firebase/firestore');
+  const revertStatus: IndividualEvalStatus = ie.hqReviewedBy
+    ? 'HQ_REVIEWED'
+    : ie.leadSubmittedBy
+      ? 'LEAD_REVIEWED'
+      : 'NOT_STARTED';
+  await updateDoc(doc(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS, ie.id), {
+    status: revertStatus,
+    execGrade: del(),
+    execComment: del(),
+    execConfirmedBy: del(),
+    execConfirmedAt: del(),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 // ─── 1on1 ─────────────────────────────────────
@@ -778,27 +850,40 @@ export async function getGradeQuotas() {
 // ─── 평가 사이클 ──────────────────────────────
 // v0.75: evaluationPeriods 컬렉션과 통합. 평가기간 관리에서 설정한 startDate/endDate 를
 //        evalStartDate/evalEndDate 로 매핑하여 반환.
-export async function getActiveCycle(): Promise<EvaluationCycle | null> {
-  // evaluationPeriods 에서 최근 연도 + 미공개(active) 우선, 없으면 최신
+// v0.76: 인자로 연도를 받으면 해당 연도의 cycle 을 직접 조회한다 (activeYear 와 항상 일치 보장).
+//        인자 미지정 시 기존 동작 — 미공개(active) 우선, 그 후 연도 내림차순.
+export async function getActiveCycle(year?: number): Promise<EvaluationCycle | null> {
+  // 연도가 명시되면 해당 doc 만 직접 조회 — 연도 전환·재지정 시 안내문이 활성 연도와 어긋나지 않도록
+  if (typeof year === 'number') {
+    const docRef = doc(db, 'evaluationPeriods', `${year}`);
+    const single = await getDoc(docRef);
+    if (!single.exists()) return null;
+    const d = single.data() as any;
+    return {
+      id: single.id,
+      year: d.year ?? year,
+      evalStartDate: fromTimestamp(d.startDate) ?? new Date(),
+      evalEndDate: fromTimestamp(d.endDate) ?? new Date(),
+      isActive: !d.isPublished,
+      createdAt: fromTimestamp(d.updatedAt) ?? new Date(),
+    } as EvaluationCycle;
+  }
+
   const snap = await getDocs(collection(db, 'evaluationPeriods'));
   if (snap.empty) return null;
-  // year 내림차순 정렬, isPublished=false 인 것 우선
   const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as any))
     .sort((a, b) => {
-      // 미공개(active) 우선, 그 후 연도 내림차순
       const aActive = !a.isPublished ? 1 : 0;
       const bActive = !b.isPublished ? 1 : 0;
       if (aActive !== bActive) return bActive - aActive;
       return (b.year ?? 0) - (a.year ?? 0);
     });
   const d = docs[0];
-  const evalStart = fromTimestamp(d.startDate) ?? new Date();
-  const evalEnd = fromTimestamp(d.endDate) ?? new Date();
   return {
     id: d.id,
     year: d.year,
-    evalStartDate: evalStart,
-    evalEndDate: evalEnd,
+    evalStartDate: fromTimestamp(d.startDate) ?? new Date(),
+    evalEndDate: fromTimestamp(d.endDate) ?? new Date(),
     isActive: !d.isPublished,
     createdAt: fromTimestamp(d.updatedAt) ?? new Date(),
   } as EvaluationCycle;
@@ -1048,9 +1133,79 @@ export async function getMentoringForm(userId: string, year: number): Promise<Me
     ...d,
     id: snap.id,
     submittedAt: fromTimestamp(d.submittedAt),
+    editRequestedAt: fromTimestamp(d.editRequestedAt),
+    editRequestApprovedAt: fromTimestamp(d.editRequestApprovedAt),
     createdAt: fromTimestamp(d.createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
   } as MentoringForm;
+}
+
+// ── 육성면담서 수정 요청 워크플로 (A4) ──────────────────
+/** 개인 → HR: 제출된 폼의 수정 요청. 폼은 SUBMITTED 상태 유지, editRequestPending=true */
+export async function requestMentoringFormEdit(
+  userId: string,
+  year: number,
+  reason: string,
+) {
+  const ref = doc(db, COLLECTIONS.MENTORING_FORMS, mentoringDocId(userId, year));
+  await updateDoc(ref, {
+    editRequestPending: true,
+    editRequestReason: reason,
+    editRequestedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** 개인이 자신의 수정 요청 회수 (HR 처리 전) */
+export async function withdrawMentoringFormEditRequest(userId: string, year: number) {
+  const ref = doc(db, COLLECTIONS.MENTORING_FORMS, mentoringDocId(userId, year));
+  const { deleteField: del } = await import('firebase/firestore');
+  await updateDoc(ref, {
+    editRequestPending: false,
+    editRequestReason: del(),
+    editRequestedAt: del(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** HR → 개인: 수정 허가 → 폼을 DRAFT 로 되돌림, 요청 필드 초기화 */
+export async function approveMentoringFormEdit(
+  userId: string,
+  year: number,
+  hrUserId: string,
+) {
+  const ref = doc(db, COLLECTIONS.MENTORING_FORMS, mentoringDocId(userId, year));
+  const { deleteField: del } = await import('firebase/firestore');
+  await updateDoc(ref, {
+    status: 'DRAFT',
+    editRequestPending: false,
+    editRequestReason: del(),
+    editRequestedAt: del(),
+    editRequestApprovedBy: hrUserId,
+    editRequestApprovedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** HR → 개인: 수정 거절 → 폼은 SUBMITTED 유지, 요청 필드만 초기화 */
+export async function rejectMentoringFormEdit(userId: string, year: number) {
+  const ref = doc(db, COLLECTIONS.MENTORING_FORMS, mentoringDocId(userId, year));
+  const { deleteField: del } = await import('firebase/firestore');
+  await updateDoc(ref, {
+    editRequestPending: false,
+    editRequestReason: del(),
+    editRequestedAt: del(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** HR 관리자 (isHrAdmin === true) 목록 */
+export async function getHrAdmins(): Promise<User[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.USERS),
+    where('isHrAdmin', '==', true),
+  ));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as User)).filter(u => u.isActive !== false);
 }
 
 export async function upsertMentoringForm(
@@ -1133,6 +1288,41 @@ export async function getAwardsByUser(userId: string): Promise<Award[]> {
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
   } as Award));
+}
+
+/** 전체 포상 이력 — 전사 인원현황 등 대량 조회용. awardDate 내림차순 정렬. */
+export async function getAllAwards(): Promise<Award[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.AWARDS),
+    orderBy('awardDate', 'desc'),
+  ));
+  return snap.docs.map(d => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
+  } as Award));
+}
+
+/** 연도 범위로 포상 이력 조회 (awardDate 가 YYYY-MM-DD 문자열) */
+export async function getAwardsByYearRange(startYear: number, endYear: number): Promise<Award[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.AWARDS),
+    where('awardDate', '>=', `${startYear}-01-01`),
+    where('awardDate', '<=', `${endYear}-12-31`),
+    orderBy('awardDate', 'desc'),
+  ));
+  return snap.docs.map(d => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
+  } as Award));
+}
+
+/** 특정 연도의 모든 포상 이력 조회 */
+export async function getAwardsByYear(year: number): Promise<Award[]> {
+  return getAwardsByYearRange(year, year);
 }
 
 export async function createAward(data: Omit<Award, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
@@ -1315,6 +1505,36 @@ export async function addLeadComment(
   return { ...entry, createdAt: entry.createdAt.toDate() };
 }
 
+// v0.76 A2: 팀 코멘트 수정 — 동일 commentId 의 텍스트 갱신
+export async function updateLeadComment(
+  userId: string, year: number, week: number,
+  commentId: string, newText: string,
+): Promise<void> {
+  const docId = weeklyTaskDocId(userId, year, week);
+  const ref = doc(db, COLLECTIONS.WEEKLY_TASKS, docId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const data = snap.data();
+  const list = (data.leadComments ?? []) as any[];
+  const updated = list.map(c => c.id === commentId ? { ...c, text: newText, editedAt: Timestamp.now() } : c);
+  await updateDoc(ref, { leadComments: updated, updatedAt: serverTimestamp() });
+}
+
+// v0.76 A2: 팀 코멘트 삭제
+export async function deleteLeadComment(
+  userId: string, year: number, week: number,
+  commentId: string,
+): Promise<void> {
+  const docId = weeklyTaskDocId(userId, year, week);
+  const ref = doc(db, COLLECTIONS.WEEKLY_TASKS, docId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const data = snap.data();
+  const list = (data.leadComments ?? []) as any[];
+  const next = list.filter(c => c.id !== commentId);
+  await updateDoc(ref, { leadComments: next, updatedAt: serverTimestamp() });
+}
+
 export async function getWeeklyTasksByUsersAndWeek(
   userIds: string[], year: number, week: number
 ): Promise<WeeklyTask[]> {
@@ -1406,6 +1626,22 @@ export async function markAllNotificationsRead(userId: string) {
     where('read', '==', false),
   ));
   await Promise.all(snap.docs.map(d => updateDoc(d.ref, { read: true })));
+}
+
+export async function deleteNotification(id: string) {
+  await deleteDoc(doc(db, COLLECTIONS.NOTIFICATIONS, id));
+}
+
+export async function deleteNotifications(ids: string[]) {
+  await Promise.all(ids.map(id => deleteDoc(doc(db, COLLECTIONS.NOTIFICATIONS, id))));
+}
+
+export async function deleteAllNotifications(userId: string) {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.NOTIFICATIONS),
+    where('userId', '==', userId),
+  ));
+  await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
 }
 
 // ─── 혁신활동 (HR 입력, 전사 공유) ────────────────────────
