@@ -173,7 +173,12 @@ function AllMembersContent() {
           getAllAwards(),
           ...yearsToShow.map(y => getAllIndividualEvaluations(y)),
         ]);
-        const activeUsers = allUsers.filter(u => u.isActive !== false);
+        // 임원·CEO 는 평가·승진 대상이 아니므로 전사 인원현황에서 제외
+        const activeUsers = allUsers.filter(u =>
+          u.isActive !== false &&
+          u.role !== 'EXECUTIVE' &&
+          u.role !== 'CEO'
+        );
         setUsers(activeUsers);
         setOrgs(allOrgs);
         setMileages(allMileages);
@@ -381,8 +386,6 @@ function AllMembersContent() {
             <option value="ALL">전체 역할</option>
             <option value="MEMBER">팀원</option>
             <option value="TEAM_LEAD">팀장</option>
-            <option value="EXECUTIVE">임원</option>
-            <option value="CEO">최고관리자</option>
           </select>
           <select
             value={filterPromotion}
