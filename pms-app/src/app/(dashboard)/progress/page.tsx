@@ -232,7 +232,11 @@ export default function ProgressPage() {
           ]);
           const scopeOrgIds = findDescendantIds(profile.organizationId, allOrgs);
           const scopeUsers  = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
-          const scopeGoals  = allGoals.filter(g => new Set(scopeUsers.map(u => u.id)).has(g.userId));
+          const scopeUserIdSet = new Set(scopeUsers.map(u => u.id));
+          // 조직목표현황: 포기(ABANDONED)·반려(REJECTED) 확정 목표는 제외
+          const scopeGoals  = allGoals.filter(g =>
+            scopeUserIdSet.has(g.userId) && g.status !== 'ABANDONED' && g.status !== 'REJECTED',
+          );
           const usersByOrg: Record<string, User[]> = {};
           for (const u of scopeUsers) {
             if (!usersByOrg[u.organizationId]) usersByOrg[u.organizationId] = [];
@@ -253,7 +257,11 @@ export default function ProgressPage() {
           setMyGoals(ownGoals);
           const scopeOrgIds = allOrgs.map(o => o.id);
           const scopeUsers  = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
-          const scopeGoals  = allGoals.filter(g => new Set(scopeUsers.map(u => u.id)).has(g.userId));
+          const scopeUserIdSet = new Set(scopeUsers.map(u => u.id));
+          // 조직목표현황: 포기(ABANDONED)·반려(REJECTED) 확정 목표는 제외
+          const scopeGoals  = allGoals.filter(g =>
+            scopeUserIdSet.has(g.userId) && g.status !== 'ABANDONED' && g.status !== 'REJECTED',
+          );
           const usersByOrg: Record<string, User[]> = {};
           for (const u of scopeUsers) {
             if (!usersByOrg[u.organizationId]) usersByOrg[u.organizationId] = [];
@@ -361,7 +369,7 @@ export default function ProgressPage() {
                     if (!sel) return null;
                     return (
                       <div className="rounded-xl border bg-white p-4 space-y-1">
-                        <OrgTreeNode node={sel} persistKey="progress" />
+                        <OrgTreeNode node={sel} persistKey="progress" defaultOpenDepth={99} defaultMemberOpen />
                       </div>
                     );
                   })()}

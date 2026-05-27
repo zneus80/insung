@@ -84,23 +84,28 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 // ── 구성원 + 목표 행 ──────────────────────────────
-function MemberGoalRow({ user, goals, persistKey }: { user: User; goals: Goal[]; persistKey?: string }) {
-  const [open, setOpen] = useState(() => readOpen(persistKey, 'member', user.id, false));
+function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false }: { user: User; goals: Goal[]; persistKey?: string; defaultMemberOpen?: boolean }) {
+  const [open, setOpen] = useState(() => readOpen(persistKey, 'member', user.id, defaultMemberOpen));
   const avg = avgProgress(goals);
-  if (!goals.length) return null;
+  const hasGoals = goals.length > 0;
+  // 임원/최고관리자는 개인 목표가 없으므로 목표 없으면 행 미표시 ('목표 없음' 표기 대상 아님)
+  if (!hasGoals && (user.role === 'EXECUTIVE' || user.role === 'CEO')) return null;
 
   function toggle() {
+    if (!hasGoals) return;  // 목표 없으면 펼침 비활성
     setOpen(v => { const n = !v; writeOpen(persistKey, 'member', user.id, n); return n; });
   }
 
   return (
     <div className="ml-2">
       <div
-        className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-gray-50 cursor-pointer"
+        className={`flex items-center gap-3 rounded-lg px-3 py-2 ${hasGoals ? 'hover:bg-gray-50 cursor-pointer' : 'cursor-default'}`}
         onClick={toggle}
       >
         <span className="text-gray-300 w-4 shrink-0">
-          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          {hasGoals
+            ? (open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />)
+            : null}
         </span>
         {/* 아이콘 클릭 시 개인 프로필 모달 (10-2-3-8) */}
         <div
@@ -110,19 +115,25 @@ function MemberGoalRow({ user, goals, persistKey }: { user: User; goals: Goal[];
         >
           <MemberInfoModal userId={user.id} userName={user.name[0]} />
         </div>
-        <span className="text-sm text-gray-800 flex-1">
+        <span className={`text-sm flex-1 ${hasGoals ? 'text-gray-800' : 'text-gray-400'}`}>
           {user.name}
           {user.position && <span className="ml-1 text-sm text-gray-400">· {user.position}</span>}
         </span>
-        <span className="flex items-center gap-1 text-sm text-gray-400 shrink-0">
-          <Target className="h-3.5 w-3.5" />{goals.length}개
-        </span>
-        <div className="flex items-center gap-2 shrink-0 w-36">
-          <Progress value={avg} className="h-1.5 flex-1" />
-          <span className="text-sm font-medium text-gray-600 w-8 text-right">{avg}%</span>
-        </div>
+        {hasGoals ? (
+          <>
+            <span className="flex items-center gap-1 text-sm text-gray-400 shrink-0">
+              <Target className="h-3.5 w-3.5" />{goals.length}개
+            </span>
+            <div className="flex items-center gap-2 shrink-0 w-36">
+              <Progress value={avg} className="h-1.5 flex-1" />
+              <span className="text-sm font-medium text-gray-600 w-8 text-right">{avg}%</span>
+            </div>
+          </>
+        ) : (
+          <span className="text-xs text-gray-400 shrink-0">목표 없음</span>
+        )}
       </div>
-      {open && (
+      {open && hasGoals && (
         <div className="ml-9 space-y-1 mt-1 mb-2">
           {goals.map(goal => (
             <Link key={goal.id} href={`/goals/${goal.id}`}>
@@ -148,13 +159,19 @@ export function OrgTreeNode({
   depth = 0,
   orgGoalMap = {},
   persistKey,
+  defaultOpenDepth = 2,
+  defaultMemberOpen = false,
 }: {
   node: OrgNode;
   depth?: number;
   orgGoalMap?: Record<string, AnnualGoal>;
   persistKey?: string;
+  /** 기본 펼침 깊이 — depth < defaultOpenDepth 인 조직 노드는 처음에 열린 상태 (기본 2). 팀까지 펼치려면 3+ */
+  defaultOpenDepth?: number;
+  /** 개인 목표 행을 기본 펼침 상태로 표시 (기본 false) */
+  defaultMemberOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(() => readOpen(persistKey, 'org', node.org.id, depth < 2));
+  const [open, setOpen] = useState(() => readOpen(persistKey, 'org', node.org.id, depth < defaultOpenDepth));
   const avg = avgProgress(node.goals);
   const orgAnnualGoal = orgGoalMap[node.org.id];
 
@@ -197,10 +214,10 @@ export function OrgTreeNode({
       {open && (
         <div className="ml-4 space-y-1 mt-1">
           {node.members.map(member => (
-            <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id)} persistKey={persistKey} />
+            <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id)} persistKey={persistKey} defaultMemberOpen={defaultMemberOpen} />
           ))}
           {node.children.map(child => (
-            <OrgTreeNode key={child.org.id} node={child} depth={depth + 1} orgGoalMap={orgGoalMap} persistKey={persistKey} />
+            <OrgTreeNode key={child.org.id} node={child} depth={depth + 1} orgGoalMap={orgGoalMap} persistKey={persistKey} defaultOpenDepth={defaultOpenDepth} defaultMemberOpen={defaultMemberOpen} />
           ))}
         </div>
       )}
