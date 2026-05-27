@@ -19,6 +19,7 @@ import {
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { shiftEnterSubmit } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { OneOnOne, OneOnOneQuestion, User } from '@/types';
 
@@ -254,9 +255,10 @@ export default function OneOnOneDetailPage() {
                       <p className="text-xs text-gray-400 font-medium">답변 작성</p>
                       <Textarea
                         rows={2}
-                        placeholder="답변을 입력하세요..."
+                        placeholder="답변을 입력하세요... (Shift+Enter 등록)"
                         value={answerDraft[q.id] ?? ''}
                         onChange={e => setAnswerDraft(d => ({ ...d, [q.id]: e.target.value }))}
+                        onKeyDown={shiftEnterSubmit(() => handleAnswer(q.id), answeringId !== q.id && !!answerDraft[q.id]?.trim())}
                         className="text-sm"
                       />
                       <div className="flex justify-end">
@@ -288,12 +290,10 @@ export default function OneOnOneDetailPage() {
         <div className="max-w-2xl mx-auto flex gap-2 items-end">
           <Textarea
             rows={2}
-            placeholder="질문을 입력하세요..."
+            placeholder="질문을 입력하세요... (Shift+Enter 전송)"
             value={newQuestion}
             onChange={e => setNewQuestion(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAsk();
-            }}
+            onKeyDown={shiftEnterSubmit(handleAsk, !submitting && !!newQuestion.trim())}
             className="text-sm resize-none"
           />
           <Button

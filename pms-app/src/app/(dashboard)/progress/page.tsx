@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
@@ -9,9 +9,36 @@ import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
 import { Progress } from '@/components/ui/progress';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
-import { OrgTreeNode, buildTree, findDescendantIds } from '@/components/goals/OrgGoalTree';
-import { Target, ChevronDown, ChevronUp } from 'lucide-react';
+import { OrgTreeNode, buildTree, findDescendantIds, type OrgNode } from '@/components/goals/OrgGoalTree';
+import { Target, ChevronDown, ChevronUp, Users as UsersIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { Goal, User, Organization } from '@/types';
+
+// 노드 + 하위 전체 집계
+function flattenNode(node: OrgNode): { members: User[]; goals: Goal[] } {
+  const members = [...node.members];
+  const goals = [...node.goals];
+  for (const child of node.children) {
+    const sub = flattenNode(child);
+    members.push(...sub.members);
+    goals.push(...sub.goals);
+  }
+  return { members, goals };
+}
+
+// 카드로 표시할 단위 = 부문/공장(DIVISION) 레벨.
+// COMPANY 루트는 카드로 쓰지 않고 그 자식(부문/공장 등)을 카드로 펼친다.
+function getCardNodes(roots: OrgNode[]): OrgNode[] {
+  const cards: OrgNode[] = [];
+  for (const root of roots) {
+    if (root.org.type === 'COMPANY') {
+      cards.push(...root.children);   // 회사 직속 = 부문/공장
+    } else {
+      cards.push(root);               // 스코프 루트가 이미 부문/공장·단독 조직
+    }
+  }
+  return cards;
+}
 
 function avgProgress(goals: Goal[]): number {
   const active = goals.filter(g => !['ABANDONED', 'REJECTED'].includes(g.status));
@@ -141,6 +168,42 @@ export default function ProgressPage() {
   const [execGoalsByUser, setExecGoalsByUser] = useState<Record<string, Goal[]>>({});
   const [execOrgs, setExecOrgs] = useState<Organization[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // 5-1: 카드형 — 선택된 최상위 조직 (해당 조직 트리만 하단 전개)
+  // 상세 페이지 이동 후 뒤로가기 시 선택 유지 → sessionStorage 보존
+  const [selectedOrgId, setSelectedOrgIdState] = useState<string | null>(null);
+  function setSelectedOrgId(v: string | null) {
+    setSelectedOrgIdState(v);
+    try {
+      if (v) sessionStorage.setItem('progress.selectedOrgId', v);
+      else sessionStorage.removeItem('progress.selectedOrgId');
+    } catch { /* 무시 */ }
+  }
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('progress.selectedOrgId');
+      if (saved) setSelectedOrgIdState(saved);
+    } catch { /* 무시 */ }
+  }, []);
+
+  // 스크롤 컨테이너 — 위치 보존/복원 (상세→뒤로가기 시 동일 위치)
+  const scrollRef = useRef<HTMLDivElement>(null);
+  function handleScroll() {
+    try { sessionStorage.setItem('progress.scrollTop', String(scrollRef.current?.scrollTop ?? 0)); } catch { /* 무시 */ }
+  }
+  // 로드 완료 + 트리(펼침 상태 복원)가 렌더된 후 스크롤 위치 복원
+  useEffect(() => {
+    if (loading) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        try {
+          const v = Number(sessionStorage.getItem('progress.scrollTop') ?? 0);
+          if (v > 0 && scrollRef.current) scrollRef.current.scrollTop = v;
+        } catch { /* 무시 */ }
+      });
+    });
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
+  }, [loading]);
 
   const role = userProfile?.role;
   const isHrAdmin = !!userProfile?.isHrAdmin;
@@ -219,7 +282,7 @@ export default function ProgressPage() {
   return (
     <div className="flex flex-col h-full">
       <Header title="진행 현황" />
-      <div className="flex-1 overflow-y-auto p-6">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-4xl space-y-4">
           <p className="text-sm text-gray-500">
             {year}년{' '}
@@ -256,11 +319,54 @@ export default function ProgressPage() {
                   <PersonalProgressView goals={myGoals} loading={false} />
                 </div>
               )}
-              <div className="rounded-xl border bg-white p-4 space-y-1">
-                {treeNodes.length === 0
-                  ? <p className="text-center text-sm text-gray-400 py-8">표시할 데이터가 없습니다.</p>
-                  : treeNodes.map(node => <OrgTreeNode key={node.org.id} node={node} />)}
-              </div>
+              {/* 5-1: 부문/공장 카드 가로 나열 → 선택 시 하단에 해당 조직 트리 전개 */}
+              {getCardNodes(treeNodes).length === 0 ? (
+                <div className="rounded-xl border bg-white p-4">
+                  <p className="text-center text-sm text-gray-400 py-8">표시할 데이터가 없습니다.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(200px,1fr))]">
+                    {getCardNodes(treeNodes).map(node => {
+                      const agg = flattenNode(node);
+                      const prog = avgProgress(agg.goals);
+                      const isSel = selectedOrgId === node.org.id;
+                      return (
+                        <button
+                          key={node.org.id}
+                          onClick={() => setSelectedOrgId(isSel ? null : node.org.id)}
+                          className={cn(
+                            'text-left rounded-xl border bg-white p-4 transition-all hover:shadow-sm',
+                            isSel ? 'border-blue-500 ring-1 ring-blue-300 shadow-sm' : 'border-gray-200',
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className="font-semibold text-gray-900 truncate">{node.org.name}</span>
+                            {isSel ? <ChevronUp className="h-4 w-4 text-blue-500 shrink-0" /> : <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />}
+                          </div>
+                          <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+                            <UsersIcon className="h-3.5 w-3.5" /> {agg.members.length}명
+                            <span className="ml-auto font-medium text-gray-700">{prog}%</span>
+                          </div>
+                          <Progress value={prog} className="h-1.5" />
+                          <p className="text-[11px] text-gray-400 mt-1.5">목표 {agg.goals.length}개</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* 선택된 조직의 트리 */}
+                  {selectedOrgId && (() => {
+                    const sel = getCardNodes(treeNodes).find(n => n.org.id === selectedOrgId);
+                    if (!sel) return null;
+                    return (
+                      <div className="rounded-xl border bg-white p-4 space-y-1">
+                        <OrgTreeNode node={sel} persistKey="progress" />
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </>
           ) : (
             <PersonalProgressView goals={myGoals} loading={loading} />

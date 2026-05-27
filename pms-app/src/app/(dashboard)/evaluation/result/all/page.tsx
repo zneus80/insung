@@ -11,6 +11,7 @@ import {
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
+import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { cn } from '@/lib/utils';
 import { ChevronDown, ChevronRight, Building2, Users } from 'lucide-react';
 import type { User, Organization, OrganizationEvaluation, IndividualEvaluation } from '@/types';
@@ -123,7 +124,7 @@ function EvaluationResultAllContent() {
     });
   }
 
-  const topOrgs = orgs.filter(o => !o.parentId);
+  const topOrgs = orgs.filter(o => !o.parentId).slice().sort(compareOrgByDisplayOrder);
 
   return (
     <div className="flex flex-col h-full">
@@ -194,7 +195,7 @@ function OrgEvalCard({
   const orgMembers = users.filter(u => u.organizationId === org.id);
   const leads = orgMembers.filter(u => u.role === 'TEAM_LEAD');
   const members = orgMembers.filter(u => u.role === 'MEMBER');
-  const childOrgs = allOrgs.filter(o => o.parentId === org.id);
+  const childOrgs = allOrgs.filter(o => o.parentId === org.id).slice().sort(compareOrgByDisplayOrder);
   const hasContent = orgMembers.length > 0 || childOrgs.length > 0;
 
   // 조직별 평가 완료 여부 (자신 + 산하 모든 인원 — 평가 대상은 MEMBER + TEAM_LEAD)

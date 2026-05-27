@@ -35,7 +35,7 @@ import { toast } from 'sonner';
 import type { Goal, GoalHistory, GoalFieldChanges, ProgressUpdate, User, Organization } from '@/types';
 import { fromTimestamp } from '@/lib/firestore';
 import { Timestamp } from 'firebase/firestore';
-import { cn } from '@/lib/utils';
+import { cn, shiftEnterSubmit } from '@/lib/utils';
 
 // ── 변경 항목 diff 표시 컴포넌트 ──
 function FieldChangesView({ changes, usersMap }: { changes: GoalFieldChanges; usersMap: Record<string, User> }) {
@@ -278,6 +278,51 @@ export default function GoalDetailPage() {
     } finally { setActionLoading(false); }
   }
 
+  // 수정 요청 회수 (콘텐츠 수정 + 책임자 변경 통합) — 이전 승인 상태(APPROVED/IN_PROGRESS)로 복귀 (v0.76 안정형)
+  // 책임자 변경이면 reassignFromId(기존 책임자)로 userId/organizationId 원복 → 목표가 기존 책임자에게 되돌아감
+  async function withdrawModifyRequest() {
+    if (!goal || !userProfile) return;
+    const isOwnerChange = !!goal.reassignFromId;
+    const msg = isOwnerChange
+      ? `책임자 변경 요청을 회수하시겠습니까? 변경이 취소되고 ${goal.reassignFromName ?? '기존 책임자'}에게 되돌아갑니다.`
+      : '수정 요청을 회수하시겠습니까? 이전 승인 상태로 돌아갑니다.';
+    if (!confirm(msg)) return;
+    setActionLoading(true);
+    try {
+      const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, deleteField } = await import('firebase/firestore');
+      const revertStatus: Goal['status'] = (goal.progress ?? 0) > 0 ? 'IN_PROGRESS' : 'APPROVED';
+      await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
+        status: revertStatus,
+        // 책임자 변경이면 기존 책임자로 원복
+        ...(isOwnerChange ? {
+          userId: goal.reassignFromId,
+          organizationId: goal.reassignFromOrgId ?? goal.organizationId,
+        } : {}),
+        reassignFromId: deleteField(),
+        reassignFromName: deleteField(),
+        reassignFromOrgId: deleteField(),
+        modifyRequestedBy: deleteField(),
+        leadApprovedBy: deleteField(),
+        leadApprovedAt: deleteField(),
+        hqApprovedBy: deleteField(),
+        hqApprovedAt: deleteField(),
+        approvedBy: deleteField(),
+        approvedAt: deleteField(),
+        updatedAt: sts(),
+      });
+      await addGoalHistory({
+        goalId: id, changedBy: userProfile.id,
+        changeType: 'STATUS_CHANGED',
+        previousStatus: goal.status, newStatus: revertStatus,
+        comment: isOwnerChange
+          ? `책임자 변경 요청 회수 (${goal.reassignFromName ?? '기존 책임자'}에게 원복)`
+          : '수정 요청 회수',
+      });
+      toast.success(isOwnerChange ? '책임자 변경 요청을 회수했습니다.' : '수정 요청을 회수했습니다.');
+      await load();
+    } finally { setActionLoading(false); }
+  }
+
   // 완료 요청 회수 — COMPLETED → IN_PROGRESS/APPROVED 복귀 (팀장 1차 승인 전에만 가능)
   async function withdrawCompletion() {
     if (!goal || !userProfile) return;
@@ -312,26 +357,6 @@ export default function GoalDetailPage() {
         comment: '포기 요청 회수',
       });
       toast.success('포기 요청을 회수했습니다.');
-      await load();
-    } finally { setActionLoading(false); }
-  }
-
-  // v0.76 A1: 수정 요청 회수 — PENDING_MODIFY → APPROVED 복귀
-  async function withdrawModify() {
-    if (!goal || !userProfile) return;
-    if (!confirm('수정 요청을 회수하시겠습니까? 이전 승인 상태로 돌아갑니다.')) return;
-    setActionLoading(true);
-    try {
-      // 진행률 기준으로 적절한 상태 선택 (>0 면 IN_PROGRESS, =0 면 APPROVED)
-      const revertStatus: Goal['status'] = (goal.progress ?? 0) > 0 ? 'IN_PROGRESS' : 'APPROVED';
-      await updateGoal(id, { status: revertStatus });
-      await addGoalHistory({
-        goalId: id, changedBy: userProfile.id,
-        changeType: 'STATUS_CHANGED',
-        previousStatus: 'PENDING_MODIFY', newStatus: revertStatus,
-        comment: '수정 요청 회수',
-      });
-      toast.success('수정 요청을 회수했습니다.');
       await load();
     } finally { setActionLoading(false); }
   }
@@ -483,6 +508,44 @@ export default function GoalDetailPage() {
 
       if (Object.keys(updateData).length === 0) return;
       await updateGoal(id, updateData);
+
+      // ── 책임자 변경 최종 확정 (v0.76 안정형) ──
+      // userId 는 이미 새 책임자로 전환돼 있음. 최종 승인 시 reassignFromId → previousOwnerId(배지·확정)로 승격 후 reassignFrom* 제거.
+      if (newStatus === 'APPROVED' && goal.reassignFromId) {
+        try {
+          const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, deleteField } = await import('firebase/firestore');
+          await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
+            previousOwnerId: goal.reassignFromId,
+            previousOwnerName: goal.reassignFromName ?? '',
+            transferredAt: sts(),
+            reassignFromId: deleteField(),
+            reassignFromName: deleteField(),
+            reassignFromOrgId: deleteField(),
+            modifyRequestedBy: deleteField(),
+            updatedAt: sts(),
+          });
+          await addGoalHistory({
+            goalId: id, changedBy: userProfile.id,
+            changeType: 'OWNER_REASSIGNED',
+            previousStatus: goal.status, newStatus: 'APPROVED',
+            comment: `최종 승인으로 책임자 변경 확정: ${goal.reassignFromName ?? ''} → ${goalOwner.name}`,
+          });
+          // 새 책임자(현 owner)에게 확정 알림
+          try {
+            await createNotification({
+              userId: goal.userId,
+              goalId: id,
+              goalTitle: goal.title,
+              type: 'GOAL_APPROVED',
+              message: `'${goal.title}' 핵심목표 책임자 변경이 최종 승인되어 확정되었습니다.`,
+              read: false,
+            });
+          } catch { /* 알림 실패 무시 */ }
+        } catch (err) {
+          console.error('[이관] 최종 승인 시 책임자 변경 확정 실패:', err);
+        }
+      }
+
       await addGoalHistory({
         goalId: id, changedBy: userProfile.id,
         changeType: 'APPROVED',
@@ -551,21 +614,50 @@ export default function GoalDetailPage() {
     }
     setActionLoading(true);
     try {
+      // 수정요청(modifyRequestedBy) 반려: 원본은 이미 승인됐던 목표 → 수정만 거부하고 이전 승인 상태로 복귀.
+      //   책임자 변경이면 reassignFromId 로 userId/organizationId 원복.
+      const isModifyReject = !!goal.modifyRequestedBy && ['PENDING_APPROVAL', 'LEAD_APPROVED'].includes(goal.status);
+
       let newStatus: Goal['status'];
-      if (goal.status === 'COMPLETED') {
+      if (isModifyReject) {
+        newStatus = (goal.progress ?? 0) > 0 ? 'IN_PROGRESS' : 'APPROVED';
+      } else if (goal.status === 'COMPLETED') {
         newStatus = 'IN_PROGRESS';
       } else {
         newStatus = 'REJECTED';
       }
-      await updateGoal(id, {
-        status: newStatus,
-        ...(newStatus === 'REJECTED' ? { rejectedReason: rejectComment } : {}),
-      });
+
+      if (isModifyReject) {
+        const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, deleteField } = await import('firebase/firestore');
+        await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
+          status: newStatus,
+          ...(goal.reassignFromId ? {
+            userId: goal.reassignFromId,
+            organizationId: goal.reassignFromOrgId ?? goal.organizationId,
+          } : {}),
+          reassignFromId: deleteField(),
+          reassignFromName: deleteField(),
+          reassignFromOrgId: deleteField(),
+          modifyRequestedBy: deleteField(),
+          leadApprovedBy: deleteField(),
+          leadApprovedAt: deleteField(),
+          hqApprovedBy: deleteField(),
+          hqApprovedAt: deleteField(),
+          updatedAt: sts(),
+        });
+      } else {
+        await updateGoal(id, {
+          status: newStatus,
+          ...(newStatus === 'REJECTED' ? { rejectedReason: rejectComment } : {}),
+        });
+      }
       await addGoalHistory({
         goalId: id, changedBy: userProfile.id,
         changeType: 'REJECTED',
         previousStatus: goal.status, newStatus,
-        comment: '반려',
+        comment: isModifyReject
+          ? (goal.reassignFromId ? `책임자 변경 반려 (${goal.reassignFromName ?? '기존 책임자'}에게 원복)` : '수정 요청 반려')
+          : '반려',
         submitComment: rejectComment,
       });
 
@@ -666,8 +758,16 @@ export default function GoalDetailPage() {
   const canEdit = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
   const canDelete = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
   const canRequestApproval = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
-  const canWithdraw = isOwner && goal.status === 'PENDING_APPROVAL';
-  const canWithdrawModify = isOwner && goal.status === 'PENDING_MODIFY';
+  // 수정 요청 회수 (콘텐츠 수정 + 책임자 변경 통합): modifyRequestedBy 있고 최종 승인 전.
+  // 회수 권한: 현 owner(=새 책임자) / 요청자 / 기존 책임자(reassignFromId) 모두
+  const isModifyPending = !!goal.modifyRequestedBy && ['PENDING_APPROVAL', 'LEAD_APPROVED'].includes(goal.status);
+  const canWithdrawModifyRequest = isModifyPending && (
+    isOwner ||
+    goal.modifyRequestedBy === userProfile.id ||
+    goal.reassignFromId === userProfile.id
+  );
+  // 일반 승인요청 회수(DRAFT 복귀)는 신규 상신일 때만 — 수정요청(modifyRequestedBy)이 아닐 때
+  const canWithdraw = isOwner && goal.status === 'PENDING_APPROVAL' && !goal.modifyRequestedBy;
   // 완료 요청 회수: 팀장 1차 승인(completionLeadApprovedBy) 전에만 가능
   const canWithdrawCompletion = isOwner && goal.status === 'COMPLETED' && !goal.completionLeadApprovedBy;
   // 포기 요청 회수: 팀장 1차 승인(abandonLeadApprovedBy) 전에만 가능
@@ -877,7 +977,7 @@ export default function GoalDetailPage() {
               <Progress value={goal.progress} className="h-2" />
             </div>
 
-            {(canEdit || canDelete || canRequestApproval || canWithdraw || canWithdrawModify || canWithdrawCompletion || canWithdrawAbandon || canRequestCompletion || canRequestAbandon || canRequestModify) && (
+            {(canEdit || canDelete || canRequestApproval || canWithdraw || canWithdrawModifyRequest || canWithdrawCompletion || canWithdrawAbandon || canRequestCompletion || canRequestAbandon || canRequestModify) && (
               <div className="space-y-3 pt-2 border-t">
                 <div className="flex gap-2 flex-wrap">
                   {canEdit && (
@@ -923,12 +1023,13 @@ export default function GoalDetailPage() {
                       <XCircle className="h-4 w-4" /> 승인 요청 회수
                     </Button>
                   )}
-                  {canWithdrawModify && (
+                  {canWithdrawModifyRequest && (
                     <Button
-                      onClick={withdrawModify} disabled={actionLoading} size="sm" variant="outline"
+                      onClick={withdrawModifyRequest} disabled={actionLoading} size="sm" variant="outline"
                       className="gap-1.5 text-orange-600 border-orange-300 hover:bg-orange-50"
                     >
-                      <XCircle className="h-4 w-4" /> 수정 요청 회수
+                      <XCircle className="h-4 w-4" />
+                      {goal.reassignFromId ? '책임자 변경 요청 회수' : '수정 요청 회수'}
                     </Button>
                   )}
                   {canWithdrawCompletion && (
@@ -971,9 +1072,10 @@ export default function GoalDetailPage() {
                   <div className="space-y-2 rounded-lg bg-gray-50 p-3">
                     <p className="text-xs font-medium text-gray-600">승인 요청 의견 <span className="text-gray-400">(선택)</span></p>
                     <Textarea
-                      placeholder="승인 요청 시 전달할 의견을 입력하세요"
+                      placeholder="승인 요청 시 전달할 의견을 입력하세요 (Shift+Enter 제출)"
                       value={approvalRequestComment}
                       onChange={e => setApprovalRequestComment(e.target.value)}
+                      onKeyDown={shiftEnterSubmit(requestApproval, !actionLoading)}
                       rows={2}
                     />
                     <div className="flex gap-2">
@@ -990,9 +1092,10 @@ export default function GoalDetailPage() {
                   <div className="space-y-2 rounded-lg bg-orange-50 border border-orange-200 p-3">
                     <p className="text-xs font-medium text-orange-700">포기 요청 의견 <span className="text-orange-400">(선택)</span></p>
                     <Textarea
-                      placeholder="포기 요청 사유를 입력하세요"
+                      placeholder="포기 요청 사유를 입력하세요 (Shift+Enter 제출)"
                       value={abandonComment}
                       onChange={e => setAbandonComment(e.target.value)}
+                      onKeyDown={shiftEnterSubmit(requestAbandon, !actionLoading)}
                       rows={2}
                     />
                     <div className="flex gap-2">
@@ -1032,9 +1135,10 @@ export default function GoalDetailPage() {
                       승인 의견 <span className="text-green-500">(선택)</span>
                     </p>
                     <Textarea
-                      placeholder="승인 의견을 입력하세요"
+                      placeholder="승인 의견을 입력하세요 (Shift+Enter 제출)"
                       value={approveComment}
                       onChange={e => setApproveComment(e.target.value)}
+                      onKeyDown={shiftEnterSubmit(approveGoal, !actionLoading)}
                       rows={2}
                     />
                     <div className="flex gap-2">
@@ -1076,9 +1180,10 @@ export default function GoalDetailPage() {
                       <span className="text-red-400 ml-1">(필수)</span>
                     </p>
                     <Textarea
-                      placeholder="반려 사유를 입력하세요"
+                      placeholder="반려 사유를 입력하세요 (Shift+Enter 제출)"
                       value={rejectComment}
                       onChange={e => setRejectComment(e.target.value)}
+                      onKeyDown={shiftEnterSubmit(rejectGoal, !actionLoading && !!rejectComment.trim())}
                       rows={3}
                     />
                     <div className="flex gap-2">
@@ -1128,10 +1233,11 @@ export default function GoalDetailPage() {
                     <Label>코멘트 *</Label>
                     <Textarea
                       placeholder={canUpdateProgress
-                        ? "진행 내용을 기록하세요"
-                        : "조직 체인 상의 결재자로서 코멘트를 작성하세요"}
+                        ? "진행 내용을 기록하세요 (Shift+Enter 제출)"
+                        : "조직 체인 상의 결재자로서 코멘트를 작성하세요 (Shift+Enter 제출)"}
                       value={progressComment}
                       onChange={e => setProgressComment(e.target.value)}
+                      onKeyDown={shiftEnterSubmit(submitProgress, !actionLoading && !!progressComment.trim())}
                       rows={3}
                     />
                   </div>

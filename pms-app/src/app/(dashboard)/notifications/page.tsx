@@ -142,6 +142,38 @@ export default function NotificationsPage() {
     try {
       const list = await getNotifications(userProfile.id);
       setItems(list);
+
+      // 육성면담서 수정요청 알림 — 다른 HR이 이미 처리했는지 자동 감지 (실제 폼 상태 확인)
+      // editRequestPending === false 이면 '이미 처리된 요청'으로 표시 (다른 HR 처리분 자동 반영)
+      if (userProfile.isHrAdmin) {
+        const editReqs = list.filter(n => n.type === 'MENTORING_EDIT_REQUESTED');
+        if (editReqs.length > 0) {
+          const pendingCache = new Map<string, boolean>(); // user_year → 아직 대기중인가
+          const staleIds: string[] = [];
+          await Promise.all(editReqs.map(async n => {
+            const params = parseMentoringParams(n.link);
+            if (!params) return;
+            const key = `${params.userId}_${params.year}`;
+            let pending = pendingCache.get(key);
+            if (pending === undefined) {
+              try {
+                const form = await getMentoringForm(params.userId, params.year);
+                pending = !!form?.editRequestPending;
+              } catch { pending = true; /* 조회 실패 시 보수적으로 대기중 취급 */ }
+              pendingCache.set(key, pending);
+            }
+            if (!pending) staleIds.push(n.id);
+          }));
+          if (staleIds.length > 0) {
+            // 이번 세션에서 본인이 직접 처리(APPROVED/REJECTED)한 건 덮어쓰지 않음
+            setProcessedMap(prev => {
+              const next = { ...prev };
+              for (const sid of staleIds) if (!next[sid]) next[sid] = 'STALE';
+              return next;
+            });
+          }
+        }
+      }
     } catch (e: any) {
       console.error('알림 로드 오류:', e);
       setLoadError(e?.message ?? '알림을 불러오는 중 오류가 발생했습니다.');

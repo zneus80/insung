@@ -34,6 +34,8 @@ export interface NotifyNextApproverParams {
   fromUserId: string;
   fromUserName: string;
   action: GoalNotifyAction;
+  /** 알림 메시지에 표시할 owner 이름 강제 지정 (책임자 변경 시 "기존 책임자" 명의로 표기) */
+  ownerNameOverride?: string;
 }
 
 export interface NotifyResult {
@@ -58,12 +60,12 @@ export interface NotifyResult {
 export async function notifyNextApprover(
   params: NotifyNextApproverParams,
 ): Promise<NotifyResult> {
-  const { goal, allOrgs, allUsers, fromUserId, fromUserName, action } = params;
+  const { goal, allOrgs, allUsers, fromUserId, fromUserName, action, ownerNameOverride } = params;
 
   try {
     const owner = allUsers.find(u => u.id === goal.userId);
     const ownerRole = owner?.role;
-    const ownerName = owner?.name ?? fromUserName;
+    const ownerName = ownerNameOverride ?? owner?.name ?? fromUserName;
     const chain = buildApprovalChain(goal, allOrgs, ownerRole);
     const pendingIdx = currentPendingStageIdx(goal, chain);
 

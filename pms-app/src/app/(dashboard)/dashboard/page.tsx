@@ -9,8 +9,7 @@ import {
   getGoalsByOrganization,
   getGoalsByOrganizations,
   getPendingGoalsByOrganizations,
-  getOneOnOnesByMember,
-  getOneOnOnesByLeader,
+  getOneOnOnesForUser,
   hideOneOnOneForUser,
   getMileage,
   getAllUsers,
@@ -107,9 +106,7 @@ function MemberDashboard() {
           getGoalsByUser(userProfile!.id, year),
           // 팀 스코프 전체 목표 (본부장이면 본부 descendants)
           getGoalsByOrganizations(teamScopeOrgIds, year),
-          userProfile!.role === 'TEAM_LEAD'
-            ? getOneOnOnesByLeader(userProfile!.id)
-            : getOneOnOnesByMember(userProfile!.id),
+          getOneOnOnesForUser(userProfile!.id),
           getMileage(userProfile!.id),
           getAnnualGoal('company', year),
           getAnnualGoal('org', year, userProfile!.organizationId),
@@ -361,7 +358,7 @@ function ExecDashboard() {
             getAnnualGoal('company', year),
             getAllOrgAnnualGoals(year),
             getAnnouncements(),
-            getOneOnOnesByLeader(userProfile!.id),
+            getOneOnOnesForUser(userProfile!.id),
           ]);
           setCompanyGoal(cGoal);
           setRecentAnnouncements(announcements.slice(0, 3));

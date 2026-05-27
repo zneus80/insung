@@ -8,9 +8,10 @@ import {
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { ChevronDown, ChevronRight, MessageSquareHeart, AlertCircle, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, MessageSquareHeart, AlertCircle, Pencil, Search } from 'lucide-react';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { cn } from '@/lib/utils';
+import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import type { User, Organization, MentoringForm, JobRequestType } from '@/types';
 
 const JOB_REQUEST_LABELS: Record<JobRequestType, string> = {
@@ -43,6 +44,7 @@ function MentoringAllContent() {
   const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set());
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [selectedForm, setSelectedForm] = useState<MentoringForm | null>(null);
+  const [search, setSearch] = useState('');
   // URL ?user= 자동 선택 1회 플래그 (로드 후)
   const userParam = searchParams.get('user');
   const [userParamApplied, setUserParamApplied] = useState(false);
@@ -140,15 +142,59 @@ function MentoringAllContent() {
         {/* 좌측: 조직/팀원 목록 */}
         <div className="w-72 border-r overflow-y-auto flex-shrink-0 bg-gray-50">
           <div className="p-4 space-y-1">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
               {selectedYear}년 육성면담서
             </p>
+            {/* 검색 */}
+            <div className="relative mb-3">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="이름·직책 검색"
+                className="w-full h-9 pl-8 pr-3 rounded-md border border-gray-200 bg-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+            </div>
             {loading ? (
               <div className="space-y-2">
                 {[1,2,3].map(i => <div key={i} className="h-8 animate-pulse rounded bg-gray-200" />)}
               </div>
+            ) : search.trim() ? (
+              // 검색 모드: 매칭 사용자 평면 목록
+              (() => {
+                const s = search.trim().toLowerCase();
+                const matched = users.filter(u =>
+                  u.name?.toLowerCase().includes(s) || (u.position ?? '').toLowerCase().includes(s),
+                );
+                if (matched.length === 0) {
+                  return <p className="text-sm text-gray-400 px-2 py-4">검색 결과가 없습니다.</p>;
+                }
+                return matched.map(u => {
+                  const f = forms[u.id];
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => handleSelectUser(u)}
+                      className={cn(
+                        'w-full flex items-center justify-between px-2 py-1.5 rounded-md text-left text-xs transition-colors',
+                        selectedUser?.id === u.id ? 'bg-blue-100 text-blue-800 font-medium' : 'text-gray-600 hover:bg-gray-100',
+                      )}
+                    >
+                      <span className="truncate flex items-center gap-1">
+                        {u.name}{u.position ? ` (${u.position})` : ''}
+                        {f?.editRequestPending && <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" title="수정 요청 대기 중" />}
+                      </span>
+                      {f && (
+                        <span className={cn('shrink-0 ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium', STATUS_COLOR[f.status])}>
+                          {STATUS_LABEL[f.status]}
+                        </span>
+                      )}
+                    </button>
+                  );
+                });
+              })()
             ) : (
-              orgs.filter(o => !o.parentId).map(topOrg => (
+              orgs.filter(o => !o.parentId).slice().sort(compareOrgByDisplayOrder).map(topOrg => (
                 <OrgTree
                   key={topOrg.id}
                   org={topOrg}
@@ -277,7 +323,7 @@ function OrgTree({ org, allOrgs, usersByOrg, forms, expandedOrgs, selectedUserId
   statusLabel: Record<string, string>;
   statusColor: Record<string, string>;
 }) {
-  const children = allOrgs.filter(o => o.parentId === org.id);
+  const children = allOrgs.filter(o => o.parentId === org.id).slice().sort(compareOrgByDisplayOrder);
   const members = usersByOrg[org.id] ?? [];
   const isExpanded = expandedOrgs.has(org.id);
 
