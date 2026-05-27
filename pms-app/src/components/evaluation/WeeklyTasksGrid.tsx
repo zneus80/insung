@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { Star } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { WeeklyTask } from '@/types';
 
@@ -28,6 +29,7 @@ export default function WeeklyTasksGrid({ tasks, year }: { tasks: WeeklyTask[]; 
         {Array.from({ length: 52 }, (_, i) => i + 1).map(w => {
           const t = byWeek.get(w);
           const hasData = !!t && ((t.hasDoneItems?.length ?? 0) + (t.willDoItems?.length ?? 0) + (t.summary?.length ?? 0)) > 0;
+          const hasImportant = !!t && (t.hasDoneItems ?? []).some(i => i.important);
           return (
             <button
               key={w}
@@ -35,20 +37,23 @@ export default function WeeklyTasksGrid({ tasks, year }: { tasks: WeeklyTask[]; 
               disabled={!hasData}
               onClick={() => hasData && setOpenWeek(w)}
               className={cn(
-                'aspect-square rounded text-[10px] font-semibold border transition-colors flex items-center justify-center',
-                hasData
-                  ? 'bg-gray-900 text-white border-gray-900 hover:bg-gray-700 cursor-pointer'
-                  : 'bg-gray-50 text-gray-300 border-gray-100 cursor-default'
+                'relative aspect-square rounded text-[10px] font-semibold border transition-colors flex items-center justify-center',
+                hasImportant
+                  ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600 cursor-pointer'
+                  : hasData
+                    ? 'bg-gray-900 text-white border-gray-900 hover:bg-gray-700 cursor-pointer'
+                    : 'bg-gray-50 text-gray-300 border-gray-100 cursor-default'
               )}
-              title={hasData ? `${w}주차 보기` : `${w}주차 — 데이터 없음`}
+              title={hasImportant ? `${w}주차 — 중요 실적 포함` : hasData ? `${w}주차 보기` : `${w}주차 — 데이터 없음`}
             >
               {w}
+              {hasImportant && <Star className="absolute -top-1 -right-1 h-2.5 w-2.5 fill-amber-300 text-amber-300" />}
             </button>
           );
         })}
       </div>
       <p className="text-[10px] text-gray-400 mt-2">
-        ■ 진한 검정 = 데이터 있는 주차 (클릭하여 세부 내용 확인) · ▢ 연한 회색 = 데이터 없음
+        ■ 검정 = 데이터 있는 주차 · <span className="text-amber-600">★ 주황 = 중요 실적 포함</span> · ▢ 회색 = 데이터 없음 (클릭하여 세부 확인)
       </p>
 
       <Dialog open={!!open} onOpenChange={v => { if (!v) setOpenWeek(null); }}>
@@ -57,7 +62,7 @@ export default function WeeklyTasksGrid({ tasks, year }: { tasks: WeeklyTask[]; 
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-baseline gap-2 flex-wrap">
-                  <span>{year ?? ''} {open.weekNumber}주차 주간업무</span>
+                  <span>{year ? `${year}년` : ''} {open.weekNumber}주차 주간업무</span>
                   <span className="text-xs font-normal text-gray-400">
                     {open.weekStart.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} ~ {open.weekEnd.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
                   </span>
@@ -69,8 +74,11 @@ export default function WeeklyTasksGrid({ tasks, year }: { tasks: WeeklyTask[]; 
                     <p className="text-xs font-bold text-green-700 mb-1.5">Has Done — 이번 주 실적</p>
                     <div className="rounded-lg border bg-green-50/30 divide-y">
                       {(open.hasDoneItems ?? []).map(i => (
-                        <div key={i.id} className="px-3 py-2">
-                          <p className="text-sm font-medium text-gray-800">{i.title}</p>
+                        <div key={i.id} className={cn('px-3 py-2', i.important && 'bg-amber-50')}>
+                          <p className="text-sm font-medium text-gray-800 flex items-center gap-1.5">
+                            {i.important && <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" />}
+                            {i.title}
+                          </p>
                           {i.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{i.content}</p>}
                         </div>
                       ))}

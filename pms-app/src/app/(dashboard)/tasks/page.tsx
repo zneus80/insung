@@ -16,7 +16,7 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, ChevronDown, Check,
+  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, ChevronDown, Check, Star,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
@@ -457,6 +457,19 @@ function WeeklyReport({ year, week, onWeekChange }: {
     }
   }
 
+  // 중요(별표) 토글 — Has Done(실적) 항목만 대상
+  function toggleImportant(section: 'hd' | 'wd', id: string) {
+    if (section === 'hd') {
+      const newItems = hasDoneItems.map(i => i.id === id ? { ...i, important: !i.important } : i);
+      setHasDoneItems(newItems);
+      scheduleSave(newItems, willDoItems, summary);
+    } else {
+      const newItems = willDoItems.map(i => i.id === id ? { ...i, important: !i.important } : i);
+      setWillDoItems(newItems);
+      scheduleSave(hasDoneItems, newItems, summary);
+    }
+  }
+
   function renderSection(section: 'hd' | 'wd', items: SimpleTaskItem[], isGreen: boolean) {
     const newKey = `${section}-new`;
     const isAdding = editingKey === newKey;
@@ -480,7 +493,20 @@ function WeeklyReport({ year, week, onWeekChange }: {
               return (
                 <div key={item.id}>
                   {!isEditing ? (
-                    <div className={cn('flex items-start gap-3 px-4 py-3 group hover:bg-gray-50 transition-colors', isGreen && 'bg-green-50/20')}>
+                    <div className={cn('flex items-start gap-3 px-4 py-3 group hover:bg-gray-50 transition-colors',
+                      isGreen && 'bg-green-50/20',
+                      item.important && 'bg-amber-50/60')}>
+                      {/* 중요(별표) 토글 — Has Done(실적)만 */}
+                      {isGreen && (
+                        <button
+                          onClick={() => toggleImportant(section, item.id)}
+                          title={item.important ? '중요 해제' : '중요 표시'}
+                          className={cn('shrink-0 mt-0.5 rounded p-0.5 transition-colors',
+                            item.important ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400')}
+                        >
+                          <Star className={cn('h-4 w-4', item.important && 'fill-amber-400')} />
+                        </button>
+                      )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-800 leading-snug">{item.title}</p>
                         {item.content && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed whitespace-pre-wrap">{item.content}</p>}

@@ -6,7 +6,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { Plus, MessageCircle, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getOneOnOnesByMember, getOneOnOnesByLeader, getAllUsers, hideOneOnOneForUser } from '@/lib/firestore';
+import { getOneOnOnesForUser, getAllUsers, hideOneOnOneForUser } from '@/lib/firestore';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import Header from '@/components/layout/Header';
@@ -22,22 +22,12 @@ export default function OneOnOnePage() {
     if (!userProfile) return;
     async function load() {
       try {
-        // role 무관하게 leader/member 양쪽 모두 조회 (병합 + dedupe + hiddenFor 필터)
-        const [asLeader, asMember, allUsers] = await Promise.all([
-          getOneOnOnesByLeader(userProfile!.id),
-          getOneOnOnesByMember(userProfile!.id),
+        // role 무관하게 leader/member 양쪽 모두 조회 (통합 헬퍼)
+        const [merged, allUsers] = await Promise.all([
+          getOneOnOnesForUser(userProfile!.id),
           getAllUsers(),
         ]);
-        const map = new Map<string, OneOnOne>();
-        [...asLeader, ...asMember].forEach(r => map.set(r.id, r));
-        const merged = Array.from(map.values())
-          .filter(r => !(r.hiddenFor ?? []).includes(userProfile!.id));
-        const sorted = merged.sort((a, b) => {
-          const ta = a.lastMessageAt ?? a.createdAt;
-          const tb = b.lastMessageAt ?? b.createdAt;
-          return tb.getTime() - ta.getTime();
-        });
-        setRooms(sorted);
+        setRooms(merged);
         setUsers(Object.fromEntries(allUsers.map(u => [u.id, u])));
       } finally {
         setLoading(false);

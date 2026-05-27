@@ -93,6 +93,15 @@ export interface Goal {
   transferredAt?: Date;
   needsReassignment?: boolean;
 
+  // 책임자 변경 수정요청 (v0.76) — 안정형: 즉시 userId 전환 + 취소/반려 시 원복
+  //   reassignFromId: 변경 전 책임자 (회수·반려 시 userId 원복용). 최종 승인 시 previousOwnerId 로 승격 후 제거.
+  //   reassignFromOrgId: 변경 전 책임자 소속 (원복 시 organizationId 복원용)
+  //   modifyRequestedBy: 변경 요청자 (회수 권한 판별)
+  reassignFromId?: string;
+  reassignFromName?: string;
+  reassignFromOrgId?: string;
+  modifyRequestedBy?: string;
+
   // 공통
   goalType?: GoalType;
   title: string;
@@ -623,6 +632,7 @@ export interface SimpleTaskItem {
   id: string;
   title: string;
   content: string;
+  important?: boolean;   // 중요(별표) 표시 — 인사평가 주간업무 카드에서 강조 (v0.76)
 }
 
 export interface WeeklyTask {

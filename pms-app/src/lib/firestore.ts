@@ -727,6 +727,25 @@ export async function getOneOnOnesByLeader(leaderId: string): Promise<OneOnOne[]
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
+/**
+ * 사용자가 참여한 모든 1on1 (leader/member 양방향 병합).
+ * 역할(role) 무관하게 시작한 쪽·받는 쪽 모두 표시 — 대시보드·목록 공통 사용.
+ */
+export async function getOneOnOnesForUser(userId: string): Promise<OneOnOne[]> {
+  const [asLeader, asMember] = await Promise.all([
+    getOneOnOnesByLeader(userId),
+    getOneOnOnesByMember(userId),
+  ]);
+  const map = new Map<string, OneOnOne>();
+  [...asLeader, ...asMember].forEach(r => map.set(r.id, r));
+  return Array.from(map.values())
+    .sort((a, b) => {
+      const ta = a.lastMessageAt ?? a.createdAt;
+      const tb = b.lastMessageAt ?? b.createdAt;
+      return tb.getTime() - ta.getTime();
+    });
+}
+
 export async function getOneOnOne(id: string): Promise<OneOnOne | null> {
   const snap = await getDoc(doc(db, COLLECTIONS.ONE_ON_ONES, id));
   if (!snap.exists()) return null;

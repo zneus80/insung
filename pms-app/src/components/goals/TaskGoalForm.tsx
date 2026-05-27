@@ -164,8 +164,6 @@ export default function TaskGoalForm({
       // 책임자 변경 감지 — 편집 모드일 때만
       const isOwnerChanged = isEdit && editGoal.userId !== effectiveOwnerId;
       const newOwnerName = isOwnerChanged ? (users.find(u => u.id === effectiveOwnerId)?.name ?? '') : '';
-      // 이관 받은 목표(previousOwnerId 존재) + 책임자 변경 여부
-      const isTransferReassignment = isEdit && !!editGoal.previousOwnerId && isOwnerChanged;
 
       // 새 책임자에게 알림을 보내는 헬퍼 (본인이 본인에게 재지정하는 경우는 제외)
       async function notifyNewOwner(goalId: string, goalTitle: string, comment?: string) {
@@ -287,21 +285,24 @@ export default function TaskGoalForm({
         }
         await postSubmitNotifications(editGoal.id, payload.title);
       } else if (isApprovedGoal && !isDraft) {
-        // 승인된 목표 수정 상신 (책임자 변경 포함) → 결재 체인 처음부터 재시작
-        // previousOwnerId/Name/transferredAt: 이관업무 분류용으로 영구 보존
+        // 승인된 목표 수정 상신 → 결재 체인 처음부터 재시작 (안정형 v0.76)
+        // ⚠️ 책임자 변경 시: userId/organizationId 를 즉시 새 책임자로 전환 (routing 정상화 — 새 책임자의 실제 조직 체인 사용).
+        //    단, reassignFromId 에 기존 책임자를 보관 → 회수·반려 시 원복, 최종 승인 시에만 previousOwnerId(배지·확정)로 승격.
         const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, Timestamp: FsTimestamp, deleteField } = await import('firebase/firestore');
         const { db: fsDb } = await import('@/lib/firebase');
-        const prevOwnerNameForTransfer = users.find(u => u.id === editGoal.userId)?.name ?? '';
+        const prevOwnerName = users.find(u => u.id === editGoal.userId)?.name ?? '';
+
         await rawUpdate(fsDoc(fsDb, 'goals', editGoal.id), {
           ...payload,
           dueDate: FsTimestamp.fromDate(dueDate ? new Date(dueDate) : new Date()),
+          modifyRequestedBy: userProfile.id,
           ...(isOwnerChanged ? {
+            // 즉시 새 책임자로 전환 (routing 정상). 기존 책임자는 reassignFrom* 에 보관.
             userId: effectiveOwnerId,
             organizationId: ownerOrgId,
-            // 책임자 재지정 → 이관업무로 분류
-            previousOwnerId: editGoal.userId,
-            previousOwnerName: prevOwnerNameForTransfer,
-            transferredAt: sts(),
+            reassignFromId: editGoal.userId,
+            reassignFromName: prevOwnerName,
+            reassignFromOrgId: editGoal.organizationId,
           } : {}),
           status: submitStatus,
           needsReassignment: false,
@@ -322,20 +323,47 @@ export default function TaskGoalForm({
           previousStatus: editGoal.status,
           newStatus: submitStatus,
           comment: (isOwnerChanged
-            ? (isTransferReassignment
-              ? `이관 목표 책임자 재지정 후 재상신: ${newOwnerName} (이전 책임자: ${editGoal.previousOwnerName ?? '—'})`
-              : `책임자 재지정 후 재상신: ${newOwnerName}`)
+            ? `책임자 변경 요청: ${prevOwnerName} → ${newOwnerName} (최종 승인 시 확정)`
             : '수정 후 재상신'
           ) + autoApprovedHistoryComment,
           ...(fieldChanges ? { fieldChanges } : {}),
           ...(submitComment ? { submitComment } : {}),
         });
-        await postSubmitNotifications(
-          editGoal.id, payload.title,
-          isTransferReassignment
-            ? `${userProfile!.name}님이 이관된 '${payload.title}' 핵심목표를 귀하에게 재지정했습니다. 결재 승인이 필요합니다. (이전 책임자: ${editGoal.previousOwnerName ?? '—'})`
-            : undefined,
-        );
+        // 다음 결재자 알림 — userId 는 이미 새 책임자라 체인은 정상, 단 표시 주체는 기존 책임자명으로
+        try {
+          const orgsForNotif = allOrgs.length > 0 ? allOrgs : await getOrganizations();
+          await notifyNextApprover({
+            goal: {
+              id: editGoal.id,
+              title: payload.title,
+              userId: effectiveOwnerId,           // 새 책임자 → 정확한 결재 체인
+              organizationId: ownerOrgId,
+              status: submitStatus,
+              ...autoApproval.fields,
+            } as any,
+            allOrgs: orgsForNotif,
+            allUsers: users,
+            fromUserId: userProfile.id,
+            fromUserName: userProfile.name,
+            action: 'SUBMIT',
+            ownerNameOverride: isOwnerChanged ? prevOwnerName : undefined,  // 기존 책임자 명의
+          });
+        } catch (err) {
+          console.error('[알림] 다음 결재자 알림 발송 실패:', err);
+        }
+        // 새 책임자에게 변경 요청 사전 통지
+        if (isOwnerChanged && effectiveOwnerId !== userProfile.id) {
+          try {
+            await createNotification({
+              userId: effectiveOwnerId,
+              goalId: editGoal.id,
+              goalTitle: payload.title,
+              type: 'GOAL_COMMENT',
+              message: `${prevOwnerName}님의 '${payload.title}' 핵심목표 책임자로 귀하가 지정되어 결재 중입니다. 최종 승인 시 확정됩니다.`,
+              read: false,
+            });
+          } catch (err) { console.error('[알림] 새 책임자 사전 통지 실패:', err); }
+        }
       } else {
         // 신규 목표 또는 승인된 목표의 임시저장(새 DRAFT 생성)
         const newGoalId = await createGoal({
@@ -359,7 +387,12 @@ export default function TaskGoalForm({
         await postSubmitNotifications(newGoalId, payload.title);
       }
       if (isOwnerChanged) {
-        toast.success(`목표가 ${newOwnerName}님에게 이관되었습니다. (해당 사용자의 목표 목록에서 확인 가능)`);
+        // 승인된 목표의 책임자 변경은 최종 승인 시 이관 (보류) / DRAFT·신규는 즉시 반영
+        if (isApprovedGoal && !isDraft) {
+          toast.success(`${newOwnerName}님으로 책임자 변경을 요청했습니다. 최종 승인 시 이관됩니다.`);
+        } else {
+          toast.success(`목표가 ${newOwnerName}님에게 이관되었습니다. (해당 사용자의 목표 목록에서 확인 가능)`);
+        }
       }
       onSave();
       onClose();

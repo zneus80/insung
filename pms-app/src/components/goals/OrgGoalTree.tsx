@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import GoalStatusBadge from './GoalStatusBadge';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { ChevronDown, ChevronRight, Users, Target, LayoutList } from 'lucide-react';
+import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import type { Goal, Organization, User, AnnualGoal } from '@/types';
 
 // ── 유틸 ─────────────────────────────────────────
@@ -15,6 +16,22 @@ export function findDescendantIds(orgId: string, allOrgs: Organization[]): strin
     ids.push(...findDescendantIds(child.id, allOrgs));
   }
   return ids;
+}
+
+// ── 트리 펼침 상태 영속화 (sessionStorage) ─────────
+// persistKey 가 주어지면 조직/인원 펼침 상태를 보존 → 상세 페이지 다녀온 뒤에도 동일하게 복원.
+function readOpen(persistKey: string | undefined, kind: 'org' | 'member', id: string, fallback: boolean): boolean {
+  if (!persistKey || typeof window === 'undefined') return fallback;
+  try {
+    const v = sessionStorage.getItem(`treeopen:${persistKey}:${kind}:${id}`);
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch { /* 무시 */ }
+  return fallback;
+}
+function writeOpen(persistKey: string | undefined, kind: 'org' | 'member', id: string, val: boolean) {
+  if (!persistKey || typeof window === 'undefined') return;
+  try { sessionStorage.setItem(`treeopen:${persistKey}:${kind}:${id}`, val ? '1' : '0'); } catch { /* 무시 */ }
 }
 
 export function avgProgress(goals: Goal[]): number {
@@ -46,6 +63,8 @@ export function buildTree(
       }
       return o.parentId === parentId;
     })
+    .slice()
+    .sort(compareOrgByDisplayOrder)
     .map(org => {
       const members = usersByOrg[org.id] ?? [];
       const goals = members.flatMap(u => goalsByUser[u.id] ?? []);
@@ -65,16 +84,20 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 // ── 구성원 + 목표 행 ──────────────────────────────
-function MemberGoalRow({ user, goals }: { user: User; goals: Goal[] }) {
-  const [open, setOpen] = useState(false);
+function MemberGoalRow({ user, goals, persistKey }: { user: User; goals: Goal[]; persistKey?: string }) {
+  const [open, setOpen] = useState(() => readOpen(persistKey, 'member', user.id, false));
   const avg = avgProgress(goals);
   if (!goals.length) return null;
+
+  function toggle() {
+    setOpen(v => { const n = !v; writeOpen(persistKey, 'member', user.id, n); return n; });
+  }
 
   return (
     <div className="ml-2">
       <div
         className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-gray-50 cursor-pointer"
-        onClick={() => setOpen(v => !v)}
+        onClick={toggle}
       >
         <span className="text-gray-300 w-4 shrink-0">
           {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -124,20 +147,26 @@ export function OrgTreeNode({
   node,
   depth = 0,
   orgGoalMap = {},
+  persistKey,
 }: {
   node: OrgNode;
   depth?: number;
   orgGoalMap?: Record<string, AnnualGoal>;
+  persistKey?: string;
 }) {
-  const [open, setOpen] = useState(depth < 2);
+  const [open, setOpen] = useState(() => readOpen(persistKey, 'org', node.org.id, depth < 2));
   const avg = avgProgress(node.goals);
   const orgAnnualGoal = orgGoalMap[node.org.id];
+
+  function toggle() {
+    setOpen(v => { const n = !v; writeOpen(persistKey, 'org', node.org.id, n); return n; });
+  }
 
   return (
     <div className={depth > 0 ? 'ml-5 border-l border-gray-200 pl-4' : ''}>
       <div
         className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-gray-50 cursor-pointer"
-        onClick={() => setOpen(v => !v)}
+        onClick={toggle}
       >
         <span className="text-gray-400 w-4 shrink-0">
           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -168,10 +197,10 @@ export function OrgTreeNode({
       {open && (
         <div className="ml-4 space-y-1 mt-1">
           {node.members.map(member => (
-            <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id)} />
+            <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id)} persistKey={persistKey} />
           ))}
           {node.children.map(child => (
-            <OrgTreeNode key={child.org.id} node={child} depth={depth + 1} orgGoalMap={orgGoalMap} />
+            <OrgTreeNode key={child.org.id} node={child} depth={depth + 1} orgGoalMap={orgGoalMap} persistKey={persistKey} />
           ))}
         </div>
       )}

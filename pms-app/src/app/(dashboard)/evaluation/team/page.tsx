@@ -14,18 +14,20 @@ import {
   getAllUsers,
   getOrganizations,
   getWeeklyTasksByUsersAndYear,
+  listInnovationActivities,
 } from '@/lib/firestore';
 import type { Organization } from '@/types';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
 import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
+import InnovationList from '@/components/evaluation/InnovationList';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, CheckCircle2, AlertCircle } from 'lucide-react';
 import type {
   Goal, SelfEvaluation, IndividualEvaluation,
-  EvaluationGrade, User, MentoringForm, WeeklyTask,
+  EvaluationGrade, User, MentoringForm, WeeklyTask, InnovationActivity,
 } from '@/types';
 
 const GRADES: EvaluationGrade[] = ['A', 'B', 'C', 'D', 'E'];
@@ -93,6 +95,7 @@ function TeamLeadEvalView() {
   const [indivEvals, setIndivEvals]       = useState<Record<string, IndividualEvaluation>>({});
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
   const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
+  const [innovationsByMember, setInnovationsByMember] = useState<Record<string, InnovationActivity[]>>({});
   const [expanded, setExpanded]           = useState<Record<string, boolean>>({});
   const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
   const [opinions, setOpinions]           = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
@@ -174,11 +177,26 @@ function TeamLeadEvalView() {
       active.forEach(m => { gMap[m.id] = allGoals.filter(g => g.userId === m.id); });
       setGoalsByMember(gMap);
 
-      const [seList, mfList, weeklyTasks] = await Promise.all([
+      const [seList, mfList, weeklyTasks, innovations] = await Promise.all([
         getSelfEvaluationsByUsers(active.map(m => m.id), year),
         getMentoringFormsByUsers(active.map(m => m.id), year),
         getWeeklyTasksByUsersAndYear(active.map(m => m.id), year),
+        listInnovationActivities(year),
       ]);
+
+      // 혁신활동 — 멤버별 참여 매핑
+      const innovMap: Record<string, InnovationActivity[]> = {};
+      active.forEach(m => { innovMap[m.id] = []; });
+      innovations.forEach(a => {
+        const involved = new Set<string>([
+          ...(a.pmId ? [a.pmId] : []),
+          ...(a.memberIds ?? []),
+          ...(a.performerId ? [a.performerId] : []),
+          ...(a.instructorId ? [a.instructorId] : []),
+        ]);
+        involved.forEach(uid => { if (innovMap[uid]) innovMap[uid].push(a); });
+      });
+      setInnovationsByMember(innovMap);
 
       const seMap: Record<string, SelfEvaluation> = {};
       seList.forEach(se => { seMap[se.userId] = se; });
@@ -386,6 +404,16 @@ function TeamLeadEvalView() {
                       <p className="text-xs font-semibold text-gray-500 mb-2">주간업무보고 내역 ({year}년)</p>
                       <WeeklyTasksGrid tasks={weeklyTasks} year={year} />
                     </div>
+
+                    {/* 혁신활동 실적 ({year}년) */}
+                    {(innovationsByMember[member.id]?.length ?? 0) > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 mb-2">
+                          혁신활동 실적 ({year}년) · {innovationsByMember[member.id].length}건
+                        </p>
+                        <InnovationList items={innovationsByMember[member.id]} memberId={member.id} />
+                      </div>
+                    )}
 
                     {/* 자기평가 내용 */}
                     {se?.status === 'SUBMITTED' && se.goalEvals.length > 0 && (
