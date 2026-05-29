@@ -49,6 +49,7 @@ function FieldChangesView({ changes, usersMap }: { changes: GoalFieldChanges; us
   if (changes.progress)     rows.push({ label: '진행률',     from: `${changes.progress.from}%`,                      to: `${changes.progress.to}%` });
   if (changes.ownerId)      rows.push({ label: '책임자',     from: userName(changes.ownerId.from),                   to: userName(changes.ownerId.to) });
   if (changes.collaboratorIds) rows.push({ label: '공동추진자', from: collabsToText(changes.collaboratorIds.from),  to: collabsToText(changes.collaboratorIds.to) });
+  if (changes.isConfidential) rows.push({ label: '대내비',     from: changes.isConfidential.from ? '설정' : '해제', to: changes.isConfidential.to ? '설정' : '해제' });
 
   if (rows.length === 0) return null;
 

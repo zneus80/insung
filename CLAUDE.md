@@ -384,6 +384,30 @@ npm run dev        # 개발 서버 (http://localhost:3000)
 npm run build      # 정적 빌드 (Firebase Hosting 배포용)
 ```
 
+## 운영 배포 (Cloud Run · asia-northeast3 / 서울)
+
+- **gcloud 경로**: `/Users/sooya/Downloads/google-cloud-sdk/bin/gcloud`
+- **프로젝트**: `insung-pms`
+- **리전**: `asia-northeast3` (Seoul) — Cloud Build · Cloud Run · Artifact Registry 모두 서울 리전 사용
+- **서비스 URL**: https://insung-pms-730719313936.asia-northeast3.run.app
+
+```bash
+cd pms-app
+
+# 1) Cloud Build (서울 리전)
+gcloud builds submit \
+  --tag asia-northeast3-docker.pkg.dev/insung-pms/cloud-run-source-deploy/insung-pms \
+  --project=insung-pms \
+  --region=asia-northeast3       # ⚠️ 반드시 필요 — 누락 시 global 리전으로 실행됨
+
+# 2) Cloud Run 배포
+gcloud run deploy insung-pms \
+  --image=asia-northeast3-docker.pkg.dev/insung-pms/cloud-run-source-deploy/insung-pms \
+  --region=asia-northeast3 \
+  --project=insung-pms \
+  --allow-unauthenticated
+```
+
 ---
 
 ## 코딩 컨벤션

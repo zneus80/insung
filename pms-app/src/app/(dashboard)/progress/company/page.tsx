@@ -230,6 +230,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                             {divGoals.map(g => {
                               const owner = usersById.get(g.userId);
                               const ownerOrg = orgsById.get(g.organizationId);
+                              const titleText = g.isConfidential ? 'CONFIDENTIAL (대내비)' : g.title;
                               return (
                                 <div key={g.id} className="px-3 py-2 flex items-start gap-2">
                                   <span className={cn(
@@ -239,7 +240,13 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                                     {g.status === 'COMPLETED' ? '완료' : '추진중'}
                                   </span>
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-medium text-gray-900 leading-snug break-words">{g.title}</p>
+                                    <p className={cn(
+                                      'text-xs font-medium leading-snug break-words flex items-center gap-1.5',
+                                      g.isConfidential ? 'text-red-600' : 'text-gray-900',
+                                    )}>
+                                      {g.isConfidential && <Lock className="h-3 w-3 shrink-0" />}
+                                      {titleText}
+                                    </p>
                                     <p className="text-[10px] text-gray-400 mt-0.5 truncate">
                                       {owner?.name ?? '—'}
                                       {ownerOrg ? ` · ${ownerOrg.name}` : ''}

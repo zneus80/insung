@@ -649,6 +649,41 @@ export async function getAllIndividualEvaluations(year: number): Promise<Individ
 }
 
 /**
+ * 팀장 1차 의견 회수: leadGrade/leadComment/leadSubmittedBy/leadSubmittedAt 제거.
+ * 상위 단계(HQ_REVIEWED / EXEC_CONFIRMED / PUBLISHED) 진입 후에는 호출자가 차단할 것.
+ * status 는 SELF_SUBMITTED (자기평가 제출 상태) 로 복귀 — 평가 대상자가 자기평가도 회수할 수 있게 한다.
+ */
+export async function withdrawLeadOpinion(ie: IndividualEvaluation) {
+  const { deleteField: del } = await import('firebase/firestore');
+  await updateDoc(doc(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS, ie.id), {
+    status: 'SELF_SUBMITTED',
+    leadGrade: del(),
+    leadComment: del(),
+    leadSubmittedBy: del(),
+    leadSubmittedAt: del(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
+ * 본부장 2차 의견 회수: hqGrade/hqComment/hqReviewedBy/hqReviewedAt 제거.
+ * 임원 확정 후에는 호출자가 차단할 것.
+ * status 는 leadSubmittedBy 있으면 LEAD_REVIEWED, 없으면 SELF_SUBMITTED 로 복귀.
+ */
+export async function withdrawHqOpinion(ie: IndividualEvaluation) {
+  const { deleteField: del } = await import('firebase/firestore');
+  const revertStatus: IndividualEvalStatus = ie.leadSubmittedBy ? 'LEAD_REVIEWED' : 'SELF_SUBMITTED';
+  await updateDoc(doc(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS, ie.id), {
+    status: revertStatus,
+    hqGrade: del(),
+    hqComment: del(),
+    hqReviewedBy: del(),
+    hqReviewedAt: del(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
  * 임원 확정 등급 무효화: execGrade/execComment/execConfirmedBy/execConfirmedAt 제거.
  * status 는 이전 단계로 자동 복원 — hqReviewedBy 있으면 HQ_REVIEWED, leadSubmittedBy 있으면 LEAD_REVIEWED, 모두 없으면 NOT_STARTED.
  * 쿼터 재조정 시 호출되어 임원이 다시 등급을 부여하도록 강제한다.

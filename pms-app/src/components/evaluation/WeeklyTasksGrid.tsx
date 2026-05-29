@@ -24,8 +24,8 @@ export default function WeeklyTasksGrid({ tasks, year }: { tasks: WeeklyTask[]; 
 
   return (
     <div>
-      <div className="grid grid-cols-13 gap-1 sm:grid-cols-[repeat(13,minmax(0,1fr))]"
-           style={{ gridTemplateColumns: 'repeat(13, minmax(0, 1fr))' }}>
+      <div className="grid gap-1"
+           style={{ gridTemplateColumns: 'repeat(13, minmax(0, 1fr))', maxWidth: '91rem' }}>
         {Array.from({ length: 52 }, (_, i) => i + 1).map(w => {
           const t = byWeek.get(w);
           const hasData = !!t && ((t.hasDoneItems?.length ?? 0) + (t.willDoItems?.length ?? 0) + (t.summary?.length ?? 0)) > 0;
@@ -37,7 +37,7 @@ export default function WeeklyTasksGrid({ tasks, year }: { tasks: WeeklyTask[]; 
               disabled={!hasData}
               onClick={() => hasData && setOpenWeek(w)}
               className={cn(
-                'relative aspect-square rounded text-[10px] font-semibold border transition-colors flex items-center justify-center',
+                'relative aspect-square rounded text-[15px] font-semibold border transition-colors flex items-center justify-center',
                 hasImportant
                   ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600 cursor-pointer'
                   : hasData

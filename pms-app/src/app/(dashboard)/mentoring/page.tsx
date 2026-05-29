@@ -6,8 +6,9 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getMentoringForm, upsertMentoringForm,
   requestMentoringFormEdit, withdrawMentoringFormEditRequest,
-  getHrAdmins, createNotification,
+  getHrAdmins, createNotification, getOrganizations, getAllUsers,
 } from '@/lib/firestore';
+import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
@@ -156,7 +157,44 @@ function MentoringContent() {
           ...(submit ? { submittedAt: new Date() } : {}),
         });
       }
-      if (submit) setStatus('SUBMITTED');
+      if (submit) {
+        setStatus('SUBMITTED');
+        // 상위 검토자(팀장/본부장/임원) 에게 알림 — 자기평가와 동일 라인
+        try {
+          const [allOrgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
+          const stage = userProfile.role === 'MEMBER' ? 'LEAD'
+                      : userProfile.role === 'TEAM_LEAD' ? 'HQ'
+                      : 'EXEC';
+          const subject = allUsers.find(u => u.id === userProfile.id) ?? userProfile;
+          const res = await notifyEvalReviewer({
+            subject,
+            fromUserId: userProfile.id,
+            fromUserName: userProfile.name,
+            stage,
+            type: 'MENTORING_SUBMITTED',
+            category: 'MENTORING',
+            title: `${userProfile.name}님 육성면담서 제출`,
+            message: `${userProfile.name}님이 ${year}년 육성면담서를 제출했습니다.`,
+            link: `/mentoring/all?user=${userProfile.id}&year=${year}`,
+            allOrgs,
+            allUsers,
+          });
+          if (!res.notified && stage === 'HQ') {
+            await notifyEvalReviewer({
+              subject, fromUserId: userProfile.id, fromUserName: userProfile.name,
+              stage: 'EXEC',
+              type: 'MENTORING_SUBMITTED',
+              category: 'MENTORING',
+              title: `${userProfile.name}님 육성면담서 제출`,
+              message: `${userProfile.name}님이 ${year}년 육성면담서를 제출했습니다.`,
+              link: `/mentoring/all?user=${userProfile.id}&year=${year}`,
+              allOrgs, allUsers,
+            });
+          }
+        } catch (err) {
+          console.error('[육성면담서 알림] 실패:', err);
+        }
+      }
       toast.success(submit ? '육성면담서가 제출되었습니다.' : '임시저장 되었습니다.');
     } catch {
       toast.error('저장에 실패했습니다.');

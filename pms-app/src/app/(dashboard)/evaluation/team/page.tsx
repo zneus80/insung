@@ -9,6 +9,8 @@ import {
   getSelfEvaluationsByUsers,
   getMentoringFormsByUsers,
   upsertIndividualEvaluation,
+  withdrawLeadOpinion,
+  withdrawHqOpinion,
   getIndividualEvaluationsByOrg,
   getUsersByOrganization,
   getAllUsers,
@@ -17,14 +19,16 @@ import {
   listInnovationActivities,
 } from '@/lib/firestore';
 import type { Organization } from '@/types';
+import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
+import SelfEvalGoalList, { EVAL_RETURN_KEY } from '@/components/evaluation/SelfEvalGoalList';
 import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
 import InnovationList from '@/components/evaluation/InnovationList';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronUp, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import type {
   Goal, SelfEvaluation, IndividualEvaluation,
   EvaluationGrade, User, MentoringForm, WeeklyTask, InnovationActivity,
@@ -105,6 +109,9 @@ function TeamLeadEvalView() {
   const [isHQHead, setIsHQHead] = useState(false);
   // 멤버별 팀장 의견 (본부장 화면에서 표시용)
   const [leadOpinionByMember, setLeadOpinionByMember] = useState<Record<string, { name: string; grade?: EvaluationGrade; comment?: string; at?: Date }>>({});
+  // 알림 발송용 — 전체 조직/사용자 캐시
+  const [allOrgsCache, setAllOrgsCache] = useState<Organization[]>([]);
+  const [allUsersCache, setAllUsersCache] = useState<User[]>([]);
 
   function getDescendantIds(orgId: string, allOrgs: Organization[]): string[] {
     const ids: string[] = [orgId];
@@ -119,6 +126,7 @@ function TeamLeadEvalView() {
     setLoading(true);
     try {
       const allOrgs = await getOrganizations();
+      setAllOrgsCache(allOrgs);
       // 본부장 판별: leaderId 가 본인이고 HEADQUARTERS 인 조직 또는 본인 소속이 HQ
       // (role 이 TEAM_LEAD 든 EXECUTIVE 든 HQ leader 이면 본부장으로 간주 — CLAUDE.md 차순위 임원 케이스)
       const myLedHQ = allOrgs.filter(o => o.leaderId === userProfile.id && o.type === 'HEADQUARTERS');
@@ -140,7 +148,7 @@ function TeamLeadEvalView() {
 
       // 사용자·목표·평가 fetch
       const [allUsers, allGoals, evalLists] = await Promise.all([
-        getAllUsers(),
+        getAllUsers().then(us => { setAllUsersCache(us); return us; }),
         detectedHQHead
           ? getGoalsByOrganizations(scopeOrgIds, year)
           : getGoalsByOrganization(userProfile.organizationId, year),
@@ -234,6 +242,17 @@ function TeamLeadEvalView() {
 
   useEffect(() => { load(); }, [userProfile]);
 
+  // 목표 상세 → 뒤로 가기로 돌아왔을 때 — 해당 멤버 행 자동 펼침
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = sessionStorage.getItem(EVAL_RETURN_KEY);
+      if (!raw) return;
+      const st = JSON.parse(raw) as { memberId?: string };
+      if (st.memberId) setExpanded(p => ({ ...p, [st.memberId!]: true }));
+    } catch { /* 무시 */ }
+  }, []);
+
   async function handleSubmitOpinion(memberId: string) {
     if (!userProfile) return;
     const op = opinions[memberId];
@@ -245,6 +264,8 @@ function TeamLeadEvalView() {
       const existing = indivEvals[memberId];
       // 본부장이 평가 대상이 팀장(TEAM_LEAD) 인 경우 → 본부장이 1차 의견자 (leadGrade)
       // 본부장이 평가 대상이 팀원(MEMBER) 인 경우 → 본부장은 2차 (hqGrade), 팀장 의견 선행 필요
+      let nextStage: 'HQ' | 'EXEC';
+      let notifType: 'EVAL_HQ_REVIEWED' | 'EVAL_LEAD_REVIEWED';
       if (isHQHead && member?.role === 'MEMBER') {
         if (!existing?.leadSubmittedBy) {
           toast.error('팀장 의견 제출이 먼저 필요합니다.');
@@ -259,6 +280,8 @@ function TeamLeadEvalView() {
           status: 'HQ_REVIEWED',
         });
         toast.success(`${member?.name ?? ''} 본부장 2차 의견을 제출했습니다.`);
+        nextStage = 'EXEC';
+        notifType = 'EVAL_HQ_REVIEWED';
       } else {
         // (1) 일반 팀장의 팀원 평가 → 1차 의견(leadGrade)
         // (2) 본부장의 팀장 평가 → 1차 의견(leadGrade)
@@ -271,8 +294,76 @@ function TeamLeadEvalView() {
           status: 'LEAD_REVIEWED',
         });
         toast.success(`${member?.name ?? ''} 평가 의견을 제출했습니다.`);
+        // 본부장이 팀장을 1차 평가 — 다음은 임원
+        nextStage = isHQHead && member?.role === 'TEAM_LEAD' ? 'EXEC' : 'HQ';
+        notifType = 'EVAL_LEAD_REVIEWED';
+      }
+
+      // 알림 — 다음 검토자에게
+      try {
+        if (member) {
+          const res = await notifyEvalReviewer({
+            subject: member,
+            fromUserId: userProfile.id,
+            fromUserName: userProfile.name,
+            stage: nextStage,
+            type: notifType,
+            category: 'EVALUATION',
+            title: `${member.name}님 평가 의견 검토 요청`,
+            message: `${userProfile.name}님이 ${member.name}님의 평가 의견을 제출했습니다. 다음 단계 검토가 필요합니다.`,
+            link: nextStage === 'EXEC' ? '/evaluation' : '/evaluation/team',
+            allOrgs: allOrgsCache,
+            allUsers: allUsersCache,
+          });
+          // HQ 가 체인에 없거나 본부장이 없으면 EXEC 폴백
+          if (!res.notified && nextStage === 'HQ') {
+            await notifyEvalReviewer({
+              subject: member, fromUserId: userProfile.id, fromUserName: userProfile.name,
+              stage: 'EXEC',
+              type: notifType,
+              category: 'EVALUATION',
+              title: `${member.name}님 평가 의견 검토 요청`,
+              message: `${userProfile.name}님이 ${member.name}님의 평가 의견을 제출했습니다.`,
+              link: '/evaluation',
+              allOrgs: allOrgsCache,
+              allUsers: allUsersCache,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[평가 알림] 실패:', err);
+      }
+
+      await load();
+    } finally { setSaving(null); }
+  }
+
+  async function handleWithdrawOpinion(memberId: string) {
+    if (!userProfile) return;
+    const ie = indivEvals[memberId];
+    if (!ie) return;
+    const member = members.find(m => m.id === memberId);
+    const isHQ2nd = isHQHead && member?.role === 'MEMBER';
+
+    if (!confirm(
+      isHQ2nd
+        ? '본부장 2차 의견을 회수합니다. 회수 후 다시 수정·제출이 가능합니다. 계속하시겠습니까?'
+        : '평가 의견을 회수합니다. 회수 시 평가 대상자가 자기평가를 다시 회수·수정할 수 있는 상태로 돌아갑니다. 계속하시겠습니까?',
+    )) return;
+
+    setSaving(memberId);
+    try {
+      if (isHQ2nd) {
+        await withdrawHqOpinion(ie);
+        toast.success('본부장 2차 의견을 회수했습니다.');
+      } else {
+        await withdrawLeadOpinion(ie);
+        toast.success('평가 의견을 회수했습니다.');
       }
       await load();
+    } catch (err) {
+      console.error('[의견 회수] 실패:', err);
+      toast.error('회수에 실패했습니다.');
     } finally { setSaving(null); }
   }
 
@@ -316,9 +407,17 @@ function TeamLeadEvalView() {
             // 본부장이 팀원 평가 시 → 2차 의견(HQ_REVIEWED) / 팀장 평가 시 → 1차 의견(LEAD_REVIEWED)
             const isHQ2ndOpinion = isHQHead && member.role === 'MEMBER';   // 본부장 2차 의견 케이스
             const isHQ1stOpinion = isHQHead && member.role === 'TEAM_LEAD'; // 본부장 1차 의견 케이스 (팀장 평가)
+            // 잠금 조건: 다음 단계가 시작됐을 때만. 본인이 제출한 단계는 같은 단계 안에서 수정 가능
+            //  - 일반 팀장 1차(leadGrade) → 다음 단계(HQ_REVIEWED/EXEC_CONFIRMED/PUBLISHED) 진입 시 잠금
+            //  - 본부장 1차(팀장 평가) → 다음 단계(EXEC_CONFIRMED/PUBLISHED) 진입 시 잠금 (HQ 단계 없음)
+            //  - 본부장 2차(hqGrade) → 다음 단계(EXEC_CONFIRMED/PUBLISHED) 진입 시 잠금
             const isReviewed = isHQ2ndOpinion
-              ? ['HQ_REVIEWED', 'EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '')
-              : ['LEAD_REVIEWED', 'HQ_REVIEWED', 'EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '');
+              ? ['EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '')
+              : isHQ1stOpinion
+                ? ['EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '')
+                : ['HQ_REVIEWED', 'EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '');
+            // 본인이 이미 제출했는지 (수정 모드 안내용)
+            const alreadySubmittedByMe = isHQ2ndOpinion ? !!ie?.hqReviewedBy : !!ie?.leadSubmittedBy;
             // 본부장 2차 의견은 팀장 1차 의견 선행 필요 / 본부장 1차 의견(팀장 평가)은 즉시 입력 가능
             const canHQInput = isHQ2ndOpinion ? !!ie?.leadSubmittedBy : true;
             const op = opinions[member.id] ?? { grade: '', comment: '' };
@@ -368,75 +467,40 @@ function TeamLeadEvalView() {
                 {/* 펼친 내용 */}
                 {isOpen && (
                   <div className="border-t px-5 py-5 space-y-5">
-                    {/* 업무 목록 — 인사평가에 의미 있는 상태만 (반려·미확정 포기·제안 단계 제외) */}
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 mb-2">업무 목록</p>
-                      {(() => {
-                        const visibleGoals = goals.filter(g => (
-                          g.status === 'APPROVED' ||
-                          g.status === 'IN_PROGRESS' ||
-                          g.status === 'COMPLETED' ||
-                          g.status === 'PENDING_ABANDON' ||
-                          (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange)
-                        ));
-                        if (visibleGoals.length === 0) {
-                          return <p className="text-sm text-gray-400">표시할 목표가 없습니다.</p>;
-                        }
-                        return (
-                          <div className="space-y-1.5">
-                            {visibleGoals.map(g => {
-                              const st = GOAL_STATUS_LABEL[g.status] ?? { label: g.status, color: 'bg-gray-100 text-gray-500' };
-                              return (
-                                <div key={g.id} className="flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">
-                                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${st.color}`}>{st.label}</span>
-                                  <span className="text-sm text-gray-700 flex-1">{g.title}</span>
-                                  <span className="text-xs text-gray-400">{g.progress}%</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })()}
-                    </div>
+
+                    {/* 자기평가 : 핵심업무 — 완료 + 포기 요청/확정 */}
+                    {(() => {
+                      const evalGoals = goals.filter(g => (
+                        g.status === 'COMPLETED' ||
+                        g.status === 'PENDING_ABANDON' ||
+                        (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange)
+                      ));
+                      return (
+                        <div>
+                          <p className="text-sm font-bold text-gray-800 mb-2">자기평가 : 핵심업무 (팀원 작성)</p>
+                          <SelfEvalGoalList
+                            memberId={member.id}
+                            goals={evalGoals}
+                            goalEvals={se?.goalEvals ?? []}
+                            usersById={Object.fromEntries(allUsersCache.map(u => [u.id, u]))}
+                          />
+                        </div>
+                      );
+                    })()}
 
                     {/* 주간업무보고 내역 — 52주 카드 그리드 */}
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 mb-2">주간업무보고 내역 ({year}년)</p>
+                      <p className="text-sm font-bold text-gray-800 mb-2">주간업무보고 내역 ({year}년)</p>
                       <WeeklyTasksGrid tasks={weeklyTasks} year={year} />
                     </div>
 
                     {/* 혁신활동 실적 ({year}년) */}
                     {(innovationsByMember[member.id]?.length ?? 0) > 0 && (
                       <div>
-                        <p className="text-xs font-semibold text-gray-500 mb-2">
+                        <p className="text-sm font-bold text-gray-800 mb-2">
                           혁신활동 실적 ({year}년) · {innovationsByMember[member.id].length}건
                         </p>
-                        <InnovationList items={innovationsByMember[member.id]} memberId={member.id} />
-                      </div>
-                    )}
-
-                    {/* 자기평가 내용 */}
-                    {se?.status === 'SUBMITTED' && se.goalEvals.length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 mb-2">자기평가 (팀원 작성)</p>
-                        <div className="space-y-3">
-                          {se.goalEvals.map(ge => {
-                            const legacy = [
-                              ge.good ? `[잘된 점]\n${ge.good}` : '',
-                              ge.regret ? `[아쉬운 점]\n${ge.regret}` : '',
-                            ].filter(Boolean).join('\n\n');
-                            const text = ge.comment || legacy || '—';
-                            return (
-                              <div key={ge.goalId} className="rounded-lg border bg-gray-50 p-4 space-y-2">
-                                <p className="text-sm font-medium text-gray-800">{ge.goalTitle}</p>
-                                <div>
-                                  <p className="text-xs font-semibold text-blue-600 mb-1">종합 의견</p>
-                                  <p className="text-sm text-gray-600 whitespace-pre-wrap">{text}</p>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <InnovationList items={innovationsByMember[member.id]} memberId={member.id} revealConfidential />
                       </div>
                     )}
 
@@ -444,7 +508,7 @@ function TeamLeadEvalView() {
                     {mentoringForms[member.id] && (
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold text-gray-500">육성면담서 (팀원 작성)</p>
+                          <p className="text-sm font-bold text-gray-800">육성면담서 (팀원 작성)</p>
                           <MentoringFormModal
                             form={mentoringForms[member.id]}
                             memberName={member.name}
@@ -483,7 +547,7 @@ function TeamLeadEvalView() {
                     {/* 본부장이 팀원 평가 시에만 — 팀장 1차 의견 표시 (읽기 전용) */}
                     {isHQ2ndOpinion && (
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
-                        <p className="text-xs font-semibold text-gray-600">팀장 의견 (1차)</p>
+                        <p className="text-sm font-bold text-gray-800">팀장 의견 (1차)</p>
                         {leadOp ? (
                           <>
                             <div className="flex items-center gap-2">
@@ -515,7 +579,7 @@ function TeamLeadEvalView() {
                         - 본부장 + 팀장 평가: 1차 의견(indigo), 즉시 입력 가능 */}
                     {canHQInput ? (
                       <div className={`rounded-lg border p-4 space-y-3 ${isHQHead ? 'border-indigo-100 bg-indigo-50' : 'border-blue-100 bg-blue-50'}`}>
-                        <p className={`text-xs font-semibold ${isHQHead ? 'text-indigo-700' : 'text-blue-700'}`}>
+                        <p className={`text-sm font-bold ${isHQHead ? 'text-indigo-700' : 'text-blue-700'}`}>
                           {isHQ2ndOpinion ? '본부장 2차 의견' : isHQ1stOpinion ? '본부장 1차 의견 (팀장 평가)' : '팀장 등급 의견'}
                         </p>
                         <div>
@@ -548,9 +612,28 @@ function TeamLeadEvalView() {
                             className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
                           />
                         </div>
-                        <div className="flex justify-end">
+                        <div className="flex justify-end items-center gap-2 flex-wrap">
                           {isReviewed ? (
-                            <span className="text-xs text-green-600 font-medium">제출 완료</span>
+                            <span className="text-xs text-green-600 font-medium">제출 완료 (상위 검토 진행됨)</span>
+                          ) : alreadySubmittedByMe ? (
+                            <>
+                              <span className="text-xs text-blue-600 mr-auto">제출됨 · 상위 확정 전</span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={saving === member.id}
+                                onClick={() => handleWithdrawOpinion(member.id)}
+                              >
+                                의견 회수
+                              </Button>
+                              <Button
+                                size="sm"
+                                disabled={saving === member.id || !op.grade}
+                                onClick={() => handleSubmitOpinion(member.id)}
+                              >
+                                {saving === member.id ? '저장 중...' : '의견 수정'}
+                              </Button>
+                            </>
                           ) : (
                             <Button
                               size="sm"

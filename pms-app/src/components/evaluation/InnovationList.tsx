@@ -28,23 +28,27 @@ function roleOf(a: InnovationActivity, memberId: string): string {
   return '';
 }
 
-export default function InnovationList({ items, memberId }: { items: InnovationActivity[]; memberId: string }) {
+export default function InnovationList({ items, memberId, revealConfidential = false }: { items: InnovationActivity[]; memberId: string; revealConfidential?: boolean }) {
   if (!items || items.length === 0) return null;
   return (
     <div className="space-y-1.5">
       {items.map(a => {
         const role = roleOf(a, memberId);
-        const displayName = a.isConfidential ? 'CONFIDENTIAL (대내비)' : a.name;
+        const masked = a.isConfidential && !revealConfidential;
+        const displayName = masked ? 'CONFIDENTIAL (대내비)' : a.name;
         return (
           <div key={a.id} className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs">
             <span className={cn('shrink-0 rounded-full px-2 py-0.5 font-medium', TYPE_COLOR[a.type])}>
               {TYPE_LABEL[a.type] ?? a.type}
             </span>
-            <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 font-bold', a.isConfidential ? 'bg-gray-200 text-gray-500' : 'text-gray-700')}>
+            <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 font-bold', masked ? 'bg-gray-200 text-gray-500' : 'text-gray-700')}>
               {role}
             </span>
-            <span className={cn('flex-1 truncate', a.isConfidential ? 'text-gray-400 italic' : 'text-gray-800')}>
+            <span className={cn('flex-1 truncate', masked ? 'text-gray-400 italic' : 'text-gray-800')}>
               {displayName}
+              {a.isConfidential && revealConfidential && (
+                <span className="ml-1.5 text-[10px] text-amber-600 font-medium">[대내비]</span>
+              )}
             </span>
             <span className={cn(
               'shrink-0 rounded-full px-2 py-0.5 font-medium',

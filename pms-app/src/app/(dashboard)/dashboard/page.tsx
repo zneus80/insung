@@ -274,7 +274,7 @@ function MemberDashboard() {
             sub={`평균 진행률 ${teamAvgProgress}%  ·  본인 제외`}
             icon={<Users className="h-5 w-5 text-indigo-600" />}
             color="bg-indigo-50"
-            href="/goals"
+            href="/goals?tab=team"
           />
           <SummaryCard
             title="완료된 내 목표"
@@ -282,7 +282,7 @@ function MemberDashboard() {
             sub="달성한 내 목표"
             icon={<CheckCircle className="h-5 w-5 text-purple-600" />}
             color="bg-purple-50"
-            href="/goals"
+            href="/goals?status=COMPLETED"
           />
           <SummaryCard
             title="완료된 팀 목표"
@@ -290,7 +290,7 @@ function MemberDashboard() {
             sub="본인 제외"
             icon={<CheckCircle className="h-5 w-5 text-emerald-600" />}
             color="bg-emerald-50"
-            href="/goals"
+            href="/goals?tab=team&status=COMPLETED"
           />
         </div>
 

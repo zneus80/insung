@@ -109,6 +109,8 @@ export interface Goal {
   dueDate: Date;
   status: GoalStatus;
   progress: number;   // 0~100
+  /** 대내비 표시 — 전사 업무추진현황 등 외부 노출 화면에서 제목/내용 마스킹 */
+  isConfidential?: boolean;
 
   // 과제업무(TASK) 전용
   taskCategory?: TaskCategory;
@@ -170,6 +172,7 @@ export interface GoalFieldChanges {
   progress?: { from: number; to: number };
   ownerId?: { from: string; to: string };           // 책임자 userId
   collaboratorIds?: { from: string[]; to: string[] };  // 공동추진자
+  isConfidential?: { from: boolean; to: boolean };  // 대내비 토글
 }
 
 export interface GoalHistory {
@@ -584,7 +587,11 @@ export type NotificationType =
   | 'EVALUATION_PUBLISHED' // 평가결과 공개 (v0.75)
   | 'MENTORING_EDIT_REQUESTED'  // 육성면담서 수정 요청 (개인 → HR)
   | 'MENTORING_EDIT_APPROVED'   // HR 가 수정 허가 (HR → 개인)
-  | 'MENTORING_EDIT_REJECTED';  // HR 가 수정 거절 (HR → 개인)
+  | 'MENTORING_EDIT_REJECTED'   // HR 가 수정 거절 (HR → 개인)
+  | 'SELF_EVAL_SUBMITTED'       // 자기평가 제출 → 상위 검토자
+  | 'EVAL_LEAD_REVIEWED'        // 팀장 1차 의견 제출 → 본부장 또는 임원
+  | 'EVAL_HQ_REVIEWED'          // 본부장 2차 의견 제출 → 임원
+  | 'MENTORING_SUBMITTED';      // 육성면담서 제출 → 상위 검토자
 
 export type NotificationCategory = 'GOAL' | 'WEEKLY_TASK' | 'ONEONONE' | 'EVALUATION' | 'MENTORING';
 
