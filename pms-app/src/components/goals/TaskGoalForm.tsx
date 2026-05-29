@@ -502,7 +502,13 @@ export default function TaskGoalForm({
           {/* 세부내용 */}
           <div className="space-y-1.5">
             <Label className="whitespace-nowrap">{isApprovedEdit ? '수정할 세부내용' : '세부내용'} <span className="text-red-500">*</span></Label>
-            <Textarea rows={isApprovedEdit ? 5 : 10} value={description} onChange={e => setDescription(e.target.value)} placeholder="구체적인 실행 계획을 입력하세요" />
+            <Textarea
+              rows={isApprovedEdit ? 5 : 10}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              onKeyDown={e => e.stopPropagation()}
+              placeholder="구체적인 실행 계획을 입력하세요"
+            />
           </div>
 
           {/* 추진기한 */}
