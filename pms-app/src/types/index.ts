@@ -101,6 +101,15 @@ export interface Goal {
   reassignFromName?: string;
   reassignFromOrgId?: string;
   modifyRequestedBy?: string;
+  /** 수정요청 직전 상태 스냅샷 — 회수·반려 시 원복용. 변경 가능한 필드 (title/description/dueDate/isConfidential 등) */
+  modifySnapshot?: {
+    title?: string;
+    description?: string;
+    dueDate?: Date;
+    isConfidential?: boolean;
+    collaboratorIds?: string[];
+    relatedOrgIds?: string[];
+  };
 
   // 공통
   goalType?: GoalType;
@@ -642,6 +651,8 @@ export interface SimpleTaskItem {
   title: string;
   content: string;
   important?: boolean;   // 중요(별표) 표시 — 인사평가 주간업무 카드에서 강조 (v0.76)
+  /** 이월 마커 — 이전 주 willDo 에서 자동 이월된 hasDone 항목의 원본 item.id */
+  carriedFromId?: string;
 }
 
 export interface WeeklyTask {

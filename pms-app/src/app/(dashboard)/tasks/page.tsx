@@ -374,9 +374,12 @@ function WeeklyReport({ year, week, onWeekChange }: {
         if (wt.summary && wt.summary.trim()) setSummaryLocked(true);
       } else {
         // Auto-carry: prev week's willDoItems → this week's hasDoneItems
+        // carriedFromId 로 원본 추적 → 이전 주 willDo 가 추후 변경되면 동기화 가능
         const prev = prevWeek(year, week);
         const prevWt = await getWeeklyTask(userProfile.id, prev.year, prev.week);
-        const carried = (prevWt?.willDoItems ?? []).map(i => ({ ...i, id: crypto.randomUUID() }));
+        const carried: SimpleTaskItem[] = (prevWt?.willDoItems ?? []).map(i => ({
+          ...i, id: crypto.randomUUID(), carriedFromId: i.id,
+        }));
         if (carried.length > 0) {
           setHasDoneItems(carried);
           await upsertWeeklyTaskSections(
@@ -407,6 +410,38 @@ function WeeklyReport({ year, week, onWeekChange }: {
           userProfile.organizationId, start, end,
           hd, wd, sum,
         );
+
+        // ── 차주 HAS DONE 동기화 (B1 수정) ─────────────────────
+        // 이번 주 WILL DO 가 변경되었을 때 차주 hasDone 의 carried 부분만 갱신.
+        //  - 차주 hasDone 에서 carriedFromId 있는 항목 모두 제거
+        //  - 현재 willDo 를 새 carried 로 추가 (carriedFromId 마킹)
+        //  - 차주에서 직접 추가한 항목 (carriedFromId 없는 것) 은 유지
+        try {
+          const nxt = nextWeek(year, week);
+          const nextWt = await getWeeklyTask(userProfile.id, nxt.year, nxt.week);
+          if (nextWt) {
+            const nxtKept = (nextWt.hasDoneItems ?? []).filter(i => !i.carriedFromId);
+            const nxtCarried: SimpleTaskItem[] = wd.map(i => ({
+              ...i, id: crypto.randomUUID(), carriedFromId: i.id,
+            }));
+            const merged = [...nxtCarried, ...nxtKept];
+            // 변경 없음이면 skip
+            const prevHD = nextWt.hasDoneItems ?? [];
+            const isSameLen = prevHD.length === merged.length;
+            const isSame = isSameLen && prevHD.every((p, idx) => p.title === merged[idx].title && p.content === merged[idx].content && (p.important ?? false) === (merged[idx].important ?? false) && p.carriedFromId === merged[idx].carriedFromId);
+            if (!isSame) {
+              const { start: nStart, end: nEnd } = getWeekRange(nxt.year, nxt.week);
+              await upsertWeeklyTaskSections(
+                userProfile.id, nxt.year, nxt.week,
+                userProfile.organizationId, nStart, nEnd,
+                merged, nextWt.willDoItems ?? [], nextWt.summary ?? '',
+              );
+            }
+          }
+        } catch (err) {
+          console.error('[차주 hasDone 동기화] 실패:', err);
+        }
+
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2500);
       } catch { setSaveStatus('idle'); }

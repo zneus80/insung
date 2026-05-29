@@ -302,10 +302,20 @@ export default function TaskGoalForm({
         const { db: fsDb } = await import('@/lib/firebase');
         const prevOwnerName = users.find(u => u.id === editGoal.userId)?.name ?? '';
 
+        // 수정요청 회수·반려 시 원복용 스냅샷 — 변경 전 상태 보관
+        const modifySnapshot = {
+          title: editGoal.title,
+          description: editGoal.description,
+          dueDate: FsTimestamp.fromDate(editGoal.dueDate),
+          isConfidential: !!editGoal.isConfidential,
+          collaboratorIds: editGoal.collaboratorIds ?? [],
+          relatedOrgIds: editGoal.relatedOrgIds ?? [],
+        };
         await rawUpdate(fsDoc(fsDb, 'goals', editGoal.id), {
           ...payload,
           dueDate: FsTimestamp.fromDate(dueDate ? new Date(dueDate) : new Date()),
           modifyRequestedBy: userProfile.id,
+          modifySnapshot,
           ...(isOwnerChanged ? {
             // 즉시 새 책임자로 전환 (routing 정상). 기존 책임자는 reassignFrom* 에 보관.
             userId: effectiveOwnerId,
