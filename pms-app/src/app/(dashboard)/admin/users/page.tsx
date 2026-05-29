@@ -58,7 +58,7 @@ function UsersContent() {
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', isHrAdmin: false, isActingLead: false });
+  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', hireDate: '', isHrAdmin: false, isActingLead: false });
   const [orgSearch, setOrgSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
@@ -233,14 +233,14 @@ function UsersContent() {
   // ── 단건 저장 ─────────────────────────────────
   function openNew() {
     setEditing(null);
-    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', isHrAdmin: false, isActingLead: false });
+    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', hireDate: '', isHrAdmin: false, isActingLead: false });
     setOrgSearch('');
     setShowDialog(true);
   }
 
   function openEdit(user: User) {
     setEditing(user);
-    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', isHrAdmin: !!user.isHrAdmin, isActingLead: !!user.isActingLead });
+    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', hireDate: user.hireDate ?? '', isHrAdmin: !!user.isHrAdmin, isActingLead: !!user.isActingLead });
     setOrgSearch('');
     setShowDialog(true);
   }
@@ -285,6 +285,7 @@ function UsersContent() {
           name: form.name, role: form.role,
           organizationId: form.organizationId || '',
           position: form.position,
+          hireDate: form.hireDate || '',
           isHrAdmin: form.isHrAdmin,
           // 팀장 역할일 때만 의미 있음 — 다른 역할은 false 로 저장
           isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
@@ -298,6 +299,7 @@ function UsersContent() {
           email: form.email, name: form.name, role: form.role,
           organizationId: form.organizationId || '',
           position: form.position || '',
+          hireDate: form.hireDate || '',
           isHrAdmin: form.isHrAdmin,
           isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
           isActive: false,
@@ -779,6 +781,14 @@ function UsersContent() {
               <div className="space-y-1.5">
                 <Label>직책</Label>
                 <Input value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} placeholder="예) 선임, 팀장" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>입사일</Label>
+                <Input
+                  type="date" min="2000-01-01" max="2099-12-31"
+                  value={form.hireDate}
+                  onChange={e => setForm(f => ({ ...f, hireDate: e.target.value }))}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>역할 *</Label>

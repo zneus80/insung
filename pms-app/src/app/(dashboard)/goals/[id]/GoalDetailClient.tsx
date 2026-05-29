@@ -20,6 +20,7 @@ import {
 } from '@/lib/firestore';
 import { notifyNextApprover } from '@/lib/goal-notifications';
 import TaskGoalForm from '@/components/goals/TaskGoalForm';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import GeneralGoalForm from '@/components/goals/GeneralGoalForm';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -1069,7 +1070,7 @@ export default function GoalDetailPage() {
                     const orgName = allOrgs.find(o => o.id === u.organizationId)?.name;
                     return (
                       <span key={id} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs text-blue-700">
-                        {u.name}
+                        <MemberInfoModal userId={u.id} userName={u.name} />
                         {orgName && <span className="text-blue-400">· {orgName}</span>}
                         {u.position && <span className="text-blue-400">· {u.position}</span>}
                       </span>
@@ -1374,7 +1375,7 @@ export default function GoalDetailPage() {
                         <div className="flex items-center justify-between text-xs">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-gray-700">
-                              {author?.name ?? '알 수 없음'}
+                              {author ? <MemberInfoModal userId={author.id} userName={author.name} /> : '알 수 없음'}
                             </span>
                             {!isOwnerUpdate && (
                               <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">코멘트</span>
@@ -1409,7 +1410,9 @@ export default function GoalDetailPage() {
                         <div className="rounded-xl border bg-white p-3">
                           <div className="flex items-center justify-between text-xs mb-1">
                             <div className="flex items-center gap-2">
-                              <span className="font-semibold text-gray-700">{changer?.name ?? '시스템'}</span>
+                              <span className="font-semibold text-gray-700">
+                                {changer ? <MemberInfoModal userId={changer.id} userName={changer.name} /> : '시스템'}
+                              </span>
                               <span className="text-gray-400">{format(h.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })}</span>
                             </div>
                             {h.newStatus && <GoalStatusBadge status={h.newStatus} />}

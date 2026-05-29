@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getUser, getMileage, getOrganizations, getAwardsByUser } from '@/lib/firestore';
 import { getTier } from '@/lib/mileage-tier';
@@ -9,6 +9,11 @@ import type { User, Mileage, Organization, Award } from '@/types';
 interface Props {
   userId: string;
   userName: string;
+  /** 커스텀 트리거 — 미지정 시 기본은 userName 텍스트 (파란 링크 스타일) */
+  renderTrigger?: (open: () => void) => React.ReactNode;
+  /** 제어 모드 — open/onOpenChange 모두 지정 시 내부 트리거 없이 외부 제어 */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 interface LoadedData {
@@ -25,8 +30,14 @@ const ROLE_LABEL: Record<string, string> = {
   CEO:       '최고관리자',
 };
 
-export default function MemberInfoModal({ userId, userName }: Props) {
-  const [open, setOpen] = useState(false);
+export default function MemberInfoModal({ userId, userName, renderTrigger, open: openProp, onOpenChange }: Props) {
+  const isControlled = typeof openProp === 'boolean' && typeof onOpenChange === 'function';
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? openProp! : internalOpen;
+  const setOpen = (v: boolean) => {
+    if (isControlled) onOpenChange!(v);
+    else setInternalOpen(v);
+  };
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<LoadedData | null>(null);
 
@@ -47,6 +58,14 @@ export default function MemberInfoModal({ userId, userName }: Props) {
     }
   }
 
+  // 제어 모드에서 외부가 open=true 로 바꾸면 데이터 로드
+  useEffect(() => {
+    if (isControlled && openProp && !data && !loading) {
+      handleOpen();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isControlled, openProp]);
+
   const orgName = data?.user
     ? (data.orgs.find(o => o.id === data.user!.organizationId)?.name ?? data.user.organizationId)
     : '';
@@ -55,15 +74,17 @@ export default function MemberInfoModal({ userId, userName }: Props) {
 
   return (
     <>
-      <span
-        role="button"
-        tabIndex={0}
-        onClick={e => { e.stopPropagation(); handleOpen(); }}
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleOpen(); } }}
-        className="text-sm font-medium text-blue-600 hover:underline cursor-pointer"
-      >
-        {userName}
-      </span>
+      {isControlled ? null : renderTrigger ? renderTrigger(handleOpen) : (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={e => { e.stopPropagation(); handleOpen(); }}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleOpen(); } }}
+          className="text-sm font-medium text-blue-600 hover:underline cursor-pointer"
+        >
+          {userName}
+        </span>
+      )}
 
       {open && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -100,10 +121,8 @@ export default function MemberInfoModal({ userId, userName }: Props) {
                     <Row label="이름"     value={data.user.name} />
                     <Row label="이메일"   value={data.user.email} />
                     <Row label="직책"     value={data.user.position} />
-                    <Row label="직급"     value={data.user.rank} />
                     <Row label="입사일"   value={data.user.hireDate} />
                     <Row label="소속 조직" value={orgName} />
-                    <Row label="역할"     value={ROLE_LABEL[data.user.role] ?? data.user.role} />
                   </Section>
 
                   {/* 포상이력 */}
@@ -127,40 +146,22 @@ export default function MemberInfoModal({ userId, userName }: Props) {
                     )}
                   </Section>
 
-                  {/* 마일리지 */}
+                  {/* 마일리지 — 항상 총 마일리지 + 티어 2행 양식 (submit/instruct TDS 는 입력 UI 미구현 상태라 미표기) */}
                   <Section title="마일리지">
-                    {data.mileage ? (
-                      <>
-                        <div className="px-4 py-3 flex items-center justify-between">
-                          <span className="text-xs font-medium text-gray-500">총 마일리지</span>
-                          <span className="text-lg font-bold text-gray-900">{data.mileage.points.toLocaleString()}점</span>
-                        </div>
-                        {tier && (
-                          <div className="px-4 py-3 flex items-center justify-between border-t">
-                            <span className="text-xs font-medium text-gray-500">티어</span>
-                            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ${tier.badge}`}>
-                              {tier.icon} {tier.label}
-                            </span>
-                          </div>
-                        )}
-                        {data.mileage.submitTds !== undefined && (
-                          <div className="px-4 py-3 flex items-center justify-between border-t">
-                            <span className="text-xs font-medium text-gray-500">제출 TDS</span>
-                            <span className="text-sm text-gray-800">{data.mileage.submitTds}점</span>
-                          </div>
-                        )}
-                        {data.mileage.instructTds !== undefined && (
-                          <div className="px-4 py-3 flex items-center justify-between border-t">
-                            <span className="text-xs font-medium text-gray-500">지시 TDS</span>
-                            <span className="text-sm text-gray-800">{data.mileage.instructTds}점</span>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="px-4 py-3">
-                        <p className="text-sm text-gray-400">마일리지 정보 없음</p>
-                      </div>
-                    )}
+                    <div className="px-4 py-3 flex items-center justify-between">
+                      <span className="text-xs font-medium text-gray-500">총 마일리지</span>
+                      <span className="text-lg font-bold text-gray-900">{(data.mileage?.points ?? 0).toLocaleString()}점</span>
+                    </div>
+                    <div className="px-4 py-3 flex items-center justify-between border-t">
+                      <span className="text-xs font-medium text-gray-500">티어</span>
+                      {tier ? (
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ${tier.badge}`}>
+                          {tier.icon} {tier.label}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-gray-300">—</span>
+                      )}
+                    </div>
                   </Section>
                 </>
               )}
@@ -184,11 +185,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Row({ label, value }: { label: string; value?: string }) {
-  if (!value) return null;
+  const display = value && value.trim() !== '' ? value : '—';
+  const isEmpty = display === '—';
   return (
     <div className="px-4 py-3 flex items-start gap-3">
       <span className="text-xs font-medium text-gray-500 shrink-0 min-w-[80px]">{label}</span>
-      <span className="text-sm text-gray-800">{value}</span>
+      <span className={isEmpty ? 'text-sm text-gray-300' : 'text-sm text-gray-800'}>{display}</span>
     </div>
   );
 }
