@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { Progress } from '@/components/ui/progress';
-import GoalStatusBadge from './GoalStatusBadge';
+import { cn } from '@/lib/utils';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { ChevronDown, ChevronRight, Users, Target, LayoutList, Lock } from 'lucide-react';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
@@ -135,10 +135,19 @@ function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false }: {
       </div>
       {open && hasGoals && (
         <div className="ml-9 space-y-1 mt-1 mb-2">
-          {goals.map(goal => (
+          {goals.map(goal => {
+            // 단순화된 배지 (F3): 최종승인/진행중 · 완료 · 포기 만 노출
+            const badge = goal.status === 'COMPLETED'
+              ? { label: '완료', cls: 'bg-green-100 text-green-700' }
+              : goal.status === 'ABANDONED'
+                ? { label: '포기', cls: 'bg-gray-100 text-gray-500' }
+                : { label: '최종승인/진행중', cls: 'bg-blue-100 text-blue-700' };
+            return (
             <Link key={goal.id} href={`/goals/${goal.id}`}>
               <div className="flex items-center gap-3 rounded-lg border bg-white px-3 py-2 hover:shadow-sm transition-shadow">
-                <GoalStatusBadge goal={goal} />
+                <span className={cn('inline-block rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0', badge.cls)}>
+                  {badge.label}
+                </span>
                 <span className="flex-1 text-sm text-gray-800 truncate flex items-center gap-1.5">
                   {goal.isConfidential && <span title="대내비"><Lock className="h-3 w-3 shrink-0 text-red-500" /></span>}
                   {goal.title}
@@ -149,7 +158,8 @@ function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false }: {
                 </div>
               </div>
             </Link>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
