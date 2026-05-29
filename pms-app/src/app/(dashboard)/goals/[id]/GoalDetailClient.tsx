@@ -279,21 +279,21 @@ export default function GoalDetailPage() {
     } finally { setActionLoading(false); }
   }
 
-  // 수정 요청 회수 (콘텐츠 수정 + 책임자 변경 통합) — 이전 승인 상태(APPROVED/IN_PROGRESS)로 복귀 (v0.76 안정형)
-  // 책임자 변경이면 reassignFromId(기존 책임자)로 userId/organizationId 원복 → 목표가 기존 책임자에게 되돌아감
+  // 수정 요청 회수 — deferred ownership: userId/collaboratorIds 는 변하지 않은 상태이므로
+  // 콘텐츠(modifySnapshot)만 원복하고 pending* 필드 제거.
+  // 구버전 reassignFromId 데이터도 호환: 있으면 userId/collabs 원복까지 수행.
   async function withdrawModifyRequest() {
     if (!goal || !userProfile) return;
-    const isOwnerChange = !!goal.reassignFromId;
-    const msg = isOwnerChange
-      ? `책임자 변경 요청을 회수하시겠습니까? 변경이 취소되고 ${goal.reassignFromName ?? '기존 책임자'}에게 되돌아갑니다.`
+    const isOwnerChangePending = !!goal.pendingOwnerId;
+    const isLegacyReassign = !!goal.reassignFromId;
+    const msg = (isOwnerChangePending || isLegacyReassign)
+      ? `책임자 변경 요청을 회수하시겠습니까? 변경이 취소됩니다.`
       : '수정 요청을 회수하시겠습니까? 이전 승인 상태로 돌아갑니다.';
     if (!confirm(msg)) return;
     setActionLoading(true);
     try {
       const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, Timestamp: FsTimestamp, deleteField } = await import('firebase/firestore');
       const revertStatus: Goal['status'] = (goal.progress ?? 0) > 0 ? 'IN_PROGRESS' : 'APPROVED';
-      // modifySnapshot 있으면 수정 전 콘텐츠로 원복 — 대내비/제목/내용/기한/공동추진자 모두
-      // dueDate 는 Firestore 에서 Timestamp 객체로 반환되므로 toDate() 우선
       function toDate(v: any): Date | null {
         if (!v) return null;
         if (typeof v?.toDate === 'function') return v.toDate();
@@ -303,27 +303,41 @@ export default function GoalDetailPage() {
       }
       const snap = goal.modifySnapshot;
       const snapDue = snap ? toDate(snap.dueDate) : null;
-      const restoreFields: any = snap ? {
-        ...(snap.title !== undefined ? { title: snap.title } : {}),
-        ...(snap.description !== undefined ? { description: snap.description } : {}),
+      // 구버전 호환: reassignFromId 있으면 userId 도 원복 (snapshot/swap 폴백)
+      let legacyOwnerRestore: any = {};
+      if (isLegacyReassign) {
+        legacyOwnerRestore.userId = goal.reassignFromId;
+        legacyOwnerRestore.organizationId = goal.reassignFromOrgId ?? goal.organizationId;
+        if (snap?.collaboratorIds) {
+          legacyOwnerRestore.collaboratorIds = snap.collaboratorIds;
+        } else {
+          // 폴백: 새 책임자(현 userId)를 collab 로 강등, 기존 책임자(reassignFromId)는 제외
+          const currentCollabs = goal.collaboratorIds ?? [];
+          legacyOwnerRestore.collaboratorIds = Array.from(new Set([
+            goal.userId,
+            ...currentCollabs.filter(id => id !== goal.reassignFromId && id !== goal.userId),
+          ]));
+        }
+      }
+      const restoreContent: any = {
+        ...(snap?.title !== undefined ? { title: snap.title } : {}),
+        ...(snap?.description !== undefined ? { description: snap.description } : {}),
         ...(snapDue ? { dueDate: FsTimestamp.fromDate(snapDue) } : {}),
-        ...(typeof snap.isConfidential === 'boolean' ? { isConfidential: snap.isConfidential } : {}),
-        ...(snap.collaboratorIds ? { collaboratorIds: snap.collaboratorIds } : {}),
-        ...(snap.relatedOrgIds ? { relatedOrgIds: snap.relatedOrgIds } : {}),
-      } : {};
+        ...(typeof snap?.isConfidential === 'boolean' ? { isConfidential: snap.isConfidential } : {}),
+      };
       await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
         status: revertStatus,
-        // 책임자 변경이면 기존 책임자로 원복
-        ...(isOwnerChange ? {
-          userId: goal.reassignFromId,
-          organizationId: goal.reassignFromOrgId ?? goal.organizationId,
-        } : {}),
-        ...restoreFields,
+        ...restoreContent,
+        ...legacyOwnerRestore,
+        modifyRequestedBy: deleteField(),
+        modifySnapshot: deleteField(),
+        pendingOwnerId: deleteField(),
+        pendingOwnerName: deleteField(),
+        pendingOwnerOrgId: deleteField(),
+        pendingCollaboratorIds: deleteField(),
         reassignFromId: deleteField(),
         reassignFromName: deleteField(),
         reassignFromOrgId: deleteField(),
-        modifyRequestedBy: deleteField(),
-        modifySnapshot: deleteField(),
         leadApprovedBy: deleteField(),
         leadApprovedAt: deleteField(),
         hqApprovedBy: deleteField(),
@@ -336,11 +350,11 @@ export default function GoalDetailPage() {
         goalId: id, changedBy: userProfile.id,
         changeType: 'STATUS_CHANGED',
         previousStatus: goal.status, newStatus: revertStatus,
-        comment: isOwnerChange
-          ? `책임자 변경 요청 회수 (${goal.reassignFromName ?? '기존 책임자'}에게 원복)`
+        comment: (isOwnerChangePending || isLegacyReassign)
+          ? '책임자 변경 요청 회수'
           : '수정 요청 회수',
       });
-      toast.success(isOwnerChange ? '책임자 변경 요청을 회수했습니다.' : '수정 요청을 회수했습니다.');
+      toast.success((isOwnerChangePending || isLegacyReassign) ? '책임자 변경 요청을 회수했습니다.' : '수정 요청을 회수했습니다.');
       await load();
     } finally { setActionLoading(false); }
   }
@@ -531,15 +545,49 @@ export default function GoalDetailPage() {
       if (Object.keys(updateData).length === 0) return;
       await updateGoal(id, updateData);
 
-      // ── 책임자 변경 최종 확정 (v0.76 안정형) ──
-      // userId 는 이미 새 책임자로 전환돼 있음. 최종 승인 시 reassignFromId → previousOwnerId(배지·확정)로 승격 후 reassignFrom* 제거.
-      if (newStatus === 'APPROVED' && goal.reassignFromId) {
+      // ── 책임자 변경 최종 확정 (deferred ownership) ──
+      // pendingOwnerId 있으면: userId/organizationId/collaboratorIds 를 새 값으로 적용 + previousOwnerId 설정.
+      // 구버전 reassignFromId 호환: 있으면 그쪽 데이터 사용.
+      if (newStatus === 'APPROVED' && (goal.pendingOwnerId || goal.reassignFromId)) {
         try {
           const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, deleteField } = await import('firebase/firestore');
+          let newOwnerId: string;
+          let newOwnerOrgId: string;
+          let newCollabs: string[];
+          let prevOwnerIdForBadge: string;
+          let prevOwnerNameForBadge: string;
+          if (goal.pendingOwnerId) {
+            // 신규(deferred) 방식 — userId 는 아직 기존 책임자. 이제 pending 으로 전환.
+            newOwnerId = goal.pendingOwnerId;
+            newOwnerOrgId = goal.pendingOwnerOrgId ?? goal.organizationId;
+            newCollabs = goal.pendingCollaboratorIds ?? (goal.collaboratorIds ?? []);
+            prevOwnerIdForBadge = goal.userId;
+            prevOwnerNameForBadge = goalOwner.name;
+          } else {
+            // 구버전(즉시전환) 방식 — userId 가 이미 새 책임자. reassignFromId 가 기존.
+            newOwnerId = goal.userId;
+            newOwnerOrgId = goal.organizationId;
+            newCollabs = goal.collaboratorIds ?? [];
+            prevOwnerIdForBadge = goal.reassignFromId!;
+            prevOwnerNameForBadge = goal.reassignFromName ?? '';
+          }
+          // relatedOrgIds 재계산 — 새 owner org + collab들의 org. usersMap 활용.
+          const collabOrgIds = newCollabs
+            .map(uid => usersMap[uid]?.organizationId)
+            .filter((v): v is string => !!v);
+          const newRelatedOrgIds = Array.from(new Set([newOwnerOrgId, ...collabOrgIds]));
           await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
-            previousOwnerId: goal.reassignFromId,
-            previousOwnerName: goal.reassignFromName ?? '',
+            userId: newOwnerId,
+            organizationId: newOwnerOrgId,
+            collaboratorIds: newCollabs,
+            relatedOrgIds: newRelatedOrgIds,
+            previousOwnerId: prevOwnerIdForBadge,
+            previousOwnerName: prevOwnerNameForBadge,
             transferredAt: sts(),
+            pendingOwnerId: deleteField(),
+            pendingOwnerName: deleteField(),
+            pendingOwnerOrgId: deleteField(),
+            pendingCollaboratorIds: deleteField(),
             reassignFromId: deleteField(),
             reassignFromName: deleteField(),
             reassignFromOrgId: deleteField(),
@@ -551,24 +599,24 @@ export default function GoalDetailPage() {
             goalId: id, changedBy: userProfile.id,
             changeType: 'OWNER_REASSIGNED',
             previousStatus: goal.status, newStatus: 'APPROVED',
-            comment: `최종 승인으로 책임자 변경 확정: ${goal.reassignFromName ?? ''} → ${goalOwner.name}`,
+            comment: `최종 승인으로 책임자 변경 확정: ${prevOwnerNameForBadge} → ${goal.pendingOwnerName ?? goalOwner.name}`,
           });
-          // 새 책임자(현 owner)에게 확정 알림
+          // 새 책임자에게 확정 알림
           try {
             await createNotification({
-              userId: goal.userId,
+              userId: newOwnerId,
               goalId: id,
               goalTitle: goal.title,
               type: 'GOAL_APPROVED',
-              message: `'${goal.title}' 핵심목표 책임자 변경이 최종 승인되어 확정되었습니다.`,
+              message: `'${goal.title}' 핵심목표 책임자 변경이 최종 승인되어 귀하가 책임자로 확정되었습니다.`,
               read: false,
             });
           } catch { /* 알림 실패 무시 */ }
         } catch (err) {
           console.error('[이관] 최종 승인 시 책임자 변경 확정 실패:', err);
         }
-      } else if (newStatus === 'APPROVED' && goal.modifyRequestedBy && !goal.reassignFromId) {
-        // 콘텐츠 수정요청만 (책임자 변경 X) 최종 승인 시 modifySnapshot/modifyRequestedBy 정리
+      } else if (newStatus === 'APPROVED' && goal.modifyRequestedBy) {
+        // 콘텐츠 수정요청만 — modifySnapshot/modifyRequestedBy 정리
         try {
           const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, deleteField } = await import('firebase/firestore');
           await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
@@ -662,7 +710,6 @@ export default function GoalDetailPage() {
 
       if (isModifyReject) {
         const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, Timestamp: FsTimestamp, deleteField } = await import('firebase/firestore');
-        // modifySnapshot 으로 콘텐츠 원복 (대내비/제목/내용/기한 등). dueDate 는 Timestamp 객체일 수 있어 방어 처리.
         function toDate(v: any): Date | null {
           if (!v) return null;
           if (typeof v?.toDate === 'function') return v.toDate();
@@ -672,26 +719,40 @@ export default function GoalDetailPage() {
         }
         const snap = goal.modifySnapshot;
         const snapDue = snap ? toDate(snap.dueDate) : null;
-        const restoreFields: any = snap ? {
-          ...(snap.title !== undefined ? { title: snap.title } : {}),
-          ...(snap.description !== undefined ? { description: snap.description } : {}),
+        // 구버전 호환: reassignFromId 있으면 userId/collabs 원복
+        let legacyOwnerRestore: any = {};
+        if (goal.reassignFromId) {
+          legacyOwnerRestore.userId = goal.reassignFromId;
+          legacyOwnerRestore.organizationId = goal.reassignFromOrgId ?? goal.organizationId;
+          if (snap?.collaboratorIds) {
+            legacyOwnerRestore.collaboratorIds = snap.collaboratorIds;
+          } else {
+            const currentCollabs = goal.collaboratorIds ?? [];
+            legacyOwnerRestore.collaboratorIds = Array.from(new Set([
+              goal.userId,
+              ...currentCollabs.filter(id => id !== goal.reassignFromId && id !== goal.userId),
+            ]));
+          }
+        }
+        const restoreContent: any = {
+          ...(snap?.title !== undefined ? { title: snap.title } : {}),
+          ...(snap?.description !== undefined ? { description: snap.description } : {}),
           ...(snapDue ? { dueDate: FsTimestamp.fromDate(snapDue) } : {}),
-          ...(typeof snap.isConfidential === 'boolean' ? { isConfidential: snap.isConfidential } : {}),
-          ...(snap.collaboratorIds ? { collaboratorIds: snap.collaboratorIds } : {}),
-          ...(snap.relatedOrgIds ? { relatedOrgIds: snap.relatedOrgIds } : {}),
-        } : {};
+          ...(typeof snap?.isConfidential === 'boolean' ? { isConfidential: snap.isConfidential } : {}),
+        };
         await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
           status: newStatus,
-          ...(goal.reassignFromId ? {
-            userId: goal.reassignFromId,
-            organizationId: goal.reassignFromOrgId ?? goal.organizationId,
-          } : {}),
-          ...restoreFields,
+          ...restoreContent,
+          ...legacyOwnerRestore,
+          modifyRequestedBy: deleteField(),
+          modifySnapshot: deleteField(),
+          pendingOwnerId: deleteField(),
+          pendingOwnerName: deleteField(),
+          pendingOwnerOrgId: deleteField(),
+          pendingCollaboratorIds: deleteField(),
           reassignFromId: deleteField(),
           reassignFromName: deleteField(),
           reassignFromOrgId: deleteField(),
-          modifyRequestedBy: deleteField(),
-          modifySnapshot: deleteField(),
           leadApprovedBy: deleteField(),
           leadApprovedAt: deleteField(),
           hqApprovedBy: deleteField(),
@@ -811,13 +872,12 @@ export default function GoalDetailPage() {
   const canEdit = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
   const canDelete = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
   const canRequestApproval = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
-  // 수정 요청 회수 (콘텐츠 수정 + 책임자 변경 통합): modifyRequestedBy 있고 최종 승인 전.
-  // 회수 권한: 현 owner(=새 책임자) / 요청자 / 기존 책임자(reassignFromId) 모두
+  // 수정 요청 회수: modifyRequestedBy 있고 최종 승인 전.
+  // 회수 권한: 현 owner (=A, deferred 방식이므로 항상 기존 책임자) 또는 요청자.
+  // (구버전 reassignFromId 잔여 데이터도 호환을 위해 owner 권한으로 처리됨)
   const isModifyPending = !!goal.modifyRequestedBy && ['PENDING_APPROVAL', 'LEAD_APPROVED'].includes(goal.status);
   const canWithdrawModifyRequest = isModifyPending && (
-    isOwner ||
-    goal.modifyRequestedBy === userProfile.id ||
-    goal.reassignFromId === userProfile.id
+    isOwner || goal.modifyRequestedBy === userProfile.id
   );
   // 일반 승인요청 회수(DRAFT 복귀)는 신규 상신일 때만 — 수정요청(modifyRequestedBy)이 아닐 때
   const canWithdraw = isOwner && goal.status === 'PENDING_APPROVAL' && !goal.modifyRequestedBy;

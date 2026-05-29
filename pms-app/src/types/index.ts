@@ -93,14 +93,19 @@ export interface Goal {
   transferredAt?: Date;
   needsReassignment?: boolean;
 
-  // 책임자 변경 수정요청 (v0.76) — 안정형: 즉시 userId 전환 + 취소/반려 시 원복
-  //   reassignFromId: 변경 전 책임자 (회수·반려 시 userId 원복용). 최종 승인 시 previousOwnerId 로 승격 후 제거.
-  //   reassignFromOrgId: 변경 전 책임자 소속 (원복 시 organizationId 복원용)
-  //   modifyRequestedBy: 변경 요청자 (회수 권한 판별)
+  // 수정요청 보관 필드.
+  //   modifyRequestedBy: 변경 요청자
+  //   pendingOwnerId/Name/OrgId: 책임자 변경 예정 — 최종 승인 시 userId 로 승격. 회수·반려 시 단순 제거.
+  //   pendingCollaboratorIds: 공동추진자 변경 예정 — 최종 승인 시 collaboratorIds 로 적용.
+  //   (deprecated) reassignFromId/Name/OrgId: 구버전 즉시전환 방식의 잔여 필드 — 호환을 위해 읽기만 지원.
+  modifyRequestedBy?: string;
+  pendingOwnerId?: string;
+  pendingOwnerName?: string;
+  pendingOwnerOrgId?: string;
+  pendingCollaboratorIds?: string[];
   reassignFromId?: string;
   reassignFromName?: string;
   reassignFromOrgId?: string;
-  modifyRequestedBy?: string;
   /** 수정요청 직전 상태 스냅샷 — 회수·반려 시 원복용. 변경 가능한 필드 (title/description/dueDate/isConfidential 등) */
   modifySnapshot?: {
     title?: string;
