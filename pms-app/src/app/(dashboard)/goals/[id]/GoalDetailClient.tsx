@@ -290,8 +290,27 @@ export default function GoalDetailPage() {
     if (!confirm(msg)) return;
     setActionLoading(true);
     try {
-      const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, deleteField } = await import('firebase/firestore');
+      const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, Timestamp: FsTimestamp, deleteField } = await import('firebase/firestore');
       const revertStatus: Goal['status'] = (goal.progress ?? 0) > 0 ? 'IN_PROGRESS' : 'APPROVED';
+      // modifySnapshot 있으면 수정 전 콘텐츠로 원복 — 대내비/제목/내용/기한/공동추진자 모두
+      // dueDate 는 Firestore 에서 Timestamp 객체로 반환되므로 toDate() 우선
+      function toDate(v: any): Date | null {
+        if (!v) return null;
+        if (typeof v?.toDate === 'function') return v.toDate();
+        if (v instanceof Date) return v;
+        const d = new Date(v);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      const snap = goal.modifySnapshot;
+      const snapDue = snap ? toDate(snap.dueDate) : null;
+      const restoreFields: any = snap ? {
+        ...(snap.title !== undefined ? { title: snap.title } : {}),
+        ...(snap.description !== undefined ? { description: snap.description } : {}),
+        ...(snapDue ? { dueDate: FsTimestamp.fromDate(snapDue) } : {}),
+        ...(typeof snap.isConfidential === 'boolean' ? { isConfidential: snap.isConfidential } : {}),
+        ...(snap.collaboratorIds ? { collaboratorIds: snap.collaboratorIds } : {}),
+        ...(snap.relatedOrgIds ? { relatedOrgIds: snap.relatedOrgIds } : {}),
+      } : {};
       await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
         status: revertStatus,
         // 책임자 변경이면 기존 책임자로 원복
@@ -299,10 +318,12 @@ export default function GoalDetailPage() {
           userId: goal.reassignFromId,
           organizationId: goal.reassignFromOrgId ?? goal.organizationId,
         } : {}),
+        ...restoreFields,
         reassignFromId: deleteField(),
         reassignFromName: deleteField(),
         reassignFromOrgId: deleteField(),
         modifyRequestedBy: deleteField(),
+        modifySnapshot: deleteField(),
         leadApprovedBy: deleteField(),
         leadApprovedAt: deleteField(),
         hqApprovedBy: deleteField(),
@@ -523,6 +544,7 @@ export default function GoalDetailPage() {
             reassignFromName: deleteField(),
             reassignFromOrgId: deleteField(),
             modifyRequestedBy: deleteField(),
+            modifySnapshot: deleteField(),
             updatedAt: sts(),
           });
           await addGoalHistory({
@@ -545,6 +567,16 @@ export default function GoalDetailPage() {
         } catch (err) {
           console.error('[이관] 최종 승인 시 책임자 변경 확정 실패:', err);
         }
+      } else if (newStatus === 'APPROVED' && goal.modifyRequestedBy && !goal.reassignFromId) {
+        // 콘텐츠 수정요청만 (책임자 변경 X) 최종 승인 시 modifySnapshot/modifyRequestedBy 정리
+        try {
+          const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, deleteField } = await import('firebase/firestore');
+          await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
+            modifyRequestedBy: deleteField(),
+            modifySnapshot: deleteField(),
+            updatedAt: sts(),
+          });
+        } catch (err) { console.error('[수정요청] 최종 승인 후 스냅샷 정리 실패:', err); }
       }
 
       await addGoalHistory({
@@ -629,17 +661,37 @@ export default function GoalDetailPage() {
       }
 
       if (isModifyReject) {
-        const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, deleteField } = await import('firebase/firestore');
+        const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, Timestamp: FsTimestamp, deleteField } = await import('firebase/firestore');
+        // modifySnapshot 으로 콘텐츠 원복 (대내비/제목/내용/기한 등). dueDate 는 Timestamp 객체일 수 있어 방어 처리.
+        function toDate(v: any): Date | null {
+          if (!v) return null;
+          if (typeof v?.toDate === 'function') return v.toDate();
+          if (v instanceof Date) return v;
+          const d = new Date(v);
+          return isNaN(d.getTime()) ? null : d;
+        }
+        const snap = goal.modifySnapshot;
+        const snapDue = snap ? toDate(snap.dueDate) : null;
+        const restoreFields: any = snap ? {
+          ...(snap.title !== undefined ? { title: snap.title } : {}),
+          ...(snap.description !== undefined ? { description: snap.description } : {}),
+          ...(snapDue ? { dueDate: FsTimestamp.fromDate(snapDue) } : {}),
+          ...(typeof snap.isConfidential === 'boolean' ? { isConfidential: snap.isConfidential } : {}),
+          ...(snap.collaboratorIds ? { collaboratorIds: snap.collaboratorIds } : {}),
+          ...(snap.relatedOrgIds ? { relatedOrgIds: snap.relatedOrgIds } : {}),
+        } : {};
         await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
           status: newStatus,
           ...(goal.reassignFromId ? {
             userId: goal.reassignFromId,
             organizationId: goal.reassignFromOrgId ?? goal.organizationId,
           } : {}),
+          ...restoreFields,
           reassignFromId: deleteField(),
           reassignFromName: deleteField(),
           reassignFromOrgId: deleteField(),
           modifyRequestedBy: deleteField(),
+          modifySnapshot: deleteField(),
           leadApprovedBy: deleteField(),
           leadApprovedAt: deleteField(),
           hqApprovedBy: deleteField(),
