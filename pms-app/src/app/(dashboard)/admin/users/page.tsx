@@ -7,6 +7,7 @@ import MemberInfoModal from '@/components/members/MemberInfoModal';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -497,7 +498,7 @@ function UsersContent() {
 
         {/* 툴바 */}
         <div className="flex flex-wrap gap-2 items-center shrink-0">
-          <Input placeholder="이름 또는 이메일 검색" value={search} onChange={e => setSearch(e.target.value)} className="max-w-xs" />
+          <SearchInput placeholder="이름 또는 이메일 검색" value={search} onChange={setSearch} className="max-w-xs" />
           {/* 역할 필터 */}
           <select
             value={filterRole}

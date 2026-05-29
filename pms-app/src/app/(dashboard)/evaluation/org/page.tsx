@@ -173,10 +173,15 @@ function OrgEvaluationContent() {
 
   useEffect(() => { load(); }, []);
 
-  // 조직 산하 전체 인원 수 (재귀 하위 포함)
+  // 조직 산하 전체 평가 대상 인원 수 (재귀 하위 포함) — 임원·CEO 는 쿼터 기준에서 제외
   function getMemberCount(orgId: string): number {
     const descIds = findDescendantIds(orgId, allOrgs);
-    return allUsers.filter(u => descIds.includes(u.organizationId)).length;
+    return allUsers.filter(u =>
+      descIds.includes(u.organizationId) &&
+      u.role !== 'EXECUTIVE' &&
+      u.role !== 'CEO' &&
+      u.isActive !== false,
+    ).length;
   }
 
   // 현재 평가 데이터 가져오기

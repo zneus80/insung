@@ -10,6 +10,7 @@ import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
 import { ChevronsUpDown, ChevronUp, ChevronDown, Search, Users as UsersIcon, X } from 'lucide-react';
@@ -47,7 +48,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 type SortKey =
-  | 'name' | 'org' | 'position' | 'hireDate'
+  | 'name' | 'org' | 'division' | 'position' | 'hireDate'
   | 'eval' | 'mileage' | 'mileageYear' | 'awards' | 'promotion' | 'jobRequest';
 type SortDir = 'asc' | 'desc';
 
@@ -156,7 +157,8 @@ function AllMembersContent() {
 
   // 검색/정렬/필터
   const [search, setSearch] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('name');
+  // 기본 정렬: 부문/공장 우선순위(displayOrder) → 본부 → 팀 → 이름
+  const [sortKey, setSortKey] = useState<SortKey>('division');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [filterOrg, setFilterOrg] = useState<string>('ALL');     // 부모 조직 ID (산하 전체 포함)
   const [filterRole, setFilterRole] = useState<string>('ALL');
@@ -300,17 +302,40 @@ function AllMembersContent() {
     }
     if (search.trim()) {
       const s = search.trim().toLowerCase();
-      arr = arr.filter(r =>
-        r.user.name?.toLowerCase().includes(s) ||
-        (r.user.position ?? '').toLowerCase().includes(s) ||
-        r.orgName.toLowerCase().includes(s),
-      );
+      arr = arr.filter(r => {
+        if (r.user.name?.toLowerCase().includes(s)) return true;
+        if ((r.user.position ?? '').toLowerCase().includes(s)) return true;
+        // 조직 체인 (소속 팀 → 본부 → 부문 등) 의 어떤 이름이라도 매칭
+        return r.orgChain.some(oid => (orgsById[oid]?.name ?? '').toLowerCase().includes(s));
+      });
+    }
+    // 사용자가 속한 DIVISION(부문/공장) 찾기 — 없으면 최상위 비-COMPANY 조직
+    function getDivisionOrg(orgId: string | undefined) {
+      if (!orgId) return null;
+      let cur = orgsById[orgId];
+      let topNonCompany: Organization | null = null;
+      while (cur) {
+        if (cur.type === 'DIVISION') return cur;
+        if (cur.type !== 'COMPANY') topNonCompany = cur;
+        cur = cur.parentId ? orgsById[cur.parentId] : (undefined as any);
+      }
+      return topNonCompany;
     }
     arr = [...arr].sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
         case 'name':       cmp = a.user.name.localeCompare(b.user.name, 'ko'); break;
         case 'org':        cmp = a.orgName.localeCompare(b.orgName, 'ko'); break;
+        case 'division': {
+          const da = getDivisionOrg(a.user.organizationId);
+          const db = getDivisionOrg(b.user.organizationId);
+          if (da && db) cmp = compareOrgByDisplayOrder(da, db);
+          else if (da) cmp = -1;
+          else if (db) cmp = 1;
+          // 같은 부문 내 — 직속 조직명 → 이름 순으로 2차 정렬
+          if (cmp === 0) cmp = a.orgName.localeCompare(b.orgName, 'ko');
+          break;
+        }
         case 'position':   cmp = (a.user.position ?? '').localeCompare(b.user.position ?? '', 'ko'); break;
         case 'hireDate':   cmp = a.hireDate.localeCompare(b.hireDate); break;
         case 'eval':       {
@@ -349,6 +374,7 @@ function AllMembersContent() {
 
   function clearFilters() {
     setSearch(''); setFilterOrg('ALL'); setFilterRole('ALL'); setFilterPromotion('ALL');
+    setSortKey('division'); setSortDir('asc');
   }
   const hasActiveFilter = !!search || filterOrg !== 'ALL' || filterRole !== 'ALL' || filterPromotion !== 'ALL';
 
@@ -359,15 +385,13 @@ function AllMembersContent() {
 
         {/* 헤더 — 검색·필터 */}
         <div className="shrink-0 flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[240px] max-w-md">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-            <Input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="이름·직책·소속 검색"
-              className="pl-8"
-            />
-          </div>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="이름·직책·소속 검색"
+            showSearchIcon
+            className="flex-1 min-w-[240px] max-w-md"
+          />
           <select
             value={filterOrg}
             onChange={e => setFilterOrg(e.target.value)}

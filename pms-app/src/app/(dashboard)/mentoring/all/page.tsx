@@ -10,6 +10,7 @@ import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { ChevronDown, ChevronRight, MessageSquareHeart, AlertCircle, Pencil, Search } from 'lucide-react';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
+import { SearchInput } from '@/components/ui/search-input';
 import { cn } from '@/lib/utils';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import type { User, Organization, MentoringForm, JobRequestType } from '@/types';
@@ -146,13 +147,13 @@ function MentoringAllContent() {
               {selectedYear}년 육성면담서
             </p>
             {/* 검색 */}
-            <div className="relative mb-3">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-              <input
+            <div className="mb-3">
+              <SearchInput
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={setSearch}
                 placeholder="이름·직책 검색"
-                className="w-full h-9 pl-8 pr-3 rounded-md border border-gray-200 bg-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                showSearchIcon
+                className="w-full"
               />
             </div>
             {loading ? (

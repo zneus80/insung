@@ -1291,6 +1291,7 @@ function mapAnnouncement(id: string, d: DocumentData): Announcement {
     ...d,
     id,
     isPinned: d.isPinned ?? false,
+    expiresAt: fromTimestamp(d.expiresAt),
     createdAt: fromTimestamp(d.createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
   } as Announcement;
@@ -1302,16 +1303,26 @@ export async function getAnnouncements(): Promise<Announcement[]> {
     orderBy('createdAt', 'desc'),
   ));
   const items = snap.docs.map(d => mapAnnouncement(d.id, d.data()));
+  // 게시 종료일 지난 항목 자동 삭제 (lazy cleanup) — 백그라운드로
+  const now = new Date();
+  const expired = items.filter(a => a.expiresAt && a.expiresAt.getTime() <= now.getTime());
+  if (expired.length > 0) {
+    Promise.all(expired.map(a => deleteDoc(doc(db, COLLECTIONS.ANNOUNCEMENTS, a.id))))
+      .catch(err => console.error('[공지사항 만료 자동삭제] 실패:', err));
+  }
+  const active = items.filter(a => !a.expiresAt || a.expiresAt.getTime() > now.getTime());
   // isPinned true 먼저, 그 다음 최신순
-  return items.sort((a, b) => {
+  return active.sort((a, b) => {
     if (a.isPinned === b.isPinned) return b.createdAt.getTime() - a.createdAt.getTime();
     return a.isPinned ? -1 : 1;
   });
 }
 
 export async function createAnnouncement(data: Omit<Announcement, 'id' | 'createdAt' | 'updatedAt'>) {
+  const payload: any = { ...data };
+  if (data.expiresAt instanceof Date) payload.expiresAt = Timestamp.fromDate(data.expiresAt);
   const ref = await addDoc(collection(db, COLLECTIONS.ANNOUNCEMENTS), {
-    ...data,
+    ...payload,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -1319,8 +1330,12 @@ export async function createAnnouncement(data: Omit<Announcement, 'id' | 'create
 }
 
 export async function updateAnnouncement(id: string, data: Partial<Omit<Announcement, 'id' | 'createdAt' | 'updatedAt'>>) {
+  const { deleteField } = await import('firebase/firestore');
+  const payload: any = { ...data };
+  if (data.expiresAt instanceof Date) payload.expiresAt = Timestamp.fromDate(data.expiresAt);
+  else if ('expiresAt' in data && data.expiresAt === undefined) payload.expiresAt = deleteField();
   await updateDoc(doc(db, COLLECTIONS.ANNOUNCEMENTS, id), {
-    ...data,
+    ...payload,
     updatedAt: serverTimestamp(),
   });
 }

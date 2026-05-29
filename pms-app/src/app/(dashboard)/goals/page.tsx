@@ -339,7 +339,7 @@ function MyGoalsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="핵심목표관리" />
+      <Header title="핵심목표관리" showBack />
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
 
@@ -721,7 +721,7 @@ function OrgGoalsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="핵심목표관리" />
+      <Header title="핵심목표관리" showBack />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
         {/* 전체 진행률 */}

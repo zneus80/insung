@@ -29,6 +29,7 @@ export default function AnnouncementsPage() {
   const [formTitle, setFormTitle] = useState('');
   const [formContent, setFormContent] = useState('');
   const [formIsPinned, setFormIsPinned] = useState(false);
+  const [formExpiresAt, setFormExpiresAt] = useState(''); // yyyy-MM-dd, 빈 값이면 무기한
   const [saving, setSaving] = useState(false);
 
   async function loadAnnouncements() {
@@ -51,6 +52,7 @@ export default function AnnouncementsPage() {
     setFormTitle('');
     setFormContent('');
     setFormIsPinned(false);
+    setFormExpiresAt('');
     setModalOpen(true);
   }
 
@@ -59,6 +61,7 @@ export default function AnnouncementsPage() {
     setFormTitle(a.title);
     setFormContent(a.content);
     setFormIsPinned(a.isPinned);
+    setFormExpiresAt(a.expiresAt ? a.expiresAt.toISOString().slice(0, 10) : '');
     setModalOpen(true);
   }
 
@@ -67,11 +70,16 @@ export default function AnnouncementsPage() {
     if (!formTitle.trim() || !formContent.trim()) return;
     setSaving(true);
     try {
+      // 종료일은 해당일 23:59:59 까지 유효
+      const expiresAt = formExpiresAt
+        ? new Date(`${formExpiresAt}T23:59:59`)
+        : undefined;
       if (editTarget) {
         await updateAnnouncement(editTarget.id, {
           title: formTitle.trim(),
           content: formContent.trim(),
           isPinned: formIsPinned,
+          expiresAt,
         });
       } else {
         await createAnnouncement({
@@ -80,6 +88,7 @@ export default function AnnouncementsPage() {
           isPinned: formIsPinned,
           authorId: userProfile.id,
           authorName: userProfile.name,
+          ...(expiresAt ? { expiresAt } : {}),
         });
       }
       setModalOpen(false);
@@ -159,6 +168,14 @@ export default function AnnouncementsPage() {
                             day: '2-digit',
                           })}
                         </span>
+                        {a.expiresAt && (
+                          <>
+                            <span>·</span>
+                            <span className="text-orange-500">
+                              ~ {a.expiresAt.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })} 까지
+                            </span>
+                          </>
+                        )}
                       </div>
                       {expandedId !== a.id && (
                         <p className="mt-1 text-xs text-gray-500 line-clamp-2 whitespace-pre-wrap">
@@ -236,6 +253,24 @@ export default function AnnouncementsPage() {
                   rows={6}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ann-expires">게시 종료일 <span className="text-xs text-gray-400 font-normal">(미지정 시 무기한 / 종료일 지나면 자동 삭제)</span></Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="ann-expires"
+                    type="date"
+                    value={formExpiresAt}
+                    onChange={e => setFormExpiresAt(e.target.value)}
+                    min={new Date().toISOString().slice(0, 10)}
+                    className="flex-1"
+                  />
+                  {formExpiresAt && (
+                    <Button variant="ghost" size="sm" onClick={() => setFormExpiresAt('')} className="text-xs text-gray-500">
+                      해제
+                    </Button>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <input
