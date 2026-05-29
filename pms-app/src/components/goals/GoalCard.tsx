@@ -105,7 +105,7 @@ export default function GoalCard({ goal, ownerName, onEdit, onTrash, onWithdraw,
 
         {/* ── 설명 ── */}
         {goal.description && (
-          <p className="text-sm text-gray-500 line-clamp-2 mt-1 mb-2">{goal.description}</p>
+          <p className="text-sm text-gray-500 line-clamp-2 mt-1 mb-2 whitespace-pre-line">{goal.description}</p>
         )}
 
         {/* ── 진행률 ── */}
