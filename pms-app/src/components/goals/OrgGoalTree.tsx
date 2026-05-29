@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Progress } from '@/components/ui/progress';
 import GoalStatusBadge from './GoalStatusBadge';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
-import { ChevronDown, ChevronRight, Users, Target, LayoutList } from 'lucide-react';
+import { ChevronDown, ChevronRight, Users, Target, LayoutList, Lock } from 'lucide-react';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import type { Goal, Organization, User, AnnualGoal } from '@/types';
 
@@ -139,7 +139,10 @@ function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false }: {
             <Link key={goal.id} href={`/goals/${goal.id}`}>
               <div className="flex items-center gap-3 rounded-lg border bg-white px-3 py-2 hover:shadow-sm transition-shadow">
                 <GoalStatusBadge goal={goal} />
-                <span className="flex-1 text-sm text-gray-800 truncate">{goal.title}</span>
+                <span className="flex-1 text-sm text-gray-800 truncate flex items-center gap-1.5">
+                  {goal.isConfidential && <span title="대내비"><Lock className="h-3 w-3 shrink-0 text-red-500" /></span>}
+                  {goal.title}
+                </span>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <Progress value={goal.progress} className="h-1.5 w-16" />
                   <span className="text-sm text-gray-500 w-8 text-right">{goal.progress}%</span>

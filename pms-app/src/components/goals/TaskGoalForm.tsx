@@ -37,6 +37,7 @@ export default function TaskGoalForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
+  const [isConfidential, setIsConfidential] = useState(false);
   const [ownerId, setOwnerId] = useState<string>('');   // 책임자 (Goal.userId) — 기본 본인
   const [ownerSearch, setOwnerSearch] = useState('');
   const [users, setUsers] = useState<User[]>([]);
@@ -68,6 +69,7 @@ export default function TaskGoalForm({
       setDueDate(editGoal.dueDate.toISOString().split('T')[0]);
       setCollaboratorIds(editGoal.collaboratorIds ?? []);
       setOwnerId(editGoal.userId);
+      setIsConfidential(!!editGoal.isConfidential);
     } else {
       openedStatusRef.current = null;
       setTitle('');
@@ -75,6 +77,7 @@ export default function TaskGoalForm({
       setDueDate('');
       setCollaboratorIds([]);
       setOwnerId(userProfile?.id ?? '');  // 본인이 기본 책임자
+      setIsConfidential(false);
     }
     setError('');
     setUserSearch('');
@@ -115,6 +118,7 @@ export default function TaskGoalForm({
         progress: 0,
         collaboratorIds: cleanedCollaborators,
         relatedOrgIds,
+        isConfidential,
       };
 
       // ── 변경 항목 diff 계산 (편집 모드일 때) ──
@@ -151,6 +155,12 @@ export default function TaskGoalForm({
           || oldCollabs.some((id, i) => id !== sortedNew[i]);
         if (collabsChanged) {
           ch.collaboratorIds = { from: editGoal.collaboratorIds ?? [], to: newCollabs };
+        }
+
+        // 대내비 토글 비교
+        const oldConfidential = !!editGoal.isConfidential;
+        if (oldConfidential !== isConfidential) {
+          ch.isConfidential = { from: oldConfidential, to: isConfidential };
         }
         return Object.keys(ch).length > 0 ? ch : undefined;
       }
@@ -519,6 +529,17 @@ export default function TaskGoalForm({
             search={userSearch}
             onSearchChange={setUserSearch}
           />
+
+          {/* 대내비 — 전사 업무추진현황에서 제목 마스킹 */}
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={isConfidential}
+              onChange={e => setIsConfidential(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">대내비 (전사 업무추진현황에서 CONFIDENTIAL 로 마스킹)</span>
+          </label>
 
           {/* 수정 요청 의견 (승인된 목표 수정 시) */}
           {isApprovedEdit && (

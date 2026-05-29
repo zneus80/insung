@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { Calendar, Pencil, Trash2, XCircle, Send, UserCircle2, Users } from 'lucide-react';
+import { Calendar, Pencil, Trash2, XCircle, Send, UserCircle2, Users, Lock } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import GoalStatusBadge from './GoalStatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
@@ -77,6 +77,17 @@ export default function GoalCard({ goal, ownerName, onEdit, onTrash, onWithdraw,
                 title={`이전 책임자: ${goal.previousOwnerName ?? ''}`}
               >
                 책임자 재지정 필요
+              </span>
+            )}
+
+            {/* 대내비 — 전사 업무추진현황에서 마스킹됨 */}
+            {goal.isConfidential && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700"
+                title="대내비 — 전사 업무추진현황에서 CONFIDENTIAL 로 표시됩니다"
+              >
+                <Lock className="h-3 w-3" />
+                대내비
               </span>
             )}
           </div>

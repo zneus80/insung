@@ -70,6 +70,15 @@ function MyGoalsView() {
     }
   }, [searchParams, router]);
 
+  // 대시보드 카드 → ?tab=team 진입 시 팀 탭 자동 활성화
+  useEffect(() => {
+    const t = searchParams?.get('tab');
+    if (t === 'team' || t === 'my') setActiveTab(t);
+  }, [searchParams]);
+
+  // ?status=COMPLETED 진입 시 완료 목표만 필터
+  const statusFilter = searchParams?.get('status') ?? null;
+
   const loadMy = useCallback(async () => {
     if (!userProfile) return;
     setLoading(true);
@@ -178,7 +187,10 @@ function MyGoalsView() {
   );
   const trashIds = new Set(trashGoals.map(g => g.id));
   // 내 목표함: 휴지통에 없는 항목 (포기 확정 ABANDONED+approvedBy 는 인사평가용으로 계속 표시)
-  const myActive = visibleMyGoals.filter(g => !trashIds.has(g.id));
+  const myActiveAll = visibleMyGoals.filter(g => !trashIds.has(g.id));
+  const myActive = statusFilter === 'COMPLETED'
+    ? myActiveAll.filter(g => g.status === 'COMPLETED')
+    : myActiveAll;
 
   // 전체 진행률 계산 — 포기됨(ABANDONED) 제외
   const myProgressGoals = myActive.filter(g => g.status !== 'ABANDONED');
@@ -190,8 +202,11 @@ function MyGoalsView() {
     ? Math.round(teamProgressGoals.reduce((s, g) => s + g.progress, 0) / teamProgressGoals.length)
     : 0;
 
-  // 팀 목표를 멤버별로 그룹핑
-  const teamByMember = teamGoals.reduce<Record<string, Goal[]>>((acc, g) => {
+  // 팀 목표를 멤버별로 그룹핑 (status 필터 반영)
+  const teamGoalsFiltered = statusFilter === 'COMPLETED'
+    ? teamGoals.filter(g => g.status === 'COMPLETED')
+    : teamGoals;
+  const teamByMember = teamGoalsFiltered.reduce<Record<string, Goal[]>>((acc, g) => {
     (acc[g.userId] ??= []).push(g);
     return acc;
   }, {});
@@ -351,6 +366,19 @@ function MyGoalsView() {
               </Button>
             </div>
           </div>
+
+            {/* 상태 필터 표시 */}
+            {statusFilter === 'COMPLETED' && (
+              <div className="flex items-center justify-between rounded-lg border border-purple-200 bg-purple-50 px-4 py-2 text-sm">
+                <span className="text-purple-700 font-medium">완료된 목표만 표시 중</span>
+                <button
+                  onClick={() => router.replace(`/goals${activeTab === 'team' ? '?tab=team' : ''}`)}
+                  className="text-purple-700 hover:underline"
+                >
+                  전체 보기
+                </button>
+              </div>
+            )}
 
             {/* ── 내 목표 ── */}
             {activeTab === 'my' && <div className="mt-4 space-y-4">

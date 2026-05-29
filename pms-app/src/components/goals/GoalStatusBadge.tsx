@@ -16,7 +16,8 @@ const STATUS_MAP: Record<GoalStatus, { label: string; className: string }> = {
 
 interface Props {
   /** Goal 전체를 넘기면 leadApprovedBy/hqApprovedBy 기반 세부 라벨 표시 */
-  goal?: Pick<Goal, 'status' | 'leadApprovedBy' | 'hqApprovedBy' | 'approvedBy'>;
+  goal?: Pick<Goal, 'status' | 'leadApprovedBy' | 'hqApprovedBy' | 'approvedBy'
+    | 'completionLeadApprovedBy' | 'completionHqApprovedBy' | 'completionExecApprovedBy'>;
   /** Goal 없이 status만 받는 경우(레거시·이력 표시 등) */
   status?: GoalStatus;
 }
@@ -25,7 +26,7 @@ export default function GoalStatusBadge({ goal, status }: Props) {
   const st = (goal?.status ?? status ?? 'DRAFT') as GoalStatus;
   const base = STATUS_MAP[st] ?? STATUS_MAP.DRAFT;
   let label = base.label;
-  const className = base.className;
+  let className = base.className;
 
   // LEAD_APPROVED 세부 라벨링 — 누가 승인했는지에 따라
   if (goal && st === 'LEAD_APPROVED') {
@@ -33,6 +34,18 @@ export default function GoalStatusBadge({ goal, status }: Props) {
     else if (goal.hqApprovedBy) label = '본부 1차 승인';
     else if (goal.leadApprovedBy) label = '팀장 1차 승인';
     else label = '1차 승인';
+  }
+
+  // COMPLETED 세부 라벨링 — 완료 결재 단계별
+  if (goal && st === 'COMPLETED') {
+    if (goal.completionExecApprovedBy) {
+      label = '완료';
+      className = 'bg-emerald-100 text-emerald-700';
+    } else if (goal.completionHqApprovedBy) {
+      label = '완료 2차 승인';
+    } else if (goal.completionLeadApprovedBy) {
+      label = '완료 1차 승인';
+    }
   }
 
   return (
