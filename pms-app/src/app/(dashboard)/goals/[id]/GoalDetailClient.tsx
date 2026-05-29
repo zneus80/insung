@@ -415,21 +415,23 @@ export default function GoalDetailPage() {
     if (!goal || !userProfile || !progressComment.trim()) return;
     setActionLoading(true);
     try {
-      // 본인은 진행률 + 코멘트, 그 외(팀장·본부장·임원) 결재자는 코멘트만 저장
+      // 본인 또는 공동추진자는 진행률 + 코멘트, 그 외(팀장·본부장·임원) 결재자는 코멘트만 저장
       const isGoalOwner = goal.userId === userProfile.id;
+      const isGoalCollab = (goal.collaboratorIds ?? []).includes(userProfile.id);
+      const canSetProgress = isGoalOwner || isGoalCollab;
       await addProgressUpdate({
         goalId: id, userId: userProfile.id,
-        progress: isGoalOwner ? newProgress : goal.progress,
+        progress: canSetProgress ? newProgress : goal.progress,
         comment: progressComment,
       });
-      if (isGoalOwner) {
+      if (canSetProgress) {
         await updateGoal(id, {
           progress: newProgress,
           status: goal.status === 'APPROVED' ? 'IN_PROGRESS' : goal.status,
         });
       }
       // 결재자가 코멘트 단 경우 → 목표 owner 에게 알림
-      if (!isGoalOwner && goal.userId !== userProfile.id) {
+      if (!canSetProgress && goal.userId !== userProfile.id) {
         try {
           await createNotification({
             userId: goal.userId,
@@ -443,7 +445,7 @@ export default function GoalDetailPage() {
         } catch { /* 알림 실패 무시 */ }
       }
       setProgressComment('');
-      toast.success(isGoalOwner ? '진행상황이 업데이트되었습니다.' : '코멘트를 등록했습니다.');
+      toast.success(canSetProgress ? '진행상황이 업데이트되었습니다.' : '코멘트를 등록했습니다.');
       await load();
     } finally { setActionLoading(false); }
   }
@@ -813,8 +815,9 @@ export default function GoalDetailPage() {
   }
 
   const isOwner = goal.userId === userProfile.id;
-  // 공동 추진자 — 임원 승인 후(승인된 상태) 코멘트 권한 부여
+  // 공동 추진자 — F4: 진행률 입력 가능 + 코멘트 권한
   const isCollaborator = (goal.collaboratorIds ?? []).includes(userProfile.id);
+  const isOwnerOrCollab = isOwner || isCollaborator;
   const ownerRole = goalOwner?.role;
   // goalOwner가 로드되었고 팀장/임원 역할이 아니면 팀원으로 취급 (role 미설정 포함)
   const ownerIsMemberLike = !!goalOwner &&
@@ -888,7 +891,7 @@ export default function GoalDetailPage() {
   const canRequestCompletion = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
   const canRequestAbandon = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status) && !showAbandonInput;
   const canRequestModify = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
-  const canUpdateProgress = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
+  const canUpdateProgress = isOwnerOrCollab && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
   // 진행 중 목표에 한해 조직 체인 상의 결재자(팀장·본부장·임원) 및 공동 추진자도 코멘트 작성 가능 (v0.75)
   const canComment =
     canUpdateProgress ||
