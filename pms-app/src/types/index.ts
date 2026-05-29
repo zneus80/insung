@@ -537,6 +537,8 @@ export interface Announcement {
   authorId: string;
   authorName: string;
   isPinned: boolean;
+  /** 게시 종료일 (지나면 getAnnouncements 호출 시 자동 삭제). 미설정 시 무기한 */
+  expiresAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }

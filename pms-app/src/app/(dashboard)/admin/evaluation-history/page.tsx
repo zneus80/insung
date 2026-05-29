@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { getAllUsers, getOrganizations } from '@/lib/firestore';
+import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { fromTimestamp } from '@/lib/firestore';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -39,6 +41,8 @@ function EvaluationHistoryContent() {
   const [orgs, setOrgs] = useState<Record<string, Organization>>({});
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  // 기본은 부문/공장 우선순위 정렬(NONE = grade 정렬 미적용). 헤더 클릭 시 등급순으로 토글.
+  const [sortByGrade, setSortByGrade] = useState<'NONE' | 'ASC' | 'DESC'>('NONE');
 
   useEffect(() => {
     async function load() {
@@ -67,11 +71,66 @@ function EvaluationHistoryContent() {
     load();
   }, [selectedYear]);
 
-  const filtered = evals.filter(e => {
-    const user = users[e.userId];
-    if (!user) return false;
-    return user.name.includes(search) || user.email.includes(search);
-  });
+  // 조직 체인 따라 올라가며 모든 상위 조직명 수집 (재경팀 → 재경본부 → 재경부문)
+  function orgChainNames(orgId: string | undefined): string[] {
+    if (!orgId) return [];
+    const names: string[] = [];
+    let cur = orgs[orgId];
+    while (cur) {
+      names.push(cur.name);
+      cur = cur.parentId ? orgs[cur.parentId] : (undefined as any);
+    }
+    return names;
+  }
+
+  // 사용자가 속한 DIVISION(부문/공장) 을 조직 체인에서 찾음 — 없으면 최상위 비-COMPANY 조직
+  function getDivisionOrg(orgId: string | undefined): Organization | null {
+    if (!orgId) return null;
+    let cur = orgs[orgId];
+    let topmostNonCompany: Organization | null = null;
+    while (cur) {
+      if (cur.type === 'DIVISION') return cur;
+      if (cur.type !== 'COMPANY') topmostNonCompany = cur;
+      cur = cur.parentId ? orgs[cur.parentId] : (undefined as any);
+    }
+    return topmostNonCompany;
+  }
+
+  const filtered = evals
+    .filter(e => {
+      const user = users[e.userId];
+      if (!user) return false;
+      // 텍스트 검색 — 이름, 이메일, 소속 체인 어느 하나라도 매칭
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        const nameOk = user.name.toLowerCase().includes(q);
+        const emailOk = user.email.toLowerCase().includes(q);
+        const orgOk = orgChainNames(user.organizationId).some(n => n.toLowerCase().includes(q));
+        if (!nameOk && !emailOk && !orgOk) return false;
+      }
+      return true;
+    })
+    .slice()
+    .sort((a, b) => {
+      if (sortByGrade !== 'NONE') {
+        const rank: Record<string, number> = { A: 1, B: 2, C: 3, D: 4, E: 5 };
+        const av = a.execGrade ? rank[a.execGrade] : 99;
+        const bv = b.execGrade ? rank[b.execGrade] : 99;
+        if (av !== bv) return sortByGrade === 'ASC' ? av - bv : bv - av;
+      }
+      // 부문/공장 우선순위 정렬 (기본 또는 등급 동률 시 보조 정렬)
+      const ua = users[a.userId];
+      const ub = users[b.userId];
+      const da = getDivisionOrg(ua?.organizationId);
+      const db = getDivisionOrg(ub?.organizationId);
+      if (da && db) {
+        const cmp = compareOrgByDisplayOrder(da, db);
+        if (cmp !== 0) return cmp;
+      } else if (da) return -1;
+      else if (db) return 1;
+      // 같은 부문 내에서는 이름 가나다순
+      return (ua?.name ?? '').localeCompare(ub?.name ?? '', 'ko');
+    });
 
   // 사용자의 조직 체인에 본부(HEADQUARTERS)가 포함되는지 판별
   function hasHQInChain(userId: string): boolean {
@@ -107,10 +166,10 @@ function EvaluationHistoryContent() {
               </button>
             ))}
           </div>
-          <Input
-            placeholder="이름 또는 이메일 검색"
+          <SearchInput
+            placeholder="이름·이메일·소속 검색"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={setSearch}
             className="max-w-xs"
           />
           <span className="text-xs text-gray-400 ml-auto">총 {filtered.length}명</span>
@@ -128,7 +187,19 @@ function EvaluationHistoryContent() {
                 {showHqColumn && (
                   <th className="px-4 py-3 text-center">본부장 의견 등급</th>
                 )}
-                <th className="px-4 py-3 text-center">최종 등급</th>
+                <th className="px-4 py-3 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setSortByGrade(s => s === 'ASC' ? 'DESC' : s === 'DESC' ? 'NONE' : 'ASC')}
+                    className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900 font-semibold"
+                    title="등급순 정렬"
+                  >
+                    최종 등급
+                    <span className="text-[10px]">
+                      {sortByGrade === 'ASC' ? '↑ A→E' : sortByGrade === 'DESC' ? '↓ E→A' : '↕'}
+                    </span>
+                  </button>
+                </th>
                 <th className="px-4 py-3 text-left">확정일</th>
                 <th className="px-4 py-3 text-left">상태</th>
               </tr>

@@ -14,6 +14,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import AuthGuard from '@/components/layout/AuthGuard';
@@ -377,9 +378,9 @@ function UserPicker({
         </div>
       ) : (
         <>
-          <Input
+          <SearchInput
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={setSearch}
             placeholder={loading ? '사용자 불러오는 중…' : '이름·이메일로 검색'}
             disabled={loading}
           />

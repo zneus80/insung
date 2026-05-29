@@ -19,6 +19,7 @@ import {
   listInnovationActivities,
 } from '@/lib/firestore';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
+import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { cn } from '@/lib/utils';
@@ -49,6 +50,9 @@ export function CompanyProgressBody({ embedded = false }: { embedded?: boolean }
 
 function Content({ embedded = false }: { embedded?: boolean }) {
   const { activeYear } = useActiveYear();
+  const { userProfile } = useAuth();
+  // 최고관리자(CEO) 는 대내비도 정상 노출
+  const revealConfidential = userProfile?.role === 'CEO';
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -149,7 +153,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                 return (
                   <div className="divide-y">
                     {list.map(it => (
-                      <InnovationRow key={it.id} item={it} usersById={usersById} />
+                      <InnovationRow key={it.id} item={it} usersById={usersById} revealConfidential={revealConfidential} />
                     ))}
                   </div>
                 );
@@ -172,7 +176,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                 return (
                   <div className="divide-y">
                     {list.map(it => (
-                      <InnovationRow key={it.id} item={it} usersById={usersById} />
+                      <InnovationRow key={it.id} item={it} usersById={usersById} revealConfidential={revealConfidential} />
                     ))}
                   </div>
                 );
@@ -230,7 +234,8 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                             {divGoals.map(g => {
                               const owner = usersById.get(g.userId);
                               const ownerOrg = orgsById.get(g.organizationId);
-                              const titleText = g.isConfidential ? 'CONFIDENTIAL (대내비)' : g.title;
+                              const masked = g.isConfidential && !revealConfidential;
+                              const titleText = masked ? 'CONFIDENTIAL (대내비)' : g.title;
                               return (
                                 <div key={g.id} className="px-3 py-2 flex items-start gap-2">
                                   <span className={cn(
@@ -242,7 +247,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                                   <div className="flex-1 min-w-0">
                                     <p className={cn(
                                       'text-xs font-medium leading-snug break-words flex items-center gap-1.5',
-                                      g.isConfidential ? 'text-red-600' : 'text-gray-900',
+                                      masked ? 'text-red-600' : 'text-gray-900',
                                     )}>
                                       {g.isConfidential && <Lock className="h-3 w-3 shrink-0" />}
                                       {titleText}
@@ -271,8 +276,9 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
-function InnovationRow({ item, usersById }: { item: InnovationActivity; usersById: Map<string, User> }) {
-  const displayName = item.isConfidential ? 'CONFIDENTIAL' : item.name;
+function InnovationRow({ item, usersById, revealConfidential = false }: { item: InnovationActivity; usersById: Map<string, User>; revealConfidential?: boolean }) {
+  const masked = item.isConfidential && !revealConfidential;
+  const displayName = masked ? 'CONFIDENTIAL' : item.name;
   return (
     <div className="px-4 py-2.5 flex items-start gap-3">
       <span className={cn(
@@ -284,7 +290,7 @@ function InnovationRow({ item, usersById }: { item: InnovationActivity; usersByI
       <div className="flex-1 min-w-0">
         <p className={cn(
           'text-sm font-medium flex items-center gap-1.5',
-          item.isConfidential ? 'text-red-600' : 'text-gray-900',
+          masked ? 'text-red-600' : 'text-gray-900',
         )}>
           {item.isConfidential && <Lock className="h-3.5 w-3.5" />}
           {displayName}

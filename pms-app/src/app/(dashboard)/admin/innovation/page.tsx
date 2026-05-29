@@ -13,6 +13,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
@@ -346,7 +347,7 @@ function UserPicker({ label, users, value, onChange }: {
         </div>
       ) : (
         <>
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="이름·이메일로 검색" />
+          <SearchInput value={search} onChange={setSearch} placeholder="이름·이메일로 검색" />
           {search.trim() && (
             <div className="rounded-lg border max-h-44 overflow-y-auto divide-y">
               {filtered.length === 0 ? (
@@ -402,7 +403,7 @@ function MultiUserPicker({ label, users, values, onChange }: {
           ))}
         </div>
       )}
-      <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="이름·이메일로 검색해서 추가" />
+      <SearchInput value={search} onChange={setSearch} placeholder="이름·이메일로 검색해서 추가" />
       {search.trim() && (
         <div className="rounded-lg border max-h-44 overflow-y-auto divide-y">
           {filtered.length === 0 ? (

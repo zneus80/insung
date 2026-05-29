@@ -11,6 +11,7 @@ import {
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
+import { SearchInput } from '@/components/ui/search-input';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { cn } from '@/lib/utils';
 import { ChevronDown, ChevronRight, Building2, Users } from 'lucide-react';
@@ -84,6 +85,7 @@ function EvaluationResultAllContent() {
   const [indivEvals, setIndivEvals] = useState<Record<string, IndividualEvaluation>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -116,10 +118,24 @@ function EvaluationResultAllContent() {
     })();
   }, [selectedYear]);
 
+  // 조직 토글 — DIVISION/HEADQUARTERS 등 상위 노드 펼침 시 산하 모든 자식도 함께 펼침
   function toggleOrg(orgId: string) {
     setExpanded(prev => {
       const next = new Set(prev);
-      next.has(orgId) ? next.delete(orgId) : next.add(orgId);
+      // 산하(자기 자신 포함) descendant ids 수집
+      function collectDescendantIds(id: string, acc: string[]) {
+        acc.push(id);
+        for (const c of orgs.filter(o => o.parentId === id)) collectDescendantIds(c.id, acc);
+      }
+      const ids: string[] = [];
+      collectDescendantIds(orgId, ids);
+      if (next.has(orgId)) {
+        // 닫기 — 자신 + 산하 전체 닫기
+        ids.forEach(i => next.delete(i));
+      } else {
+        // 펼치기 — 자신 + 산하 전체 펼치기
+        ids.forEach(i => next.add(i));
+      }
       return next;
     });
   }
@@ -155,22 +171,40 @@ function EvaluationResultAllContent() {
           </div>
         ) : (
           <div className="max-w-3xl space-y-4">
+            {/* 검색 (이름·소속) */}
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="이름·소속으로 검색"
+              showSearchIcon
+              className="max-w-md"
+            />
+
             {/* 평가 진척도 요약 (v0.75) */}
             <ProgressSummary users={users} indivEvals={indivEvals} />
 
-            {topOrgs.map(org => (
-              <OrgEvalCard
-                key={org.id}
-                org={org}
-                allOrgs={orgs}
+            {search.trim() ? (
+              <SearchResultList
+                search={search}
                 users={users}
-                orgEvals={orgEvals}
+                orgs={orgs}
                 indivEvals={indivEvals}
-                expanded={expanded}
-                onToggle={toggleOrg}
-                depth={0}
               />
-            ))}
+            ) : (
+              topOrgs.map(org => (
+                <OrgEvalCard
+                  key={org.id}
+                  org={org}
+                  allOrgs={orgs}
+                  users={users}
+                  orgEvals={orgEvals}
+                  indivEvals={indivEvals}
+                  expanded={expanded}
+                  onToggle={toggleOrg}
+                  depth={0}
+                />
+              ))
+            )}
           </div>
         )}
       </div>
@@ -324,6 +358,86 @@ function MemberGroup({
                   {stageMeta.label}
                 </span>
                 {/* 임원이 확정한 등급 — 임원 확정 또는 공개 이후 단계에서 표시 (CEO/HR 만 보는 페이지) */}
+                {grade && (stage === 'EXEC_CONFIRMED' || stage === 'PUBLISHED') ? (
+                  <span className={cn('rounded-full px-3 py-0.5 text-sm font-bold', GRADE_STYLE[grade])}>
+                    {grade}등급
+                  </span>
+                ) : (
+                  <span className="rounded-full px-2.5 py-0.5 text-sm bg-gray-200 text-gray-500">
+                    {isPublished ? '미확정' : '비공개'}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── 검색 결과 — 이름·소속 매칭 (평가 대상자만) ────────
+function SearchResultList({
+  search, users, orgs, indivEvals,
+}: {
+  search: string;
+  users: User[];
+  orgs: Organization[];
+  indivEvals: Record<string, IndividualEvaluation>;
+}) {
+  const q = search.trim().toLowerCase();
+  const orgsById = new Map(orgs.map(o => [o.id, o]));
+  // 조직 체인 따라 올라가며 모든 상위 조직명 수집 (재경팀 → 재경본부 → 재경부문 → 회사)
+  function orgChainNames(orgId: string): string[] {
+    const names: string[] = [];
+    let cur = orgsById.get(orgId);
+    while (cur) {
+      names.push(cur.name);
+      cur = cur.parentId ? orgsById.get(cur.parentId) : undefined;
+    }
+    return names;
+  }
+  // 매치된 평가 대상자 (MEMBER + TEAM_LEAD) — 이름 또는 조직 체인의 어떤 이름이라도 매칭
+  const matched = users
+    .filter(u => u.role === 'MEMBER' || u.role === 'TEAM_LEAD')
+    .filter(u => {
+      if (u.name.toLowerCase().includes(q)) return true;
+      return orgChainNames(u.organizationId).some(n => n.toLowerCase().includes(q));
+    });
+
+  if (matched.length === 0) {
+    return (
+      <div className="rounded-xl border bg-white p-8 text-center text-sm text-gray-400">
+        검색 결과가 없습니다.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border bg-white px-5 py-3 space-y-2">
+      <p className="text-xs text-gray-400">총 {matched.length}명</p>
+      <div className="space-y-1.5">
+        {matched.map(u => {
+          const ie = indivEvals[u.id];
+          const grade = ie?.execGrade;
+          const isPublished = ie?.status === 'PUBLISHED';
+          const stage = getStage(ie);
+          const stageMeta = STAGE_META[stage];
+          const org = orgsById.get(u.organizationId);
+          return (
+            <div key={u.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <MemberInfoModal userId={u.id} userName={u.name} />
+                <span className="text-sm text-gray-500 shrink-0">
+                  {u.role === 'TEAM_LEAD' ? '팀장' : '팀원'}
+                </span>
+                {org && <span className="text-sm text-gray-400 truncate">· {org.name}</span>}
+                {u.position && <span className="text-sm text-gray-400">· {u.position}</span>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', stageMeta.color)}>
+                  {stageMeta.label}
+                </span>
                 {grade && (stage === 'EXEC_CONFIRMED' || stage === 'PUBLISHED') ? (
                   <span className={cn('rounded-full px-3 py-0.5 text-sm font-bold', GRADE_STYLE[grade])}>
                     {grade}등급

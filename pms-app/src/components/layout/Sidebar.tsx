@@ -200,6 +200,13 @@ const navItems: NavItem[] = [
     group: '인사고과',
   },
   {
+    label: '평가이력 관리',
+    href: '/admin/evaluation-history',
+    icon: <BarChart3 className="h-5 w-5" />,
+    roles: ['CEO'],
+    group: '인사고과',
+  },
+  {
     label: '전사 평가결과확인',
     href: '/evaluation/result/all',
     icon: <CheckSquare className="h-5 w-5" />,

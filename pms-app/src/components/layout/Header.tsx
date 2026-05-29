@@ -41,17 +41,18 @@ export default function Header({ title, showBack }: HeaderProps) {
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6 shrink-0">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
         {showBack && (
           <button
             onClick={() => router.back()}
-            className="flex items-center justify-center h-8 w-8 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
             title="뒤로 가기"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ArrowLeft className="h-3.5 w-3.5" />
+            뒤로
           </button>
         )}
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
       </div>
 
       {/* 사용자 드롭다운 */}

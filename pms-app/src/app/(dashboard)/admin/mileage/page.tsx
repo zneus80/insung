@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import AuthGuard from '@/components/layout/AuthGuard';
@@ -192,10 +193,10 @@ function MileageContent() {
         )}
 
         <div className="flex flex-wrap gap-2 items-center shrink-0">
-          <Input
+          <SearchInput
             placeholder="이름 또는 이메일 검색"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={setSearch}
             className="max-w-xs"
           />
           {/* 등급 필터 */}
