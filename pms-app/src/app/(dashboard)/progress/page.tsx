@@ -233,10 +233,17 @@ export default function ProgressPage() {
           const scopeOrgIds = findDescendantIds(profile.organizationId, allOrgs);
           const scopeUsers  = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
           const scopeUserIdSet = new Set(scopeUsers.map(u => u.id));
-          // 조직목표현황: 포기(ABANDONED)·반려(REJECTED) 확정 목표는 제외
-          const scopeGoals  = allGoals.filter(g =>
-            scopeUserIdSet.has(g.userId) && g.status !== 'ABANDONED' && g.status !== 'REJECTED',
-          );
+          // 조직목표현황 (F3): 최종 승인 이후 상태만 표시 — APPROVED/IN_PROGRESS/COMPLETED + 포기 확정.
+          // 임시저장·승인요청·1차승인·포기요청·수정요청·반려 등 진행 중 상태는 미표시.
+          // 포기는 임원 최종 승인(approvedBy 있음) 이고 시스템 자동 이관(autoAbandonedByOrgChange) 이 아닌 경우만 노출.
+          const VISIBLE_STATUSES = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
+          const scopeGoals  = allGoals.filter(g => {
+            if (!scopeUserIdSet.has(g.userId)) return false;
+            if (g.trashedAt || g.softDeletedAt) return false;
+            if (VISIBLE_STATUSES.has(g.status)) return true;
+            if (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange) return true;
+            return false;
+          });
           const usersByOrg: Record<string, User[]> = {};
           for (const u of scopeUsers) {
             if (!usersByOrg[u.organizationId]) usersByOrg[u.organizationId] = [];
@@ -258,10 +265,17 @@ export default function ProgressPage() {
           const scopeOrgIds = allOrgs.map(o => o.id);
           const scopeUsers  = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
           const scopeUserIdSet = new Set(scopeUsers.map(u => u.id));
-          // 조직목표현황: 포기(ABANDONED)·반려(REJECTED) 확정 목표는 제외
-          const scopeGoals  = allGoals.filter(g =>
-            scopeUserIdSet.has(g.userId) && g.status !== 'ABANDONED' && g.status !== 'REJECTED',
-          );
+          // 조직목표현황 (F3): 최종 승인 이후 상태만 표시 — APPROVED/IN_PROGRESS/COMPLETED + 포기 확정.
+          // 임시저장·승인요청·1차승인·포기요청·수정요청·반려 등 진행 중 상태는 미표시.
+          // 포기는 임원 최종 승인(approvedBy 있음) 이고 시스템 자동 이관(autoAbandonedByOrgChange) 이 아닌 경우만 노출.
+          const VISIBLE_STATUSES = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
+          const scopeGoals  = allGoals.filter(g => {
+            if (!scopeUserIdSet.has(g.userId)) return false;
+            if (g.trashedAt || g.softDeletedAt) return false;
+            if (VISIBLE_STATUSES.has(g.status)) return true;
+            if (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange) return true;
+            return false;
+          });
           const usersByOrg: Record<string, User[]> = {};
           for (const u of scopeUsers) {
             if (!usersByOrg[u.organizationId]) usersByOrg[u.organizationId] = [];
