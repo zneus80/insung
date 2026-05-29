@@ -12,6 +12,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
@@ -325,7 +326,7 @@ function AwardRow({ award, usersById, onDelete, deleting }: {
         {format(new Date(award.awardDate), 'yyyy.MM.dd', { locale: ko })}
       </div>
       <div className="w-28 shrink-0 text-sm font-medium text-gray-900">
-        {u?.name ?? '—'}
+        {u ? <MemberInfoModal userId={u.id} userName={u.name} /> : '—'}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900">{award.title}</p>

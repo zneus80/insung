@@ -6,6 +6,7 @@ import { signOut } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { LogOut, User, ArrowLeft } from 'lucide-react';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 
 interface HeaderProps {
   title?: string;
@@ -16,6 +17,7 @@ export default function Header({ title, showBack }: HeaderProps) {
   const { userProfile, firebaseUser } = useAuth();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   // 외부 클릭 시 닫기
@@ -90,9 +92,9 @@ export default function Header({ title, showBack }: HeaderProps) {
               </p>
             </div>
 
-            {/* 내 프로필 */}
+            {/* 내 프로필 — MemberInfoModal 팝업으로 노출 (Header 최상위에 항상 마운트, 여기선 트리거 버튼만) */}
             <button
-              onClick={() => { setOpen(false); router.push('/profile'); }}
+              onClick={() => { setOpen(false); setProfileOpen(true); }}
               className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <User className="h-4 w-4" />
@@ -112,6 +114,16 @@ export default function Header({ title, showBack }: HeaderProps) {
           </div>
         )}
       </div>
+
+      {/* 내 프로필 모달 — 드롭다운 외부에서 제어 */}
+      {userProfile && (
+        <MemberInfoModal
+          userId={userProfile.id}
+          userName={userProfile.name}
+          open={profileOpen}
+          onOpenChange={setProfileOpen}
+        />
+      )}
     </header>
   );
 }

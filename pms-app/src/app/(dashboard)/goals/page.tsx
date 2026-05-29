@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory } from '@/lib/firestore';
 import { notifyNextApprover } from '@/lib/goal-notifications';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -474,7 +475,7 @@ function MyGoalsView() {
                             }
                             <div className="text-left min-w-0">
                               <p className="font-semibold text-gray-900 text-sm">
-                                {user?.name ?? uid}
+                                {user ? <MemberInfoModal userId={user.id} userName={user.name} /> : (uid)}
                                 <span className="ml-1.5 text-xs font-normal text-gray-400">
                                   {[
                                     user ? ROLE_LABEL[user.role] ?? user.role : '',
@@ -815,7 +816,7 @@ function OrgGoalsView() {
                                   : <ChevronRight className="h-3.5 w-3.5 text-gray-300 shrink-0" />
                                 }
                                 <span className="text-sm font-medium text-gray-700">
-                                  {user?.name ?? uid}
+                                  {user ? <MemberInfoModal userId={user.id} userName={user.name} /> : uid}
                                 </span>
                                 <span className="text-xs text-gray-400">
                                   {[user ? orgs.find(o => o.id === user.organizationId)?.name : '', user?.position]

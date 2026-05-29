@@ -2,51 +2,32 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { updateUserProfile } from '@/lib/firestore';
+import { getOrganizations } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
+import type { Organization } from '@/types';
 
+const ROLE_LABEL: Record<string, string> = {
+  MEMBER:    '팀원',
+  TEAM_LEAD: '팀장',
+  EXECUTIVE: '임원',
+  CEO:       '최고관리자',
+};
+
+// 내 프로필 — 모든 인사 정보는 HR 관리자가 사용자 관리에서 입력. 본인은 읽기 전용 조회만 가능.
 export default function ProfilePage() {
   const { userProfile, firebaseUser } = useAuth();
-
-  const [position, setPosition] = useState('');
-  const [rank, setRank] = useState('');
-  const [hireDate, setHireDate] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
+  const [orgs, setOrgs] = useState<Organization[]>([]);
 
   useEffect(() => {
-    if (!userProfile) return;
-    setPosition(userProfile.position ?? '');
-    setRank(userProfile.rank ?? '');
-    setHireDate(userProfile.hireDate ?? '');
-  }, [userProfile]);
+    getOrganizations().then(setOrgs).catch(() => {});
+  }, []);
 
-  function showToast(msg: string) {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(''), 3000);
-  }
-
-  async function handleSave() {
-    if (!userProfile) return;
-    setSaving(true);
-    try {
-      await updateUserProfile(userProfile.id, {
-        position: position.trim() || undefined,
-        rank: rank.trim() || undefined,
-        hireDate: hireDate || undefined,
-      });
-      showToast('저장 완료');
-    } catch (e: any) {
-      console.error('프로필 저장 실패:', e);
-      showToast('저장 중 오류가 발생했습니다.');
-    } finally {
-      setSaving(false);
-    }
-  }
+  const orgName = userProfile
+    ? (orgs.find(o => o.id === userProfile.organizationId)?.name ?? userProfile.organizationId)
+    : '';
 
   return (
     <div className="flex flex-col h-full">
@@ -58,27 +39,8 @@ export default function ProfilePage() {
               <CardTitle className="text-base">기본 정보</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* 이름 (읽기전용) */}
-              <div className="space-y-1.5">
-                <Label htmlFor="name">이름</Label>
-                <Input
-                  id="name"
-                  value={userProfile?.name ?? ''}
-                  readOnly
-                  className="bg-gray-50 cursor-not-allowed"
-                />
-              </div>
-
-              {/* 이메일 (읽기전용) */}
-              <div className="space-y-1.5">
-                <Label htmlFor="email">이메일</Label>
-                <Input
-                  id="email"
-                  value={firebaseUser?.email ?? ''}
-                  readOnly
-                  className="bg-gray-50 cursor-not-allowed"
-                />
-              </div>
+              <ReadOnlyRow label="이름" value={userProfile?.name} />
+              <ReadOnlyRow label="이메일" value={firebaseUser?.email ?? userProfile?.email} />
             </CardContent>
           </Card>
 
@@ -87,46 +49,32 @@ export default function ProfilePage() {
               <CardTitle className="text-base">인사 정보</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* 직책 (편집) */}
-              <div className="space-y-1.5">
-                <Label htmlFor="position">직책</Label>
-                <Input
-                  id="position"
-                  value={position}
-                  onChange={e => setPosition(e.target.value)}
-                  placeholder="예: 팀장, 파트장"
-                />
-              </div>
-
-              {/* 입사일 (편집) */}
-              <div className="space-y-1.5">
-                <Label htmlFor="hireDate">입사일</Label>
-                <Input
-                  id="hireDate"
-                  type="date" min="2000-01-01" max="2099-12-31"
-                  value={hireDate}
-                  onChange={e => setHireDate(e.target.value)}
-                />
-              </div>
+              <ReadOnlyRow label="직책" value={userProfile?.position} />
+              <ReadOnlyRow label="입사일" value={userProfile?.hireDate} />
+              <ReadOnlyRow label="소속 조직" value={orgName} />
+              <ReadOnlyRow label="역할" value={userProfile ? (ROLE_LABEL[userProfile.role] ?? userProfile.role) : ''} />
+              <p className="text-xs text-gray-400 pt-2">
+                인사 정보 수정이 필요하면 HR 관리자에게 요청하세요.
+              </p>
             </CardContent>
           </Card>
-
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            className="w-full"
-          >
-            {saving ? '저장 중...' : '저장'}
-          </Button>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* 토스트 */}
-      {toastMessage && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-gray-900 px-5 py-3 text-sm text-white shadow-lg animate-in fade-in slide-in-from-bottom-2">
-          {toastMessage}
-        </div>
-      )}
+function ReadOnlyRow({ label, value }: { label: string; value?: string }) {
+  const display = value && value.trim() !== '' ? value : '—';
+  const isEmpty = display === '—';
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <Input
+        value={display}
+        readOnly
+        className={isEmpty ? 'bg-gray-50 text-gray-300 cursor-not-allowed' : 'bg-gray-50 cursor-not-allowed'}
+      />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { getAllUsers, getOrganizations } from '@/lib/firestore';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
@@ -225,7 +226,9 @@ function EvaluationHistoryContent() {
                 const rowHasHQ = hasHQInChain(e.userId);
                 return (
                   <tr key={e.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{user?.name ?? '-'}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      {user ? <MemberInfoModal userId={user.id} userName={user.name} /> : '-'}
+                    </td>
                     <td className="px-4 py-3 text-gray-500">{org?.name ?? '-'}</td>
                     <td className="px-4 py-3 text-gray-500">{user?.position ?? '-'}</td>
                     <td className="px-4 py-3 text-center">
