@@ -490,7 +490,7 @@ function ExecutiveEvalView() {
   const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState<string | null>(null);
-  const [execUsersCache, setExecUsersCache] = useState<User[]>([]); // 공동추진자 이름 조회용
+  const [execUsersCache, setExecUsersCache] = useState<User[]>([]); // 공동수행자 이름 조회용
   const [activeOrgTab, setActiveOrgTab] = useState<string>('');     // 팀별 탭 활성 orgId
 
   async function load() {

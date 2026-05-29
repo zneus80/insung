@@ -78,16 +78,16 @@ export interface Goal {
   organizationId: string;
   cycleYear: number;            // 평가 연도 (e.g. 2026)
 
-  // 공동 추진자 (collaborator) — userId 와 함께 목표 owner 로 인정. 임원 최종 승인(APPROVED) 후
+  // 공동 수행자 (collaborator) — userId 와 함께 목표 owner 로 인정. 임원 최종 승인(APPROVED) 후
   // 해당 인원에게도 목표 목록·대시보드 카운트에 표시됨. 본인(userId) 은 포함하지 않음.
   collaboratorIds?: string[];
   // 연관 조직 — owner 의 organizationId + collaborator 들의 organizationId 합집합 (denormalized).
-  // 팀 목표·전사 업무추진현황 등 조직 단위 조회에서 공동 추진자의 소속 조직에서도 노출되도록 사용.
+  // 팀 목표·전사 업무추진현황 등 조직 단위 조회에서 공동 수행자의 소속 조직에서도 노출되도록 사용.
   relatedOrgIds?: string[];
 
   // 사용자 삭제로 인한 이관 기록 (v0.76)
   // previousOwnerId/Name/transferredAt: 영구 보존 (이관업무 분류 + audit 용도)
-  // needsReassignment: 책임자 재지정이 필요한 상태 (재지정 완료 시 false)
+  // needsReassignment: 수행자 재지정이 필요한 상태 (재지정 완료 시 false)
   previousOwnerId?: string;
   previousOwnerName?: string;
   transferredAt?: Date;
@@ -95,8 +95,8 @@ export interface Goal {
 
   // 수정요청 보관 필드.
   //   modifyRequestedBy: 변경 요청자
-  //   pendingOwnerId/Name/OrgId: 책임자 변경 예정 — 최종 승인 시 userId 로 승격. 회수·반려 시 단순 제거.
-  //   pendingCollaboratorIds: 공동추진자 변경 예정 — 최종 승인 시 collaboratorIds 로 적용.
+  //   pendingOwnerId/Name/OrgId: 수행자 변경 예정 — 최종 승인 시 userId 로 승격. 회수·반려 시 단순 제거.
+  //   pendingCollaboratorIds: 공동수행자 변경 예정 — 최종 승인 시 collaboratorIds 로 적용.
   //   (deprecated) reassignFromId/Name/OrgId: 구버전 즉시전환 방식의 잔여 필드 — 호환을 위해 읽기만 지원.
   modifyRequestedBy?: string;
   pendingOwnerId?: string;
@@ -184,8 +184,8 @@ export interface GoalFieldChanges {
   description?: { from: string; to: string };
   dueDate?: { from: string; to: string };           // ISO yyyy-MM-dd
   progress?: { from: number; to: number };
-  ownerId?: { from: string; to: string };           // 책임자 userId
-  collaboratorIds?: { from: string[]; to: string[] };  // 공동추진자
+  ownerId?: { from: string; to: string };           // 수행자 userId
+  collaboratorIds?: { from: string[]; to: string[] };  // 공동수행자
   isConfidential?: { from: boolean; to: boolean };  // 대내비 토글
 }
 

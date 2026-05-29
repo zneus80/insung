@@ -297,11 +297,41 @@ function MemberDashboard() {
         {/* 추가 카드 — 승인대기 / 예정 1on1 / 조직현황 */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
           {userProfile?.role === 'TEAM_LEAD' && (
-            <SummaryCard title="승인 대기" value={String(pendingCount)} sub="처리 필요"
-              icon={<Clock className="h-5 w-5 text-orange-600" />} color="bg-orange-50" href="/approvals" />
+            <Link href="/approvals">
+              <Card className={`cursor-pointer hover:shadow-md transition-shadow ${pendingCount > 0 ? 'border-orange-200 bg-orange-50' : ''}`}>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className={`text-sm font-medium ${pendingCount > 0 ? 'text-orange-700' : 'text-gray-500'}`}>승인 대기</CardTitle>
+                  <div className={`rounded-lg p-2 ${pendingCount > 0 ? 'bg-orange-100' : 'bg-orange-50'}`}>
+                    <Clock className={`h-5 w-5 ${pendingCount > 0 ? 'text-orange-600' : 'text-orange-400'}`} />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-3xl font-bold ${pendingCount > 0 ? 'text-orange-700' : 'text-gray-400'}`}>{pendingCount}</div>
+                  <p className="text-xs text-gray-500 mt-1">처리 필요</p>
+                </CardContent>
+              </Card>
+            </Link>
           )}
-          <SummaryCard title="요청된 1on1" value={String(upcomingMeetings.length)} sub="다가오는 미팅"
-            icon={<Clock className="h-5 w-5 text-orange-600" />} color="bg-orange-50" href="/oneon1" />
+          {(() => {
+            const oneOnOneCount = upcomingMeetings.length;
+            const highlight = oneOnOneCount > 0;
+            return (
+              <Link href="/oneon1">
+                <Card className={`cursor-pointer hover:shadow-md transition-shadow ${highlight ? 'border-orange-200 bg-orange-50' : ''}`}>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className={`text-sm font-medium ${highlight ? 'text-orange-700' : 'text-gray-500'}`}>요청된 1on1</CardTitle>
+                    <div className={`rounded-lg p-2 ${highlight ? 'bg-orange-100' : 'bg-orange-50'}`}>
+                      <Clock className={`h-5 w-5 ${highlight ? 'text-orange-600' : 'text-orange-400'}`} />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className={`text-3xl font-bold ${highlight ? 'text-orange-700' : 'text-gray-400'}`}>{oneOnOneCount}</div>
+                    <p className="text-xs text-gray-500 mt-1">다가오는 미팅</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            );
+          })()}
           <button
             onClick={() => setOrgStatusOpen(true)}
             className="text-left rounded-xl border bg-white p-4 hover:shadow-md transition-shadow"

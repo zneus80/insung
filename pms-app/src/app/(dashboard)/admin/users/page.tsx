@@ -418,7 +418,7 @@ function UsersContent() {
         : '';
       let transferMsg = '';
       if (result.transferredGoalCount > 0) {
-        const targetName = users.find(u => u.id === result.transferTarget?.targetUserId)?.name ?? '책임자';
+        const targetName = users.find(u => u.id === result.transferTarget?.targetUserId)?.name ?? '수행자';
         const notifMsg = result.notifSentCount > 0
           ? ` (알림 ${result.notifSentCount}건 발송)`
           : ' (알림 발송 실패 — 서버 로그 확인)';

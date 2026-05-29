@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { createGoal, updateGoal, getOrganizations, getAllUsers, createNotification, addGoalHistory } from '@/lib/firestore';
-import { notifyNextApprover } from '@/lib/goal-notifications';
+import { notifyNextApprover, notifyAllChainParties } from '@/lib/goal-notifications';
 import { computeSubmitterAutoApproval, stageLabel } from '@/lib/approval-filters';
 import type { Organization, GoalFieldChanges } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,7 @@ export default function TaskGoalForm({
   const [error, setError] = useState('');
   const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
   const [isConfidential, setIsConfidential] = useState(false);
-  const [ownerId, setOwnerId] = useState<string>('');   // 책임자 (Goal.userId) — 기본 본인
+  const [ownerId, setOwnerId] = useState<string>('');   // 수행자 (Goal.userId) — 기본 본인
   const [ownerSearch, setOwnerSearch] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
@@ -76,7 +76,7 @@ export default function TaskGoalForm({
       setDescription('');
       setDueDate('');
       setCollaboratorIds([]);
-      setOwnerId(userProfile?.id ?? '');  // 본인이 기본 책임자
+      setOwnerId(userProfile?.id ?? '');  // 본인이 기본 수행자
       setIsConfidential(false);
     }
     setError('');
@@ -99,13 +99,13 @@ export default function TaskGoalForm({
 
     setSubmitting(true);
     try {
-      // 책임자 결정 — 미선택 시 본인
+      // 수행자 결정 — 미선택 시 본인
       const effectiveOwnerId = ownerId || userProfile.id;
       const ownerUser = users.find(u => u.id === effectiveOwnerId);
       const ownerOrgId = ownerUser?.organizationId ?? userProfile.organizationId;
-      // collaboratorIds 에서 책임자 자신·중복 제거
+      // collaboratorIds 에서 수행자 자신·중복 제거
       const cleanedCollaborators = collaboratorIds.filter(id => id !== effectiveOwnerId);
-      // 연관 조직 — 책임자 organizationId + collaborator 들의 organizationId 합집합
+      // 연관 조직 — 수행자 organizationId + collaborator 들의 organizationId 합집합
       const collaboratorOrgIds = cleanedCollaborators
         .map(id => users.find(u => u.id === id)?.organizationId)
         .filter((v): v is string => !!v);
@@ -171,11 +171,11 @@ export default function TaskGoalForm({
       const capturedStatus = openedStatusRef.current ?? editGoal?.status ?? 'DRAFT';
       const isApprovedGoal = isEdit && !['DRAFT', 'REJECTED'].includes(capturedStatus);
 
-      // 책임자 변경 감지 — 편집 모드일 때만
+      // 수행자 변경 감지 — 편집 모드일 때만
       const isOwnerChanged = isEdit && editGoal.userId !== effectiveOwnerId;
       const newOwnerName = isOwnerChanged ? (users.find(u => u.id === effectiveOwnerId)?.name ?? '') : '';
 
-      // 새 책임자에게 알림을 보내는 헬퍼 (본인이 본인에게 재지정하는 경우는 제외)
+      // 새 수행자에게 알림을 보내는 헬퍼 (본인이 본인에게 재지정하는 경우는 제외)
       async function notifyNewOwner(goalId: string, goalTitle: string, comment?: string) {
         if (!isOwnerChanged || effectiveOwnerId === userProfile!.id) return;
         try {
@@ -183,16 +183,16 @@ export default function TaskGoalForm({
             userId: effectiveOwnerId,
             goalId,
             goalTitle,
-            type: 'GOAL_COMMENT',  // 책임자 재지정 전용 type 없어서 GOAL_COMMENT 재활용
-            message: comment ?? `${userProfile!.name}님이 '${goalTitle}' 핵심목표의 책임자로 귀하를 지정했습니다.`,
+            type: 'GOAL_COMMENT',  // 수행자 재지정 전용 type 없어서 GOAL_COMMENT 재활용
+            message: comment ?? `${userProfile!.name}님이 '${goalTitle}' 핵심목표의 수행자로 귀하를 지정했습니다.`,
             read: false,
           });
         } catch (err) {
-          console.error('[알림] 새 책임자 알림 발송 실패:', err);
+          console.error('[알림] 새 수행자 알림 발송 실패:', err);
         }
       }
 
-      // 이전 책임자(=기안자)에게 알림 — 본인이 변경 행위자이거나 새 책임자와 같으면 skip
+      // 이전 수행자(=기안자)에게 알림 — 본인이 변경 행위자이거나 새 수행자와 같으면 skip
       async function notifyPreviousOwner(goalId: string, goalTitle: string) {
         if (!isOwnerChanged) return;
         const prevOwnerId = editGoal!.userId;
@@ -203,17 +203,17 @@ export default function TaskGoalForm({
             goalId,
             goalTitle,
             type: 'GOAL_COMMENT',
-            message: `${userProfile!.name}님이 '${goalTitle}' 핵심목표의 책임자를 ${newOwnerName}님으로 변경했습니다.`,
+            message: `${userProfile!.name}님이 '${goalTitle}' 핵심목표의 수행자를 ${newOwnerName}님으로 변경했습니다.`,
             read: false,
           });
         } catch (err) {
-          console.error('[알림] 이전 책임자 알림 발송 실패:', err);
+          console.error('[알림] 이전 수행자 알림 발송 실패:', err);
         }
       }
 
       // ── 자동 승인 계산 ──
-      // 변경 행위자(현재 사용자) 가 새 책임자의 결재 체인에 포함되면 그 단계까지 자동 승인.
-      // 예) 팀장이 본인 팀 팀원에게 책임자 재지정/대리 작성 → 팀장 단계 자동 통과 → LEAD_APPROVED
+      // 변경 행위자(현재 사용자) 가 새 수행자의 결재 체인에 포함되면 그 단계까지 자동 승인.
+      // 예) 팀장이 본인 팀 팀원에게 수행자 재지정/대리 작성 → 팀장 단계 자동 통과 → LEAD_APPROVED
       //    임원이 직접 작성/재지정 → 즉시 APPROVED
       const newOwnerRole = users.find(u => u.id === effectiveOwnerId)?.role;
       const autoApproval = (!isDraft)
@@ -232,7 +232,7 @@ export default function TaskGoalForm({
         ? ` (${stageLabel(autoApproval.stageRole)} 단계 자동 승인)`
         : '';
 
-      // 변경 후 알림 발송 헬퍼 — 다음 결재자 + 새 책임자 + 이전 책임자
+      // 변경 후 알림 발송 헬퍼 — 다음 결재자 + 새 수행자 + 이전 수행자
       async function postSubmitNotifications(goalId: string, goalTitle: string, ownerChangedExtraMsg?: string) {
         // ① 다음 결재자에게 알림 (autoApproval 반영된 합성 Goal)
         if (!isDraft) {
@@ -243,6 +243,7 @@ export default function TaskGoalForm({
               userId: effectiveOwnerId,
               organizationId: ownerOrgId,
               status: autoApproval.status,
+              collaboratorIds: cleanedCollaborators,
               ...autoApproval.fields,
             } as any;
             const orgsForNotif = allOrgs.length > 0 ? allOrgs : await getOrganizations();
@@ -254,18 +255,27 @@ export default function TaskGoalForm({
               fromUserName: userProfile!.name,
               action: 'SUBMIT',
             });
+            // F7 broadcast — 체인 전원
+            await notifyAllChainParties({
+              goal: synthesizedGoal,
+              allOrgs: orgsForNotif,
+              allUsers: users,
+              fromUserId: userProfile!.id,
+              fromUserName: userProfile!.name,
+              event: 'SUBMITTED',
+            });
           } catch (err) {
             console.error('[알림] 다음 결재자 알림 발송 실패:', err);
           }
         }
-        // ② 새 책임자 / 이전 책임자 알림
+        // ② 새 수행자 / 이전 수행자 알림
         await notifyNewOwner(goalId, goalTitle, ownerChangedExtraMsg);
         await notifyPreviousOwner(goalId, goalTitle);
       }
 
       if (isEdit && !isApprovedGoal) {
-        // DRAFT/REJECTED 목표 수정 → 상신 (책임자 변경 가능)
-        // 책임자 변경 시 → 이관업무로 분류 (previousOwnerId/Name/transferredAt 갱신)
+        // DRAFT/REJECTED 목표 수정 → 상신 (수행자 변경 가능)
+        // 수행자 변경 시 → 이관업무로 분류 (previousOwnerId/Name/transferredAt 갱신)
         const prevOwnerName = users.find(u => u.id === editGoal.userId)?.name ?? '';
         await updateGoal(editGoal.id, {
           ...payload,
@@ -287,7 +297,7 @@ export default function TaskGoalForm({
             previousStatus: editGoal.status,
             newStatus: submitStatus,
             comment: (isOwnerChanged
-              ? `책임자 재지정: ${editGoal.userId} → ${effectiveOwnerId} (${newOwnerName})`
+              ? `수행자 재지정: ${editGoal.userId} → ${effectiveOwnerId} (${newOwnerName})`
               : '재상신') + autoApprovedHistoryComment,
             ...(fieldChanges ? { fieldChanges } : {}),
             ...(submitComment ? { submitComment } : {}),
@@ -295,16 +305,16 @@ export default function TaskGoalForm({
         }
         await postSubmitNotifications(editGoal.id, payload.title);
       } else if (isApprovedGoal && !isDraft) {
-        // 승인된 목표 수정 상신 — 지연 책임자 전환 (deferred ownership) 방식
+        // 승인된 목표 수정 상신 — 지연 수행자 전환 (deferred ownership) 방식
         //  - 콘텐츠 (title/description/dueDate/isConfidential) 는 즉시 반영 + modifySnapshot 으로 회수·반려 시 원복.
-        //  - 책임자/공동추진자 변경은 pendingOwner* / pendingCollaboratorIds 에만 저장.
-        //    userId/organizationId/collaboratorIds 는 변하지 않음 → 최종 승인 전까지 모든 권한·노출은 기존 책임자 유지.
-        //  - 결재 체인은 goal.userId(=기존 책임자) 기준으로 계산되어 일관성 확보.
+        //  - 수행자/공동수행자 변경은 pendingOwner* / pendingCollaboratorIds 에만 저장.
+        //    userId/organizationId/collaboratorIds 는 변하지 않음 → 최종 승인 전까지 모든 권한·노출은 기존 수행자 유지.
+        //  - 결재 체인은 goal.userId(=기존 수행자) 기준으로 계산되어 일관성 확보.
         const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, Timestamp: FsTimestamp, deleteField } = await import('firebase/firestore');
         const { db: fsDb } = await import('@/lib/firebase');
         const prevOwnerName = users.find(u => u.id === editGoal.userId)?.name ?? '';
 
-        // 회수·반려 시 콘텐츠 원복용 스냅샷 (책임자/공동추진자는 변하지 않으므로 스냅샷 불필요)
+        // 회수·반려 시 콘텐츠 원복용 스냅샷 (수행자/공동수행자는 변하지 않으므로 스냅샷 불필요)
         const modifySnapshot = {
           title: editGoal.title,
           description: editGoal.description,
@@ -333,7 +343,7 @@ export default function TaskGoalForm({
           updatedAt: sts(),
         };
         if (isOwnerChanged) {
-          // 책임자/공동추진자 변경 — deferred. 현 owner 유지, pending 에 저장.
+          // 수행자/공동수행자 변경 — deferred. 현 owner 유지, pending 에 저장.
           liveUpdate.pendingOwnerId = effectiveOwnerId;
           liveUpdate.pendingOwnerName = newOwnerName;
           liveUpdate.pendingOwnerOrgId = ownerOrgId;
@@ -343,7 +353,7 @@ export default function TaskGoalForm({
           liveUpdate.reassignFromName = deleteField();
           liveUpdate.reassignFromOrgId = deleteField();
         } else {
-          // 책임자 변경 없음 — collaboratorIds/relatedOrgIds 즉시 반영
+          // 수행자 변경 없음 — collaboratorIds/relatedOrgIds 즉시 반영
           liveUpdate.collaboratorIds = cleanedCollaborators;
           liveUpdate.relatedOrgIds = relatedOrgIds;
           // pending 잔류 정리
@@ -360,20 +370,20 @@ export default function TaskGoalForm({
           previousStatus: editGoal.status,
           newStatus: submitStatus,
           comment: (isOwnerChanged
-            ? `책임자 변경 요청: ${prevOwnerName} → ${newOwnerName} (최종 승인 시 확정)`
+            ? `수행자 변경 요청: ${prevOwnerName} → ${newOwnerName} (최종 승인 시 확정)`
             : '수정 후 재상신'
           ) + autoApprovedHistoryComment,
           ...(fieldChanges ? { fieldChanges } : {}),
           ...(submitComment ? { submitComment } : {}),
         });
-        // 다음 결재자 알림 — goal.userId 는 기존 책임자 그대로. 체인도 기존 책임자 기준.
+        // 다음 결재자 알림 — goal.userId 는 기존 수행자 그대로. 체인도 기존 수행자 기준.
         try {
           const orgsForNotif = allOrgs.length > 0 ? allOrgs : await getOrganizations();
           await notifyNextApprover({
             goal: {
               id: editGoal.id,
               title: payload.title,
-              userId: editGoal.userId,          // 기존 책임자 유지
+              userId: editGoal.userId,          // 기존 수행자 유지
               organizationId: editGoal.organizationId,
               status: submitStatus,
               ...autoApproval.fields,
@@ -387,7 +397,7 @@ export default function TaskGoalForm({
         } catch (err) {
           console.error('[알림] 다음 결재자 알림 발송 실패:', err);
         }
-        // 새 책임자에게 변경 요청 사전 통지
+        // 새 수행자에게 변경 요청 사전 통지
         if (isOwnerChanged && effectiveOwnerId !== userProfile.id) {
           try {
             await createNotification({
@@ -395,18 +405,18 @@ export default function TaskGoalForm({
               goalId: editGoal.id,
               goalTitle: payload.title,
               type: 'GOAL_COMMENT',
-              message: `${prevOwnerName}님의 '${payload.title}' 핵심목표 책임자로 귀하가 지정되어 결재 중입니다. 최종 승인 시 확정됩니다.`,
+              message: `${prevOwnerName}님의 '${payload.title}' 핵심목표 수행자로 귀하가 지정되어 결재 중입니다. 최종 승인 시 확정됩니다.`,
               read: false,
             });
-          } catch (err) { console.error('[알림] 새 책임자 사전 통지 실패:', err); }
+          } catch (err) { console.error('[알림] 새 수행자 사전 통지 실패:', err); }
         }
       } else {
         // 신규 목표 또는 승인된 목표의 임시저장(새 DRAFT 생성)
         const newGoalId = await createGoal({
           ...payload,
           status: submitStatus,
-          userId: effectiveOwnerId,                       // v0.76: 책임자가 owner — 본인 또는 지정된 사용자
-          organizationId: ownerOrgId,                     // 책임자의 소속 조직 기준
+          userId: effectiveOwnerId,                       // v0.76: 수행자가 owner — 본인 또는 지정된 사용자
+          organizationId: ownerOrgId,                     // 수행자의 소속 조직 기준
           cycleYear: activeYear,
           ...(!isDraft ? autoApproval.fields : {}),
         });
@@ -423,9 +433,9 @@ export default function TaskGoalForm({
         await postSubmitNotifications(newGoalId, payload.title);
       }
       if (isOwnerChanged) {
-        // 승인된 목표의 책임자 변경은 최종 승인 시 이관 (보류) / DRAFT·신규는 즉시 반영
+        // 승인된 목표의 수행자 변경은 최종 승인 시 이관 (보류) / DRAFT·신규는 즉시 반영
         if (isApprovedGoal && !isDraft) {
-          toast.success(`${newOwnerName}님으로 책임자 변경을 요청했습니다. 최종 승인 시 이관됩니다.`);
+          toast.success(`${newOwnerName}님으로 수행자 변경을 요청했습니다. 최종 승인 시 이관됩니다.`);
         } else {
           toast.success(`목표가 ${newOwnerName}님에게 이관되었습니다. (해당 사용자의 목표 목록에서 확인 가능)`);
         }
@@ -543,9 +553,9 @@ export default function TaskGoalForm({
             <Input type="date" min="2000-01-01" max="2099-12-31" value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </div>
 
-          {/* 책임자 (owner) — 본인 자동 기본값, 다른 사용자 지정 가능
-              UX: 책임자 변경 시 이전 책임자를 자동으로 공동추진자에 추가, 새 책임자가 기존 공동추진자였으면 제거.
-                  → 스왑 케이스(원 책임자 → 공동추진자, 공동추진자 → 책임자)도 한 번에 처리됨. */}
+          {/* 수행자 (owner) — 본인 자동 기본값, 다른 사용자 지정 가능
+              UX: 수행자 변경 시 이전 수행자를 자동으로 공동수행자에 추가, 새 수행자가 기존 공동수행자였으면 제거.
+                  → 스왑 케이스(원 수행자 → 공동수행자, 공동수행자 → 수행자)도 한 번에 처리됨. */}
           <OwnerPicker
             users={users}
             value={ownerId || (userProfile?.id ?? '')}
@@ -566,7 +576,7 @@ export default function TaskGoalForm({
             selfId={userProfile?.id ?? ''}
           />
 
-          {/* 공동 추진자 (collaborators) — 책임자는 제외 */}
+          {/* 공동 수행자 (collaborators) — 수행자는 제외 */}
           <CollaboratorPicker
             users={users.filter(u => u.id !== (ownerId || userProfile?.id))}
             value={collaboratorIds}
@@ -623,7 +633,7 @@ export default function TaskGoalForm({
   );
 }
 
-// ── 공동 추진자 검색·선택 픽커 ─────────────────────────
+// ── 공동 수행자 검색·선택 픽커 ─────────────────────────
 function CollaboratorPicker({ users, value, onChange, search, onSearchChange }: {
   users: User[];
   value: string[];
@@ -643,7 +653,7 @@ function CollaboratorPicker({ users, value, onChange, search, onSearchChange }: 
   return (
     <div className="space-y-1.5">
       <Label className="flex flex-wrap items-baseline gap-x-1.5">
-        <span className="whitespace-nowrap">공동 추진자</span>
+        <span className="whitespace-nowrap">공동 수행자</span>
         <span className="text-xs text-gray-400 font-normal">
           (선택) 임원 승인 후 해당 인원의 목표 목록에도 표시됩니다.
         </span>
@@ -690,7 +700,7 @@ function CollaboratorPicker({ users, value, onChange, search, onSearchChange }: 
   );
 }
 
-// ── 책임자 검색·선택 픽커 (단일 선택, 본인 자동 기본값) ──
+// ── 수행자 검색·선택 픽커 (단일 선택, 본인 자동 기본값) ──
 function OwnerPicker({ users, value, onChange, search, onSearchChange, selfId }: {
   users: User[];
   value: string;
@@ -711,9 +721,9 @@ function OwnerPicker({ users, value, onChange, search, onSearchChange, selfId }:
   return (
     <div className="space-y-1.5">
       <Label className="flex flex-wrap items-baseline gap-x-1.5">
-        <span className="whitespace-nowrap">책임자 <span className="text-red-500">*</span></span>
+        <span className="whitespace-nowrap">수행자 <span className="text-red-500">*</span></span>
         <span className="text-xs text-gray-400 font-normal">
-          (본인이 추가하면 본인이 기본 책임자, 다른 사용자도 지정 가능)
+          (본인이 추가하면 본인이 기본 수행자, 다른 사용자도 지정 가능)
         </span>
       </Label>
       {selected ? (
@@ -729,13 +739,13 @@ function OwnerPicker({ users, value, onChange, search, onSearchChange, selfId }:
         </div>
       ) : (
         <div className="rounded-lg border bg-gray-50 px-3 py-2 text-xs text-gray-400">
-          (책임자 미설정 — 저장 시 본인으로 기본 설정)
+          (수행자 미설정 — 저장 시 본인으로 기본 설정)
         </div>
       )}
       <Input
         value={search}
         onChange={e => onSearchChange(e.target.value)}
-        placeholder="다른 사람을 책임자로 지정하려면 이름·이메일로 검색"
+        placeholder="다른 사람을 수행자로 지정하려면 이름·이메일로 검색"
       />
       {search.trim() && (
         <div className="rounded-lg border max-h-44 overflow-y-auto divide-y bg-white">

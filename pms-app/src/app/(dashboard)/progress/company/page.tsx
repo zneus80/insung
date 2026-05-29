@@ -106,7 +106,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   }
 
   // 부문별 핵심목표 — 임원 승인 이후(APPROVED/IN_PROGRESS/COMPLETED) 모두 표시. 세부 내용은 제외.
-  // 공동 추진자가 다른 부문 소속이면 그 부문에서도 동일 목표가 노출됨 (relatedOrgIds 활용).
+  // 공동 수행자가 다른 부문 소속이면 그 부문에서도 동일 목표가 노출됨 (relatedOrgIds 활용).
   function goalsForDivision(divId: string): Goal[] {
     const scopeIds = new Set(descendantOrgIds(divId));
     const VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
@@ -114,7 +114,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
       .filter(g => {
         if (!VISIBLE.has(g.status) || g.trashedAt || g.softDeletedAt) return false;
         if (scopeIds.has(g.organizationId)) return true;
-        // relatedOrgIds 매칭 — 공동 추진자 소속 조직 포함
+        // relatedOrgIds 매칭 — 공동 수행자 소속 조직 포함
         if ((g.relatedOrgIds ?? []).some(orgId => scopeIds.has(orgId))) return true;
         return false;
       })

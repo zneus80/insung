@@ -24,7 +24,7 @@ const CARD_STYLES = {
 // ── 컴포넌트 ─────────────────────────────────────────────────
 interface GoalCardProps {
   goal: Goal;
-  ownerName?: string;             // 책임자 이름 — 외부에서 usersMap 으로 조회해 전달
+  ownerName?: string;             // 수행자 이름 — 외부에서 usersMap 으로 조회해 전달
   onEdit?: (goal: Goal) => void;
   onTrash?: (goal: Goal) => void;
   onWithdraw?: (goal: Goal) => void;
@@ -36,7 +36,7 @@ export default function GoalCard({ goal, ownerName, onEdit, onTrash, onWithdraw,
   const router = useRouter();
   const { userProfile } = useAuth();
 
-  // 카드 분류 — 이관업무 우선 > 공동과제업무(공동 추진자가 한 명이라도 있으면) > 기본 과제업무
+  // 카드 분류 — 이관업무 우선 > 공동과제업무(공동 수행자가 한 명이라도 있으면) > 기본 과제업무
   // v0.76: 본인이 owner 든 collaborator 든 collaboratorIds 가 비어있지 않으면 모두 "공동과제업무" 로 표시
   const isTransferred = !!goal.previousOwnerId;
   const hasCollaborators = (goal.collaboratorIds ?? []).length > 0;
@@ -70,13 +70,13 @@ export default function GoalCard({ goal, ownerName, onEdit, onTrash, onWithdraw,
               </span>
             )}
 
-            {/* 책임자 재지정이 아직 안 된 이관 목표 */}
+            {/* 수행자 재지정이 아직 안 된 이관 목표 */}
             {goal.needsReassignment && (
               <span
                 className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700"
-                title={`이전 책임자: ${goal.previousOwnerName ?? ''}`}
+                title={`이전 수행자: ${goal.previousOwnerName ?? ''}`}
               >
-                책임자 재지정 필요
+                수행자 재지정 필요
               </span>
             )}
 
@@ -124,15 +124,15 @@ export default function GoalCard({ goal, ownerName, onEdit, onTrash, onWithdraw,
             {format(goal.dueDate, 'MM/dd', { locale: ko })}까지
           </span>
 
-          {/* 책임자 표시 */}
+          {/* 수행자 표시 */}
           {ownerName && (
             <span className="flex items-center gap-1">
               <UserCircle2 className="h-3.5 w-3.5" />
-              책임자: <span className="font-medium text-gray-600">{ownerName}</span>
+              수행자: <span className="font-medium text-gray-600">{ownerName}</span>
             </span>
           )}
 
-          {/* 공동 추진자 존재 시 배지 */}
+          {/* 공동 수행자 존재 시 배지 */}
           {(goal.collaboratorIds?.length ?? 0) > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-[11px] font-semibold">
               <Users className="h-3 w-3" />

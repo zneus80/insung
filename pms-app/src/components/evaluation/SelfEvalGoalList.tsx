@@ -25,7 +25,7 @@ interface Props {
   goals: Goal[];
   /** 자기평가 답안 — COMPLETED 만 의견 존재 */
   goalEvals: SelfEvaluation['goalEvals'];
-  /** 책임자·공동추진자 이름 표시용 */
+  /** 수행자·공동수행자 이름 표시용 */
   usersById: Record<string, User>;
   /** 평가 대상자 userId — 뒤로 가기 시 어느 멤버 행을 펼쳐야 할지 식별용 */
   memberId: string;
@@ -34,7 +34,7 @@ interface Props {
 /**
  * 인사평가/평가등급확정 화면의 "자기평가 : 핵심업무" 섹션.
  * 업무 행을 클릭하면 팝업으로 상세 정보 표시:
- *  - 완료: 목표 내용 / 책임자(공동시 함께한 인원) / 수정이력 / 자기평가 의견 / 세부보기
+ *  - 완료: 목표 내용 / 수행자(공동시 함께한 인원) / 수정이력 / 자기평가 의견 / 세부보기
  *  - 포기 요청·확정: 제목 + 상태만 (세부보기 가능)
  */
 export default function SelfEvalGoalList({ goals, goalEvals, usersById, memberId }: Props) {
@@ -85,10 +85,10 @@ export default function SelfEvalGoalList({ goals, goalEvals, usersById, memberId
     ge.regret ? `[아쉬운 점]\n${ge.regret}` : '',
   ].filter(Boolean).join('\n\n');
 
-  // 책임자 표기 — 공동추진자가 있으면 "공동 (A, B, ...)" 형태
+  // 수행자 표기 — 공동수행자가 있으면 "공동 (A, B, ...)" 형태
   function renderOwnerLabel(g: Goal) {
     const owner = usersById[g.userId];
-    const ownerName = owner?.name ?? '책임자';
+    const ownerName = owner?.name ?? '수행자';
     const collabs = (g.collaboratorIds ?? [])
       .map(id => usersById[id]?.name)
       .filter(Boolean) as string[];
@@ -98,15 +98,15 @@ export default function SelfEvalGoalList({ goals, goalEvals, usersById, memberId
 
   // 수정 이력 요약 1줄로 — 변경된 항목 키워드만 나열
   function renderHistoryLine(h: GoalHistory): string | null {
-    if (h.changeType === 'OWNER_REASSIGNED' || h.changeType === 'OWNER_TRANSFERRED') return '책임자 변경';
+    if (h.changeType === 'OWNER_REASSIGNED' || h.changeType === 'OWNER_TRANSFERRED') return '수행자 변경';
     if (!h.fieldChanges) return null;
     const keys: string[] = [];
     if (h.fieldChanges.title) keys.push('제목');
     if (h.fieldChanges.description) keys.push('내용');
     if (h.fieldChanges.dueDate) keys.push('기한');
     if (h.fieldChanges.progress) keys.push('진행률');
-    if (h.fieldChanges.ownerId) keys.push('책임자');
-    if (h.fieldChanges.collaboratorIds) keys.push('공동추진자');
+    if (h.fieldChanges.ownerId) keys.push('수행자');
+    if (h.fieldChanges.collaboratorIds) keys.push('공동수행자');
     if (h.fieldChanges.isConfidential) keys.push('대내비');
     return keys.length ? keys.join(' · ') : null;
   }
@@ -165,7 +165,7 @@ export default function SelfEvalGoalList({ goals, goalEvals, usersById, memberId
                       </div>
                       <Progress value={openGoal.progress} className="h-1.5" />
                       <div>
-                        <p className="text-xs font-bold text-gray-700 mb-1">책임자</p>
+                        <p className="text-xs font-bold text-gray-700 mb-1">수행자</p>
                         <p className="text-sm text-gray-700">{renderOwnerLabel(openGoal)}</p>
                       </div>
                       {openGoal.description && (
