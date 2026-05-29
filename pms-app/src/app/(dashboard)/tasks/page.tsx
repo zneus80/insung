@@ -357,6 +357,11 @@ function WeeklyReport({ year, week, onWeekChange }: {
   const today = getISOWeek(new Date());
   const { start, end } = getWeekRange(year, week);
   const isCurrentWeek = year === today.year && week === today.week;
+  // 본문(HD/WD/요약) 잠금 — 해당 주 토요일 00:00 도달 시 읽기전용 (코멘트는 계속 가능)
+  const saturday = new Date(start);
+  saturday.setDate(start.getDate() + 5);
+  saturday.setHours(0, 0, 0, 0);
+  const isBodyLocked = new Date() >= saturday;
 
   useEffect(() => {
     if (!userProfile) return;
@@ -531,13 +536,15 @@ function WeeklyReport({ year, week, onWeekChange }: {
                     <div className={cn('flex items-start gap-3 px-4 py-3 group hover:bg-gray-50 transition-colors',
                       isGreen && 'bg-green-50/20',
                       item.important && 'bg-amber-50/60')}>
-                      {/* 중요(별표) 토글 — Has Done(실적)만 */}
+                      {/* 중요(별표) 토글 — Has Done(실적)만, 본문 잠금 시 비활성 */}
                       {isGreen && (
                         <button
-                          onClick={() => toggleImportant(section, item.id)}
+                          onClick={() => !isBodyLocked && toggleImportant(section, item.id)}
+                          disabled={isBodyLocked}
                           title={item.important ? '중요 해제' : '중요 표시'}
                           className={cn('shrink-0 mt-0.5 rounded p-0.5 transition-colors',
-                            item.important ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400')}
+                            item.important ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400',
+                            isBodyLocked && 'opacity-60 cursor-not-allowed')}
                         >
                           <Star className={cn('h-4 w-4', item.important && 'fill-amber-400')} />
                         </button>
@@ -546,16 +553,18 @@ function WeeklyReport({ year, week, onWeekChange }: {
                         <p className="text-sm font-medium text-gray-800 leading-snug">{item.title}</p>
                         {item.content && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed whitespace-pre-wrap">{item.content}</p>}
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                        <button onClick={() => openEdit(section, item)}
-                          className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button onClick={() => deleteItem(section, item.id)}
-                          className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                      {!isBodyLocked && (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          <button onClick={() => openEdit(section, item)}
+                            className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => deleteItem(section, item.id)}
+                            className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="p-4">
@@ -572,7 +581,7 @@ function WeeklyReport({ year, week, onWeekChange }: {
             )}
           </div>
         )}
-        {!isAdding && (
+        {!isAdding && !isBodyLocked && (
           <div className="border-t px-4 py-2.5">
             <button onClick={() => openNew(section)}
               className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors">
@@ -598,6 +607,13 @@ function WeeklyReport({ year, week, onWeekChange }: {
         <div className="space-y-3">{[1, 2].map(i => <div key={i} className="h-36 animate-pulse rounded-xl bg-gray-100" />)}</div>
       ) : (
         <>
+          {/* 본문 잠금 안내 — 해당 주 토요일 00:00 이후 */}
+          {isBodyLocked && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
+              해당 주 토요일이 지나 본문(실적/계획/종합의견)은 읽기 전용입니다. 코멘트는 계속 가능합니다.
+            </div>
+          )}
+
           {/* Has Done · Will Do 가로 2열 배치 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             {renderSection('hd', hasDoneItems, true)}
@@ -618,7 +634,7 @@ function WeeklyReport({ year, week, onWeekChange }: {
                   </span>
                 )}
               </div>
-              {summaryLocked ? (
+              {isBodyLocked ? null : summaryLocked ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -663,15 +679,18 @@ function WeeklyReport({ year, week, onWeekChange }: {
               ref={summaryRef}
               rows={4}
               value={summary}
-              readOnly={summaryLocked}
+              readOnly={summaryLocked || isBodyLocked}
               onChange={e => {
+                if (isBodyLocked) return;
                 setSummary(e.target.value);
                 scheduleSave(hasDoneItems, willDoItems, e.target.value);
               }}
               placeholder="이번 주 업무 전반에 대한 종합 의견, 이슈 등을 자유롭게 작성하세요."
               className={cn(
                 'w-full resize-none rounded-lg border px-4 py-3 text-sm text-gray-700 placeholder:text-gray-300 leading-relaxed transition-colors',
-                summaryLocked
+                isBodyLocked
+                  ? 'bg-gray-50 border-gray-200 cursor-default focus:outline-none text-gray-500'
+                  : summaryLocked
                   ? 'bg-white border-green-200 cursor-default focus:outline-none'
                   : 'bg-white border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500',
               )}
