@@ -29,6 +29,7 @@ import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type {
   Goal, SelfEvaluation, IndividualEvaluation,
   EvaluationGrade, User, MentoringForm, WeeklyTask, InnovationActivity,
@@ -111,6 +112,7 @@ function TeamLeadEvalView() {
   const [leadOpinionByMember, setLeadOpinionByMember] = useState<Record<string, { name: string; grade?: EvaluationGrade; comment?: string; at?: Date }>>({});
   // 알림 발송용 — 전체 조직/사용자 캐시
   const [allOrgsCache, setAllOrgsCache] = useState<Organization[]>([]);
+  const [activeOrgTab, setActiveOrgTab] = useState<string>(''); // 팀별 탭 활성 orgId
   const [allUsersCache, setAllUsersCache] = useState<User[]>([]);
 
   function getDescendantIds(orgId: string, allOrgs: Organization[]): string[] {
@@ -396,8 +398,67 @@ function TeamLeadEvalView() {
 
         {loading ? <LoadingSpinner /> : members.length === 0 ? (
           <div className="rounded-xl border border-dashed p-10 text-center text-gray-400">소속 팀원이 없습니다.</div>
-        ) : (
-          members.map(member => {
+        ) : (() => {
+          // 팀별 탭 분류 (F1) — 멤버를 organizationId 기준으로 분할, displayOrder 정렬
+          const membersByOrg: Record<string, User[]> = {};
+          for (const m of members) {
+            (membersByOrg[m.organizationId] ??= []).push(m);
+          }
+          const orgTabs = allOrgsCache
+            .filter(o => membersByOrg[o.id]?.length > 0)
+            .slice()
+            .sort((a, b) => {
+              const ao = a.displayOrder ?? 999;
+              const bo = b.displayOrder ?? 999;
+              if (ao !== bo) return ao - bo;
+              return a.name.localeCompare(b.name, 'ko');
+            });
+          if (!activeOrgTab && orgTabs.length > 0) setActiveOrgTab(orgTabs[0].id);
+          if (activeOrgTab && orgTabs.length > 0 && !orgTabs.some(o => o.id === activeOrgTab)) setActiveOrgTab(orgTabs[0].id);
+          // 탭별 진척도
+          function tabProgress(orgId: string) {
+            const list = membersByOrg[orgId] ?? [];
+            let done = 0;
+            for (const m of list) {
+              const ie = indivEvals[m.id];
+              const useHq = isHQHead && m.role === 'MEMBER';
+              const isDone = useHq
+                ? ['HQ_REVIEWED', 'EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '')
+                : ['LEAD_REVIEWED', 'HQ_REVIEWED', 'EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '');
+              if (isDone) done++;
+            }
+            return { done, total: list.length };
+          }
+          const activeMembers = membersByOrg[activeOrgTab] ?? [];
+          return (
+          <>
+            {/* 팀 탭 바 */}
+            <div className="flex gap-1 border-b bg-white px-1 pt-1 shrink-0 overflow-x-auto">
+              {orgTabs.map(o => {
+                const { done, total } = tabProgress(o.id);
+                const isActive = activeOrgTab === o.id;
+                const allDone = total > 0 && done === total;
+                return (
+                  <button
+                    key={o.id}
+                    onClick={() => setActiveOrgTab(o.id)}
+                    className={cn(
+                      'px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors whitespace-nowrap',
+                      isActive ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700',
+                    )}
+                  >
+                    {o.name}
+                    <span className={cn(
+                      'ml-1.5 text-xs',
+                      allDone ? 'text-green-600' : isActive ? 'text-blue-500' : 'text-gray-400',
+                    )}>
+                      {done}/{total}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {activeMembers.map(member => {
             const ie = indivEvals[member.id];
             const se = selfEvals[member.id];
             const goals = goalsByMember[member.id] ?? [];
@@ -654,8 +715,10 @@ function TeamLeadEvalView() {
                 )}
               </div>
             );
-          })
-        )}
+          })}
+          </>
+          );
+        })()}
       </div>
     </div>
   );

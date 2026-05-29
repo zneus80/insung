@@ -30,6 +30,7 @@ import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type {
   EvaluationCycle, Goal, SelfEvaluation, IndividualEvaluation,
   EvaluationGrade, User, Organization, DivisionGradeQuota, MentoringForm, WeeklyTask,
@@ -490,6 +491,7 @@ function ExecutiveEvalView() {
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState<string | null>(null);
   const [execUsersCache, setExecUsersCache] = useState<User[]>([]); // 공동추진자 이름 조회용
+  const [activeOrgTab, setActiveOrgTab] = useState<string>('');     // 팀별 탭 활성 orgId
 
   async function load() {
     if (!userProfile) return;
@@ -672,6 +674,37 @@ function ExecutiveEvalView() {
 
   const orgNameMap = Object.fromEntries(allOrgs.map(o => [o.id, o.name]));
 
+  // 팀 탭 목록 — displayOrder 정렬, 멤버 있는 조직만
+  const orgTabs = allOrgs
+    .filter(o => membersByOrg[o.id] && membersByOrg[o.id].length > 0)
+    .slice()
+    .sort((a, b) => {
+      const ao = a.displayOrder ?? 999;
+      const bo = b.displayOrder ?? 999;
+      if (ao !== bo) return ao - bo;
+      return a.name.localeCompare(b.name, 'ko');
+    });
+
+  // activeOrgTab 초기값 — 첫 번째 탭
+  if (!activeOrgTab && orgTabs.length > 0) {
+    setActiveOrgTab(orgTabs[0].id);
+  }
+  // 활성 탭이 더 이상 유효하지 않으면 첫 탭으로
+  if (activeOrgTab && orgTabs.length > 0 && !orgTabs.some(o => o.id === activeOrgTab)) {
+    setActiveOrgTab(orgTabs[0].id);
+  }
+
+  // 탭별 평가 완료 진척도
+  function tabProgress(orgId: string): { confirmed: number; total: number } {
+    const list = membersByOrg[orgId] ?? [];
+    let confirmed = 0;
+    for (const m of list) {
+      const ie = indivEvals[m.id];
+      if (ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED') confirmed++;
+    }
+    return { confirmed, total: list.length };
+  }
+
   return (
     <div className="flex flex-col h-full">
       <Header title="평가 등급 확정" />
@@ -707,13 +740,43 @@ function ExecutiveEvalView() {
           </div>
         )}
 
-        {/* 팀원 목록 */}
+        {/* 팀원 목록 — 팀별 탭 (F1) */}
         {loading ? <LoadingSpinner /> : members.length === 0 ? (
           <div className="rounded-xl border border-dashed p-10 text-center text-gray-400">산하 팀원이 없습니다.</div>
         ) : (
-          Object.entries(membersByOrg).map(([orgId, orgMembers]) => (
-            <div key={orgId} className="space-y-2">
-              <p className="text-xs font-semibold text-gray-400 px-1">{orgNameMap[orgId] ?? orgId}</p>
+          <>
+            {/* 팀 탭 바 */}
+            <div className="flex gap-1 border-b bg-white px-1 pt-1 shrink-0 overflow-x-auto">
+              {orgTabs.map(o => {
+                const { confirmed, total } = tabProgress(o.id);
+                const isActive = activeOrgTab === o.id;
+                const allDone = total > 0 && confirmed === total;
+                return (
+                  <button
+                    key={o.id}
+                    onClick={() => setActiveOrgTab(o.id)}
+                    className={cn(
+                      'px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors whitespace-nowrap',
+                      isActive
+                        ? 'border-blue-600 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700',
+                    )}
+                  >
+                    {o.name}
+                    <span className={cn(
+                      'ml-1.5 text-xs',
+                      allDone ? 'text-green-600' : isActive ? 'text-blue-500' : 'text-gray-400',
+                    )}>
+                      {confirmed}/{total}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {(() => {
+              const orgMembers = membersByOrg[activeOrgTab] ?? [];
+              return (
+            <div className="space-y-2 pt-3">
               {orgMembers.map(member => {
                 const ie = indivEvals[member.id];
                 const se = selfEvals[member.id];
@@ -930,7 +993,9 @@ function ExecutiveEvalView() {
                 );
               })}
             </div>
-          ))
+              );
+            })()}
+          </>
         )}
       </div>
     </div>
