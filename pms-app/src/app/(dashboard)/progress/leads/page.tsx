@@ -59,7 +59,7 @@ function ProgressContent() {
         setLeads(teamLeads);
         setMembers(teamMembers);
         setOrgs(allOrgs);
-        // 각 사용자의 목표 = owner 본인 목표 + (임원 승인 후) 공동 추진자로 포함된 목표
+        // 각 사용자의 목표 = owner 본인 목표 + (임원 승인 후) 공동 수행자로 포함된 목표
         const COLLAB_VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'PENDING_ABANDON']);
         const gMap: Record<string, Goal[]> = {};
         scopedUsers.forEach(u => {

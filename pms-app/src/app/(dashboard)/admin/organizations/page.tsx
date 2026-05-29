@@ -266,7 +266,7 @@ function OrganizationsContent() {
 
         {/* 안내 */}
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shrink-0">
-          <strong>권장 등록 순서:</strong> 조직 등록 (책임자 없이) → 사용자 등록 (소속 지정) → 조직 수정으로 책임자 지정
+          <strong>권장 등록 순서:</strong> 조직 등록 (수행자 없이) → 사용자 등록 (소속 지정) → 조직 수정으로 수행자 지정
         </div>
 
         <div className="flex justify-end shrink-0">
@@ -282,7 +282,7 @@ function OrganizationsContent() {
               <tr>
                 <th className="px-4 py-3 text-left">조직명</th>
                 <th className="px-4 py-3 text-left">구분</th>
-                <th className="px-4 py-3 text-left">책임자</th>
+                <th className="px-4 py-3 text-left">수행자</th>
                 <th className="px-4 py-3 text-center">인원</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -476,7 +476,7 @@ function OrganizationsContent() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>책임자 <span className="text-gray-400 text-xs font-normal">(나중에 지정 가능)</span></Label>
+                <Label>수행자 <span className="text-gray-400 text-xs font-normal">(나중에 지정 가능)</span></Label>
                 <Select
                   value={form.leaderId ?? ''}
                   onValueChange={v => setForm(f => ({ ...f, leaderId: v || null }))}

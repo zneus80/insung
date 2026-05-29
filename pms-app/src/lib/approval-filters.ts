@@ -66,7 +66,7 @@ export interface ApprovalStage {
   role: ApprovalRole;
   orgId: string;
   orgName: string;
-  userId?: string;  // 해당 단계 책임자 (leaderId)
+  userId?: string;  // 해당 단계 수행자 (leaderId)
 }
 
 /**
@@ -232,9 +232,9 @@ export function stageLabel(role: ApprovalRole): string {
 }
 
 /**
- * 상신자(=변경 행위자)가 새 책임자의 결재 체인에 포함되는 경우,
+ * 상신자(=변경 행위자)가 새 수행자의 결재 체인에 포함되는 경우,
  * 그 단계까지 자동 승인된 결재 필드/상태를 계산한다.
- * 셀프 승인 방지(예: 팀장 본인이 본인 팀 팀원에게 책임자 재지정 시 팀장 단계 자동 처리).
+ * 셀프 승인 방지(예: 팀장 본인이 본인 팀 팀원에게 수행자 재지정 시 팀장 단계 자동 처리).
  *
  * 동작:
  *  - submitter 가 체인에 없음 → { status:'PENDING_APPROVAL', fields:{} } 반환
@@ -263,7 +263,7 @@ export function computeSubmitterAutoApproval(params: {
   };
   stageRole: ApprovalRole | null;
 } {
-  // 새 책임자 기준 결재 체인 합성용 Goal (organizationId 만 필요)
+  // 새 수행자 기준 결재 체인 합성용 Goal (organizationId 만 필요)
   const synthetic = { organizationId: params.newOwnerOrgId } as unknown as Goal;
   const chain = buildApprovalChain(synthetic, params.allOrgs, params.newOwnerRole);
   const idx = myStageIdxIn(chain, params.submitterId, params.submitterRole, params.submitterOrgId);

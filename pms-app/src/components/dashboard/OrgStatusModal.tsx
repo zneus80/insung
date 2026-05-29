@@ -20,6 +20,7 @@ import {
 } from '@/lib/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
+import MemberInfoModal from '@/components/members/MemberInfoModal';
 import type { User, Organization, Mileage, Award } from '@/types';
 
 interface RowData {
@@ -190,7 +191,9 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
               <tbody className="divide-y divide-gray-100">
                 {rows.map(r => (
                   <tr key={r.user.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{r.user.name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      <MemberInfoModal userId={r.user.id} userName={r.user.name} />
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{orgsById.get(r.user.organizationId)?.name ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{r.user.position ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-500">

@@ -34,7 +34,7 @@ const ACTIVE_GOAL_STATUSES = new Set([
   'COMPLETED', 'PENDING_COMPLETION', 'PENDING_MODIFY', 'PENDING_ABANDON',
 ]);
 
-/** 삭제 대상 사용자 → 이관 받을 책임자 ID 결정. 팀장 → 본부장 → 부문/공장 임원 순.
+/** 삭제 대상 사용자 → 이관 받을 수행자 ID 결정. 팀장 → 본부장 → 부문/공장 임원 순.
  *  leaderId 가 명시되지 않은 환경 fallback: 해당 조직 소속 사용자 중 TEAM_LEAD / EXECUTIVE 첫 사람.
  */
 async function resolveTransferTarget(db: Firestore, userId: string, userOrgId: string): Promise<{ targetUserId: string; targetOrgId: string } | null> {
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
     const userOrgId = userData?.organizationId ?? '';
     const userName = userData?.name ?? '';
 
-    // 0-1) 활성 목표 이관 (v0.76) — 팀장(→본부장→임원) 에게 이관 후 책임자 재지정 대기
+    // 0-1) 활성 목표 이관 (v0.76) — 팀장(→본부장→임원) 에게 이관 후 수행자 재지정 대기
     let transferTarget: { targetUserId: string; targetOrgId: string } | null = null;
     let transferredGoalIds: string[] = [];
     let archivedGoals: any[] = [];
@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
             changeType: 'OWNER_TRANSFERRED',
             previousStatus: g.status,
             newStatus: g.status,
-            comment: `사용자 삭제로 인한 이관: ${userName} → 책임자 재지정 대기`,
+            comment: `사용자 삭제로 인한 이관: ${userName} → 수행자 재지정 대기`,
             createdAt: FieldValue.serverTimestamp(),
           }));
           transferredGoalIds.push(g._id);
@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
               userId: transferTarget.targetUserId,
               category: 'GOAL',
               title: g.title ?? '핵심목표',
-              message: `${userName}님의 삭제로 '${g.title ?? '목표'}' 핵심목표가 이관되었습니다. 책임자 재지정이 필요합니다.`,
+              message: `${userName}님의 삭제로 '${g.title ?? '목표'}' 핵심목표가 이관되었습니다. 수행자 재지정이 필요합니다.`,
               link: `/goals/${g._id}`,
               read: false,
               createdAt: FieldValue.serverTimestamp(),

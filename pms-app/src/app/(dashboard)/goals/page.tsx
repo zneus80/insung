@@ -150,7 +150,7 @@ function MyGoalsView() {
         if (!VISIBLE_STATUSES.has(g.status) || g.trashedAt) return false;
         // 본인이 owner 인 목표는 "내 목표" 탭에서 별도 처리 — 팀 탭에서는 제외
         if (g.userId === userProfile!.id) return false;
-        // owner 또는 공동 추진자 중 한 명이라도 스코프 내 인원이면 표시
+        // owner 또는 공동 수행자 중 한 명이라도 스코프 내 인원이면 표시
         if (teamMemberIds.has(g.userId)) return true;
         if ((g.collaboratorIds ?? []).some(id => teamMemberIds.has(id))) return true;
         // relatedOrgIds 가 스코프와 교차 (단, 본인 owner 는 위에서 이미 제외)
@@ -409,7 +409,7 @@ function MyGoalsView() {
                       g.status === 'DRAFT' ||
                       g.status === 'REJECTED' ||
                       (g.status === 'ABANDONED' && !!g.approvedBy);
-                    // 책임자명: 본인 owner 면 본인, 아니면 teamUsers 조회 (공동 추진자로 보이는 경우)
+                    // 수행자명: 본인 owner 면 본인, 아니면 teamUsers 조회 (공동 수행자로 보이는 경우)
                     const ownerName = g.userId === userProfile?.id
                       ? userProfile?.name
                       : (teamUsers[g.userId]?.name ?? undefined);

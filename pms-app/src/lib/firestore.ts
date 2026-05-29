@@ -358,7 +358,7 @@ function mapGoalDoc(d: any): Goal {
 }
 
 export async function getGoalsByOrganization(orgId: string, year?: number): Promise<Goal[]> {
-  // organizationId 또는 relatedOrgIds 에 포함된 목표를 합쳐 반환 (공동 추진자 소속 조직 포함)
+  // organizationId 또는 relatedOrgIds 에 포함된 목표를 합쳐 반환 (공동 수행자 소속 조직 포함)
   const orgConstraints: QueryConstraint[] = [where('organizationId', '==', orgId)];
   const relConstraints: QueryConstraint[] = [where('relatedOrgIds', 'array-contains', orgId)];
   if (year) {
@@ -1728,6 +1728,47 @@ export async function listInnovationActivities(year: number): Promise<Innovation
       updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
     } as InnovationActivity;
   });
+}
+
+export async function listInnovationActivitiesByYearRange(startYear: number, endYear: number): Promise<InnovationActivity[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.INNOVATION_ACTIVITIES),
+    where('year', '>=', startYear),
+    where('year', '<=', endYear),
+  ));
+  return snap.docs.map(d => {
+    const data = d.data();
+    return {
+      ...data,
+      id: d.id,
+      createdAt: fromTimestamp(data.createdAt) ?? new Date(),
+      updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
+    } as InnovationActivity;
+  });
+}
+
+export async function listInnovationActivitiesByUser(userId: string): Promise<InnovationActivity[]> {
+  // 4개 필드 (pmId, memberIds, performerId, instructorId) 에 대해 별도 쿼리 후 dedupe
+  const [snapPm, snapMem, snapPer, snapIns] = await Promise.all([
+    getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('pmId', '==', userId))),
+    getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('memberIds', 'array-contains', userId))),
+    getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('performerId', '==', userId))),
+    getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('instructorId', '==', userId))),
+  ]);
+  const seen = new Map<string, InnovationActivity>();
+  for (const snap of [snapPm, snapMem, snapPer, snapIns]) {
+    for (const d of snap.docs) {
+      if (seen.has(d.id)) continue;
+      const data = d.data();
+      seen.set(d.id, {
+        ...data,
+        id: d.id,
+        createdAt: fromTimestamp(data.createdAt) ?? new Date(),
+        updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
+      } as InnovationActivity);
+    }
+  }
+  return Array.from(seen.values());
 }
 
 export async function createInnovationActivity(

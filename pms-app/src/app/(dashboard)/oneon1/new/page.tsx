@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import type { User, Organization } from '@/types';
 
 // ── 1on1 매칭 후보 산출 ─────────────────────────────────────
-// 정책: "상위 결재권자" 또는 "본인이 책임자인 조직 산하 인원" 과만 매칭 가능.
+// 정책: "상위 결재권자" 또는 "본인이 수행자인 조직 산하 인원" 과만 매칭 가능.
 //  - 팀원 → 본인 팀의 팀장, 본부장, 부문/공장 임원
 //  - 팀장 → 본인 팀의 팀원 (downward) + 본부장 / 임원 (upward)
 //  - 본부장 → 본인 본부 산하 팀장·팀원 (downward) + 임원 (upward)
@@ -191,7 +191,7 @@ export default function NewOneOnOnePage() {
           <div className="rounded-xl border bg-white p-6 space-y-5">
             <h3 className="font-semibold text-gray-900">새 1on1 대화</h3>
             <p className="text-xs text-gray-500 -mt-2">
-              본인 소속의 결재권자(팀장·본부장·임원) 또는 본인이 책임자인 조직 산하 인원과 대화할 수 있습니다.
+              본인 소속의 결재권자(팀장·본부장·임원) 또는 본인이 수행자인 조직 산하 인원과 대화할 수 있습니다.
             </p>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">

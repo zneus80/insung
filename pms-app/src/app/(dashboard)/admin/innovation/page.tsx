@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   getAllUsers,
   listInnovationActivities,
+  listInnovationActivitiesByYearRange,
+  listInnovationActivitiesByUser,
   createInnovationActivity,
   updateInnovationActivity,
   deleteInnovationActivity,
@@ -17,7 +19,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Plus, Trash2, Pencil, X } from 'lucide-react';
+import { Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, Search, User as UserIcon, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type {
@@ -40,21 +42,47 @@ const STATUS_LABEL: Record<InnovationActivityStatus, string> = {
   COMPLETED: '완료',
 };
 
+const CATEGORY_SPAN = 10;
+
 function InnovationContent() {
+  const { userProfile } = useAuth();
   const { activeYear } = useActiveYear();
   const [tab, setTab] = useState<InnovationActivityType>('SMART_PROJECT');
   const [users, setUsers] = useState<User[]>([]);
   const [items, setItems] = useState<InnovationActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [editTarget, setEditTarget] = useState<InnovationActivity | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [openYears, setOpenYears] = useState<Set<number>>(new Set([activeYear]));
+
+  // ── 인라인 추가 폼 상태 ──
+  const [formYear, setFormYear] = useState(activeYear);
+  const [formName, setFormName] = useState('');
+  const [formStatus, setFormStatus] = useState<InnovationActivityStatus>('IN_PROGRESS');
+  const [formConfidential, setFormConfidential] = useState(false);
+  const [formPmId, setFormPmId] = useState('');
+  const [formMemberIds, setFormMemberIds] = useState<string[]>([]);
+  const [formPerformerId, setFormPerformerId] = useState('');
+  const [formInstructorId, setFormInstructorId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // ── 검색 ──
+  const [searchMode, setSearchMode] = useState<'NAME' | 'YEAR'>('NAME');
+  const [searchUserId, setSearchUserId] = useState('');
+  const [searchYear, setSearchYear] = useState<number | ''>('');
+  const [searchResults, setSearchResults] = useState<InnovationActivity[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchPerformed, setSearchPerformed] = useState(false);
 
   async function reload() {
     setLoading(true);
     try {
-      const [u, list] = await Promise.all([getAllUsers(), listInnovationActivities(activeYear)]);
-      // isActive 가 명시적으로 false 인 경우만 제외 (필드 없는 구버전 사용자는 포함)
+      const startYear = activeYear - CATEGORY_SPAN + 1;
+      const [u, list] = await Promise.all([
+        getAllUsers(),
+        listInnovationActivitiesByYearRange(startYear, activeYear),
+      ]);
       setUsers(u.filter(x => x.isActive !== false));
       setItems(list);
     } finally {
@@ -62,12 +90,66 @@ function InnovationContent() {
     }
   }
   useEffect(() => { reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [activeYear]);
+  useEffect(() => { setOpenYears(new Set([activeYear])); setFormYear(activeYear); }, [activeYear]);
 
-  const filtered = useMemo(() => items.filter(i => i.type === tab), [items, tab]);
+  const filteredByTab = useMemo(() => items.filter(i => i.type === tab), [items, tab]);
+  const itemsByYear = useMemo(() => {
+    const m = new Map<number, InnovationActivity[]>();
+    for (let y = activeYear; y > activeYear - CATEGORY_SPAN; y--) m.set(y, []);
+    filteredByTab.forEach(a => { if (m.has(a.year)) m.get(a.year)!.push(a); });
+    return m;
+  }, [filteredByTab, activeYear]);
   const usersById = useMemo(() => new Map(users.map(u => [u.id, u])), [users]);
 
-  function openCreate() { setEditTarget(null); setDialogOpen(true); }
-  function openEdit(item: InnovationActivity) { setEditTarget(item); setDialogOpen(true); }
+  function resetForm() {
+    setFormYear(activeYear);
+    setFormName('');
+    setFormStatus('IN_PROGRESS');
+    setFormConfidential(false);
+    setFormPmId('');
+    setFormMemberIds([]);
+    setFormPerformerId('');
+    setFormInstructorId('');
+  }
+
+  async function handleAdd() {
+    if (!userProfile) return;
+    if (!formName.trim()) { toast.error('이름을 입력하세요.'); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        type: tab,
+        name: formName.trim(),
+        isConfidential: formConfidential,
+        status: formStatus,
+        year: formYear,
+        pmId: tab === 'SMART_PROJECT' ? (formPmId || undefined) : undefined,
+        memberIds: tab === 'SMART_PROJECT' ? formMemberIds : undefined,
+        performerId: tab === 'TDS' ? (formPerformerId || undefined) : undefined,
+        instructorId: tab === 'TDS' ? (formInstructorId || undefined) : undefined,
+        createdBy: userProfile.id,
+      };
+      const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined)) as typeof payload;
+      await createInnovationActivity(clean as Parameters<typeof createInnovationActivity>[0]);
+      toast.success('추가되었습니다.');
+      resetForm();
+      await reload();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(`저장 실패: ${e?.message ?? '오류'}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openEdit(item: InnovationActivity) { setEditTarget(item); setEditDialogOpen(true); }
+  function toggleYear(y: number) {
+    setOpenYears(prev => {
+      const next = new Set(prev);
+      if (next.has(y)) next.delete(y); else next.add(y);
+      return next;
+    });
+  }
 
   async function handleDelete(id: string) {
     if (!confirm('정말 삭제하시겠습니까?')) return;
@@ -75,6 +157,7 @@ function InnovationContent() {
     try {
       await deleteInnovationActivity(id);
       toast.success('삭제되었습니다.');
+      setSearchResults(prev => prev.filter(a => a.id !== id));
       await reload();
     } catch {
       toast.error('삭제 실패');
@@ -83,16 +166,37 @@ function InnovationContent() {
     }
   }
 
+  // ── 검색 핸들러 ──
+  async function handleSearch() {
+    setSearching(true);
+    setSearchPerformed(true);
+    try {
+      if (searchMode === 'NAME') {
+        if (!searchUserId) { toast.error('사용자를 선택하세요.'); return; }
+        const list = await listInnovationActivitiesByUser(searchUserId);
+        setSearchResults(list.filter(a => a.type === tab));
+      } else {
+        if (!searchYear) { toast.error('연도를 입력하세요.'); return; }
+        const list = await listInnovationActivities(Number(searchYear));
+        setSearchResults(list.filter(a => a.type === tab));
+      }
+    } catch (e: any) {
+      toast.error(`조회 실패: ${e?.message ?? '오류'}`);
+    } finally {
+      setSearching(false);
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       <Header title="혁신활동 관리" />
-      <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-5xl">
-        {/* 탭 */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-5xl">
+        {/* 타입 탭 */}
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
           {(['SMART_PROJECT', 'TDS'] as const).map(t => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => { setTab(t); setSearchResults([]); setSearchPerformed(false); }}
               className={cn(
                 'px-5 py-1.5 rounded-md text-sm font-medium transition-colors',
                 tab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700',
@@ -103,77 +207,246 @@ function InnovationContent() {
           ))}
         </div>
 
-        <div className="flex justify-between items-center">
-          <p className="text-sm text-gray-500">{activeYear}년 · {filtered.length}건</p>
-          <Button onClick={openCreate} size="sm" className="gap-1">
-            <Plus className="h-4 w-4" /> {tab === 'SMART_PROJECT' ? '프로젝트 추가' : 'TDS 추가'}
-          </Button>
+        {/* ── 인라인 추가 폼 ─── */}
+        <div className="rounded-xl border bg-white p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Plus className="h-5 w-5 text-blue-600" />
+            <h3 className="text-base font-semibold text-gray-900">
+              {tab === 'SMART_PROJECT' ? '스마트 프로젝트 추가' : 'TDS 추가'}
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>수행년도 *</Label>
+              <Input
+                type="number"
+                min={2000} max={2100}
+                value={String(formYear)}
+                onChange={e => setFormYear(Number(e.target.value) || activeYear)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>진행상태 *</Label>
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                {(['IN_PROGRESS', 'COMPLETED'] as const).map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setFormStatus(s)}
+                    className={cn(
+                      'px-4 py-1 rounded-md text-sm font-medium transition-colors',
+                      formStatus === s ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500',
+                    )}
+                  >
+                    {STATUS_LABEL[s]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>{tab === 'SMART_PROJECT' ? '프로젝트명 *' : 'TDS명 *'}</Label>
+              <Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="이름 입력" />
+            </div>
+            {tab === 'SMART_PROJECT' ? (
+              <>
+                <UserPicker label="PM" users={users} value={formPmId} onChange={setFormPmId} />
+                <MultiUserPicker label="팀원" users={users} values={formMemberIds} onChange={setFormMemberIds} />
+              </>
+            ) : (
+              <>
+                <UserPicker label="수행자" users={users} value={formPerformerId} onChange={setFormPerformerId} />
+                <UserPicker label="지시자" users={users} value={formInstructorId} onChange={setFormInstructorId} />
+              </>
+            )}
+            <label className="flex items-center gap-2 cursor-pointer md:col-span-2">
+              <input
+                type="checkbox"
+                checked={formConfidential}
+                onChange={e => setFormConfidential(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium text-gray-700">대내비 (전사 업무추진현황에서 CONFIDENTIAL 로 마스킹)</span>
+            </label>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={resetForm} disabled={saving}>초기화</Button>
+            <Button onClick={handleAdd} disabled={saving}>{saving ? '저장 중...' : '저장'}</Button>
+          </div>
         </div>
 
-        {loading ? (
-          <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 animate-pulse rounded-lg bg-gray-100" />)}</div>
-        ) : filtered.length === 0 ? (
-          <p className="text-center text-sm text-gray-400 py-10 rounded-xl border bg-white">등록된 항목이 없습니다.</p>
-        ) : (
-          <div className="rounded-xl border bg-white overflow-hidden">
-            {filtered.map((it, idx) => (
-              <div key={it.id} className={cn('px-5 py-3 flex items-start gap-4', idx > 0 && 'border-t')}>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={cn(
-                      'text-xs font-bold rounded-full px-2 py-0.5',
-                      it.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700',
-                    )}>
-                      {STATUS_LABEL[it.status]}
-                    </span>
-                    {it.isConfidential && (
-                      <span className="text-xs font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-700">대내비</span>
-                    )}
-                    <span className="font-medium text-gray-900">{it.name}</span>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    {it.type === 'SMART_PROJECT' ? (
-                      <>
-                        PM: {usersById.get(it.pmId ?? '')?.name ?? '—'}
-                        {' · '}팀원: {(it.memberIds ?? []).map(id => usersById.get(id)?.name).filter(Boolean).join(', ') || '—'}
-                      </>
-                    ) : (
-                      <>
-                        수행자: {usersById.get(it.performerId ?? '')?.name ?? '—'}
-                        {' · '}지시자: {usersById.get(it.instructorId ?? '')?.name ?? '—'}
-                      </>
-                    )}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => openEdit(it)} className="p-1.5 rounded hover:bg-gray-100 text-gray-500" title="수정">
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(it.id)}
-                    disabled={deleting === it.id}
-                    className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-red-600 disabled:opacity-50"
-                    title="삭제"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+        {/* ── 연도별 이력 조회 ── */}
+        <div className="rounded-xl border bg-white overflow-hidden">
+          <div className="px-5 py-4 border-b bg-gray-50 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900">
+              연도별 {tab === 'SMART_PROJECT' ? '스마트 프로젝트' : 'TDS'} 이력 조회
+            </h3>
+            <span className="text-xs text-gray-400">
+              {activeYear - CATEGORY_SPAN + 1} ~ {activeYear} ({CATEGORY_SPAN}년)
+            </span>
           </div>
-        )}
+          {loading ? (
+            <div className="p-6 space-y-2">{[1,2,3].map(i => <div key={i} className="h-10 animate-pulse rounded bg-gray-100" />)}</div>
+          ) : (
+            <div className="divide-y">
+              {Array.from(itemsByYear.entries()).map(([year, list]) => {
+                const isOpen = openYears.has(year);
+                return (
+                  <div key={year}>
+                    <button
+                      onClick={() => toggleYear(year)}
+                      className="w-full flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
+                    >
+                      {isOpen ? <ChevronDown className="h-4 w-4 text-gray-500" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                      <span className={cn('font-semibold', year === activeYear ? 'text-blue-700' : 'text-gray-800')}>
+                        {year}년
+                      </span>
+                      {year === activeYear && (
+                        <span className="rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5">당해</span>
+                      )}
+                      <span className="ml-auto text-xs text-gray-400">{list.length}건</span>
+                    </button>
+                    {isOpen && (
+                      list.length === 0 ? (
+                        <p className="px-12 py-4 text-sm text-gray-400">해당 연도 등록 항목이 없습니다.</p>
+                      ) : (
+                        <ul className="divide-y divide-gray-100 bg-gray-50/30">
+                          {list.map(it => (
+                            <InnovationItemRow key={it.id} it={it} usersById={usersById} onEdit={openEdit} onDelete={handleDelete} deleting={deleting} />
+                          ))}
+                        </ul>
+                      )
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── 검색 (이름·연도) ── */}
+        <div className="rounded-xl border bg-white overflow-hidden">
+          <div className="px-5 py-4 border-b bg-gray-50 flex items-center gap-2">
+            <Search className="h-4 w-4 text-gray-500" />
+            <h3 className="text-sm font-semibold text-gray-900">이름·연도 조회</h3>
+            <span className="text-xs text-gray-400 ml-1">(과거 자료 포함)</span>
+          </div>
+          <div className="p-5 space-y-3">
+            <div className="flex gap-2">
+              {([['NAME', '이름으로', UserIcon], ['YEAR', '연도로', Calendar]] as const).map(([m, label, Icon]) => (
+                <button
+                  key={m}
+                  onClick={() => { setSearchMode(m); setSearchResults([]); setSearchPerformed(false); }}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                    searchMode === m ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {searchMode === 'NAME' ? (
+              <UserPicker label="" users={users} value={searchUserId} onChange={setSearchUserId} />
+            ) : (
+              <Input
+                type="number"
+                value={searchYear === '' ? '' : String(searchYear)}
+                onChange={e => setSearchYear(e.target.value === '' ? '' : Number(e.target.value))}
+                placeholder="예: 2015"
+                min={1990}
+                max={2100}
+              />
+            )}
+
+            <Button onClick={handleSearch} disabled={searching}>
+              {searching ? '조회 중...' : '조회'}
+            </Button>
+          </div>
+
+          {searchPerformed && (
+            searchResults.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-gray-400 text-center border-t">조회 결과가 없습니다.</p>
+            ) : (
+              <ul className="divide-y divide-gray-100 border-t">
+                {searchResults.map(it => (
+                  <InnovationItemRow key={it.id} it={it} usersById={usersById} onEdit={openEdit} onDelete={handleDelete} deleting={deleting} showYear />
+                ))}
+              </ul>
+            )
+          )}
+        </div>
       </div>
 
       <InnovationDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
         type={tab}
         users={users}
         editTarget={editTarget}
-        year={activeYear}
-        onSaved={() => { setDialogOpen(false); reload(); }}
+        year={editTarget?.year ?? activeYear}
+        onSaved={() => { setEditDialogOpen(false); reload(); }}
       />
     </div>
+  );
+}
+
+// ── 행 컴포넌트 ──
+function InnovationItemRow({ it, usersById, onEdit, onDelete, deleting, showYear }: {
+  it: InnovationActivity;
+  usersById: Map<string, User>;
+  onEdit: (it: InnovationActivity) => void;
+  onDelete: (id: string) => void;
+  deleting: string | null;
+  showYear?: boolean;
+}) {
+  return (
+    <li className="px-5 py-3 flex items-start gap-4">
+      <div className="flex-1 min-w-0 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          {showYear && (
+            <span className="text-xs font-bold rounded-full px-2 py-0.5 bg-gray-100 text-gray-700">{it.year}년</span>
+          )}
+          <span className={cn(
+            'text-xs font-bold rounded-full px-2 py-0.5',
+            it.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700',
+          )}>
+            {STATUS_LABEL[it.status]}
+          </span>
+          {it.isConfidential && (
+            <span className="text-xs font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-700">대내비</span>
+          )}
+          <span className="font-medium text-gray-900">{it.name}</span>
+        </div>
+        <p className="text-xs text-gray-500">
+          {it.type === 'SMART_PROJECT' ? (
+            <>
+              PM: {usersById.get(it.pmId ?? '')?.name ?? '—'}
+              {' · '}팀원: {(it.memberIds ?? []).map(id => usersById.get(id)?.name).filter(Boolean).join(', ') || '—'}
+            </>
+          ) : (
+            <>
+              수행자: {usersById.get(it.performerId ?? '')?.name ?? '—'}
+              {' · '}지시자: {usersById.get(it.instructorId ?? '')?.name ?? '—'}
+            </>
+          )}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <button onClick={() => onEdit(it)} className="p-1.5 rounded hover:bg-gray-100 text-gray-500" title="수정">
+          <Pencil className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => onDelete(it.id)}
+          disabled={deleting === it.id}
+          className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-red-600 disabled:opacity-50"
+          title="삭제"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </li>
   );
 }
 

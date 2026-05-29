@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { getUser, getMileage, getOrganizations, getAwardsByUser } from '@/lib/firestore';
+import { getUser, getMileage, getOrganizations, getAwardsByUser, listInnovationActivities } from '@/lib/firestore';
 import { getTier } from '@/lib/mileage-tier';
-import type { User, Mileage, Organization, Award } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
+import type { User, Mileage, Organization, Award, InnovationActivity } from '@/types';
 
 interface Props {
   userId: string;
@@ -21,6 +23,7 @@ interface LoadedData {
   mileage: Mileage | null;
   orgs: Organization[];
   awards: Award[];
+  innovations: InnovationActivity[];
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -31,7 +34,14 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 export default function MemberInfoModal({ userId, userName, renderTrigger, open: openProp, onOpenChange }: Props) {
+  const { userProfile } = useAuth();
+  const { activeYear } = useActiveYear();
   const isControlled = typeof openProp === 'boolean' && typeof onOpenChange === 'function';
+  // 프로필 보기 권한: 팀원 역할 제외 (팀장·임원·CEO·HR 만 활성)
+  // 단, 본인 클릭(헤더의 '내 프로필' 등) 은 항상 허용 — controlled 모드는 외부 제어이므로 항상 허용.
+  const isSelfView = userProfile?.id === userId;
+  const canViewProfile = isControlled || isSelfView ||
+    !!userProfile && (userProfile.role !== 'MEMBER' || !!userProfile.isHrAdmin);
   const [internalOpen, setInternalOpen] = useState(false);
   const open = isControlled ? openProp! : internalOpen;
   const setOpen = (v: boolean) => {
@@ -46,13 +56,20 @@ export default function MemberInfoModal({ userId, userName, renderTrigger, open:
     if (data) return; // 이미 로드된 경우 재사용
     setLoading(true);
     try {
-      const [user, mileage, orgs, awards] = await Promise.all([
+      const [user, mileage, orgs, awards, allInnovations] = await Promise.all([
         getUser(userId),
         getMileage(userId),
         getOrganizations(),
         getAwardsByUser(userId),
+        listInnovationActivities(activeYear),
       ]);
-      setData({ user, mileage, orgs, awards });
+      const innovations = allInnovations.filter(a => (
+        a.pmId === userId ||
+        (a.memberIds ?? []).includes(userId) ||
+        a.performerId === userId ||
+        a.instructorId === userId
+      ));
+      setData({ user, mileage, orgs, awards, innovations });
     } finally {
       setLoading(false);
     }
@@ -74,7 +91,10 @@ export default function MemberInfoModal({ userId, userName, renderTrigger, open:
 
   return (
     <>
-      {isControlled ? null : renderTrigger ? renderTrigger(handleOpen) : (
+      {isControlled ? null : !canViewProfile ? (
+        // 팀원 역할은 프로필 보기 비활성 — 일반 텍스트로 표시
+        <span className="text-sm font-medium text-gray-800">{userName}</span>
+      ) : renderTrigger ? renderTrigger(handleOpen) : (
         <span
           role="button"
           tabIndex={0}
@@ -163,6 +183,9 @@ export default function MemberInfoModal({ userId, userName, renderTrigger, open:
                       )}
                     </div>
                   </Section>
+
+                  {/* 혁신활동 실적 */}
+                  <InnovationSection userId={userId} year={activeYear} items={data.innovations} />
                 </>
               )}
             </div>
@@ -191,6 +214,66 @@ function Row({ label, value }: { label: string; value?: string }) {
     <div className="px-4 py-3 flex items-start gap-3">
       <span className="text-xs font-medium text-gray-500 shrink-0 min-w-[80px]">{label}</span>
       <span className={isEmpty ? 'text-sm text-gray-300' : 'text-sm text-gray-800'}>{display}</span>
+    </div>
+  );
+}
+
+// 혁신활동 실적 — 스마트프로젝트 PM/참여, TDS 지시/수행 카운트. 클릭 시 주제 목록 노출.
+function InnovationSection({ userId, year, items }: { userId: string; year: number; items: InnovationActivity[] }) {
+  const [openKey, setOpenKey] = useState<'sp-pm' | 'sp-mem' | 'tds-ins' | 'tds-per' | null>(null);
+  const spPm = items.filter(a => a.type === 'SMART_PROJECT' && a.pmId === userId);
+  const spMem = items.filter(a => a.type === 'SMART_PROJECT' && (a.memberIds ?? []).includes(userId));
+  const tdsIns = items.filter(a => a.type === 'TDS' && a.instructorId === userId);
+  const tdsPer = items.filter(a => a.type === 'TDS' && a.performerId === userId);
+
+  const cells: Array<{ key: typeof openKey; label: string; list: InnovationActivity[]; cls: string }> = [
+    { key: 'sp-pm', label: '스마트프로젝트 PM', list: spPm, cls: 'text-purple-700' },
+    { key: 'sp-mem', label: '스마트프로젝트 참여', list: spMem, cls: 'text-purple-700' },
+    { key: 'tds-ins', label: 'TDS 지시', list: tdsIns, cls: 'text-cyan-700' },
+    { key: 'tds-per', label: 'TDS 수행', list: tdsPer, cls: 'text-cyan-700' },
+  ];
+
+  const openList = cells.find(c => c.key === openKey)?.list ?? [];
+
+  return (
+    <div>
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">혁신활동 실적 ({year}년)</h3>
+      <div className="rounded-xl border bg-gray-50 overflow-hidden">
+        <div className="grid grid-cols-2 divide-x divide-y">
+          {cells.map(c => {
+            const active = openKey === c.key;
+            return (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => setOpenKey(active ? null : c.key)}
+                disabled={c.list.length === 0}
+                className={`px-4 py-3 text-left transition-colors ${active ? 'bg-white' : 'hover:bg-white/60'} disabled:cursor-default disabled:opacity-60`}
+              >
+                <p className="text-xs text-gray-500">{c.label}</p>
+                <p className={`text-lg font-bold mt-0.5 ${c.list.length > 0 ? c.cls : 'text-gray-300'}`}>
+                  {c.list.length}<span className="text-xs font-normal text-gray-400 ml-1">건</span>
+                </p>
+              </button>
+            );
+          })}
+        </div>
+        {openKey && openList.length > 0 && (
+          <div className="border-t bg-white px-4 py-3 space-y-1.5">
+            <p className="text-xs font-semibold text-gray-500">{cells.find(c => c.key === openKey)?.label} 목록</p>
+            <ul className="space-y-1">
+              {openList.map(a => (
+                <li key={a.id} className="text-sm text-gray-700 flex items-center gap-2">
+                  <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${a.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                    {a.status === 'COMPLETED' ? '완료' : '추진중'}
+                  </span>
+                  <span>{a.name}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
