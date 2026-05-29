@@ -295,35 +295,31 @@ export default function TaskGoalForm({
         }
         await postSubmitNotifications(editGoal.id, payload.title);
       } else if (isApprovedGoal && !isDraft) {
-        // 승인된 목표 수정 상신 → 결재 체인 처음부터 재시작 (안정형 v0.76)
-        // ⚠️ 책임자 변경 시: userId/organizationId 를 즉시 새 책임자로 전환 (routing 정상화 — 새 책임자의 실제 조직 체인 사용).
-        //    단, reassignFromId 에 기존 책임자를 보관 → 회수·반려 시 원복, 최종 승인 시에만 previousOwnerId(배지·확정)로 승격.
+        // 승인된 목표 수정 상신 — 지연 책임자 전환 (deferred ownership) 방식
+        //  - 콘텐츠 (title/description/dueDate/isConfidential) 는 즉시 반영 + modifySnapshot 으로 회수·반려 시 원복.
+        //  - 책임자/공동추진자 변경은 pendingOwner* / pendingCollaboratorIds 에만 저장.
+        //    userId/organizationId/collaboratorIds 는 변하지 않음 → 최종 승인 전까지 모든 권한·노출은 기존 책임자 유지.
+        //  - 결재 체인은 goal.userId(=기존 책임자) 기준으로 계산되어 일관성 확보.
         const { doc: fsDoc, updateDoc: rawUpdate, serverTimestamp: sts, Timestamp: FsTimestamp, deleteField } = await import('firebase/firestore');
         const { db: fsDb } = await import('@/lib/firebase');
         const prevOwnerName = users.find(u => u.id === editGoal.userId)?.name ?? '';
 
-        // 수정요청 회수·반려 시 원복용 스냅샷 — 변경 전 상태 보관
+        // 회수·반려 시 콘텐츠 원복용 스냅샷 (책임자/공동추진자는 변하지 않으므로 스냅샷 불필요)
         const modifySnapshot = {
           title: editGoal.title,
           description: editGoal.description,
           dueDate: FsTimestamp.fromDate(editGoal.dueDate),
           isConfidential: !!editGoal.isConfidential,
-          collaboratorIds: editGoal.collaboratorIds ?? [],
-          relatedOrgIds: editGoal.relatedOrgIds ?? [],
         };
-        await rawUpdate(fsDoc(fsDb, 'goals', editGoal.id), {
-          ...payload,
+
+        // 콘텐츠 필드만 즉시 반영. collaboratorIds/relatedOrgIds 는 isOwnerChanged 일 때 pending 으로 분기.
+        const liveUpdate: any = {
+          title: payload.title,
+          description: payload.description,
           dueDate: FsTimestamp.fromDate(dueDate ? new Date(dueDate) : new Date()),
+          isConfidential: payload.isConfidential,
           modifyRequestedBy: userProfile.id,
           modifySnapshot,
-          ...(isOwnerChanged ? {
-            // 즉시 새 책임자로 전환 (routing 정상). 기존 책임자는 reassignFrom* 에 보관.
-            userId: effectiveOwnerId,
-            organizationId: ownerOrgId,
-            reassignFromId: editGoal.userId,
-            reassignFromName: prevOwnerName,
-            reassignFromOrgId: editGoal.organizationId,
-          } : {}),
           status: submitStatus,
           needsReassignment: false,
           // 이전 결재 체인 초기화 (자동 승인 필드는 아래에서 덮어씀)
@@ -335,7 +331,28 @@ export default function TaskGoalForm({
           approvedAt: deleteField(),
           ...autoApproval.fields,
           updatedAt: sts(),
-        });
+        };
+        if (isOwnerChanged) {
+          // 책임자/공동추진자 변경 — deferred. 현 owner 유지, pending 에 저장.
+          liveUpdate.pendingOwnerId = effectiveOwnerId;
+          liveUpdate.pendingOwnerName = newOwnerName;
+          liveUpdate.pendingOwnerOrgId = ownerOrgId;
+          liveUpdate.pendingCollaboratorIds = cleanedCollaborators;
+          // 구버전 reassignFromId 가 잔류해있으면 정리
+          liveUpdate.reassignFromId = deleteField();
+          liveUpdate.reassignFromName = deleteField();
+          liveUpdate.reassignFromOrgId = deleteField();
+        } else {
+          // 책임자 변경 없음 — collaboratorIds/relatedOrgIds 즉시 반영
+          liveUpdate.collaboratorIds = cleanedCollaborators;
+          liveUpdate.relatedOrgIds = relatedOrgIds;
+          // pending 잔류 정리
+          liveUpdate.pendingOwnerId = deleteField();
+          liveUpdate.pendingOwnerName = deleteField();
+          liveUpdate.pendingOwnerOrgId = deleteField();
+          liveUpdate.pendingCollaboratorIds = deleteField();
+        }
+        await rawUpdate(fsDoc(fsDb, 'goals', editGoal.id), liveUpdate);
         await addGoalHistory({
           goalId: editGoal.id,
           changedBy: userProfile.id,
@@ -349,15 +366,15 @@ export default function TaskGoalForm({
           ...(fieldChanges ? { fieldChanges } : {}),
           ...(submitComment ? { submitComment } : {}),
         });
-        // 다음 결재자 알림 — userId 는 이미 새 책임자라 체인은 정상, 단 표시 주체는 기존 책임자명으로
+        // 다음 결재자 알림 — goal.userId 는 기존 책임자 그대로. 체인도 기존 책임자 기준.
         try {
           const orgsForNotif = allOrgs.length > 0 ? allOrgs : await getOrganizations();
           await notifyNextApprover({
             goal: {
               id: editGoal.id,
               title: payload.title,
-              userId: effectiveOwnerId,           // 새 책임자 → 정확한 결재 체인
-              organizationId: ownerOrgId,
+              userId: editGoal.userId,          // 기존 책임자 유지
+              organizationId: editGoal.organizationId,
               status: submitStatus,
               ...autoApproval.fields,
             } as any,
@@ -366,7 +383,6 @@ export default function TaskGoalForm({
             fromUserId: userProfile.id,
             fromUserName: userProfile.name,
             action: 'SUBMIT',
-            ownerNameOverride: isOwnerChanged ? prevOwnerName : undefined,  // 기존 책임자 명의
           });
         } catch (err) {
           console.error('[알림] 다음 결재자 알림 발송 실패:', err);
@@ -527,11 +543,24 @@ export default function TaskGoalForm({
             <Input type="date" min="2000-01-01" max="2099-12-31" value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </div>
 
-          {/* 책임자 (owner) — 본인 자동 기본값, 다른 사용자 지정 가능 */}
+          {/* 책임자 (owner) — 본인 자동 기본값, 다른 사용자 지정 가능
+              UX: 책임자 변경 시 이전 책임자를 자동으로 공동추진자에 추가, 새 책임자가 기존 공동추진자였으면 제거.
+                  → 스왑 케이스(원 책임자 → 공동추진자, 공동추진자 → 책임자)도 한 번에 처리됨. */}
           <OwnerPicker
             users={users}
             value={ownerId || (userProfile?.id ?? '')}
-            onChange={setOwnerId}
+            onChange={newOwnerId => {
+              const prevOwnerId = ownerId || (userProfile?.id ?? '');
+              setOwnerId(newOwnerId);
+              if (prevOwnerId && prevOwnerId !== newOwnerId) {
+                setCollaboratorIds(curr => {
+                  const withoutNewOwner = curr.filter(id => id !== newOwnerId);
+                  return withoutNewOwner.includes(prevOwnerId)
+                    ? withoutNewOwner
+                    : [...withoutNewOwner, prevOwnerId];
+                });
+              }
+            }}
             search={ownerSearch}
             onSearchChange={setOwnerSearch}
             selfId={userProfile?.id ?? ''}
