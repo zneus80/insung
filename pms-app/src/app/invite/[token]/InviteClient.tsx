@@ -66,6 +66,7 @@ export default function InvitePage() {
         position: invitation.position ?? '',
         isActive: true,
         wasActivated: true,
+        passwordChangedAt: new Date(),
       });
       if (invitation.userId && invitation.userId !== cred.user.uid) {
         await deleteUser(invitation.userId);

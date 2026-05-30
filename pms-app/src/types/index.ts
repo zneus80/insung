@@ -45,6 +45,9 @@ export interface User {
   isHrAdmin?: boolean;      // HR 관리자 권한 (역할과 독립적으로 부여)
   isHrMaster?: boolean;     // HR 마스터 권한 (마스터 전용 기능: 평가이력관리·등급설정·권한부여·백업·비밀번호초기화). 마스터=true 면 isHrAdmin 도 자동 true.
   isActingLead?: boolean;   // 팀장대행 — role === TEAM_LEAD 인 경우에만 유효, 정식 팀장은 false/undefined
+  // 비밀번호 최종 변경 시각 — 90일 경과 시 변경 권장 배너 노출 (강제 X).
+  // 값이 없으면 createdAt 으로 대체.
+  passwordChangedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
