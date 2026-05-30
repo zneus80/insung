@@ -372,10 +372,14 @@ export interface InnovationActivity {
   status: InnovationActivityStatus;
   year: number;
   // SMART_PROJECT
+  /** @deprecated pmIds 사용 — 구버전 단일 PM 호환용 */
   pmId?: string;
+  pmIds?: string[];          // 복수 PM 지원 (v0.77)
   memberIds?: string[];
   // TDS
+  /** @deprecated performerIds 사용 — 구버전 단일 수행자 호환용 */
   performerId?: string;
+  performerIds?: string[];   // 복수 수행자 지원 (v0.77)
   instructorId?: string;
   createdBy: string;             // HR 사용자 id
   createdAt: Date;

@@ -677,7 +677,14 @@ function CollaboratorPicker({ users, value, onChange, search, onSearchChange }: 
       <Input
         value={search}
         onChange={e => onSearchChange(e.target.value)}
-        placeholder="이름·이메일로 검색해서 추가"
+        onKeyDown={e => {
+          if (e.key === 'Enter' && search.trim() && filtered.length === 1) {
+            e.preventDefault();
+            onChange([...value, filtered[0].id]);
+            onSearchChange('');
+          }
+        }}
+        placeholder="이름·이메일로 검색해서 추가 (1명일 때 Enter 로 자동 추가)"
       />
       {search.trim() && (
         <div className="rounded-lg border max-h-44 overflow-y-auto divide-y bg-white">
@@ -745,7 +752,14 @@ function OwnerPicker({ users, value, onChange, search, onSearchChange, selfId }:
       <Input
         value={search}
         onChange={e => onSearchChange(e.target.value)}
-        placeholder="다른 사람을 수행자로 지정하려면 이름·이메일로 검색"
+        onKeyDown={e => {
+          if (e.key === 'Enter' && search.trim() && filtered.length === 1) {
+            e.preventDefault();
+            onChange(filtered[0].id);
+            onSearchChange('');
+          }
+        }}
+        placeholder="다른 사람을 수행자로 지정하려면 이름·이메일로 검색 (1명일 때 Enter)"
       />
       {search.trim() && (
         <div className="rounded-lg border max-h-44 overflow-y-auto divide-y bg-white">

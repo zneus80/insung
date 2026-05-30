@@ -24,6 +24,7 @@ import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { cn } from '@/lib/utils';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
+import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { ChevronDown, Lightbulb, FileText, Target, Lock } from 'lucide-react';
 import type {
   Organization, User, Goal, AnnualGoal, InnovationActivity,
@@ -298,12 +299,12 @@ function InnovationRow({ item, usersById, revealConfidential = false }: { item: 
         <p className="text-xs text-gray-400 mt-0.5">
           {item.type === 'SMART_PROJECT' ? (
             <>
-              PM: {usersById.get(item.pmId ?? '')?.name ?? '—'}
+              PM: {getPmIds(item).map(id => usersById.get(id)?.name).filter(Boolean).join(', ') || '—'}
               {(item.memberIds?.length ?? 0) > 0 && ` · 팀원 ${(item.memberIds ?? []).length}명`}
             </>
           ) : (
             <>
-              수행자: {usersById.get(item.performerId ?? '')?.name ?? '—'}
+              수행자: {getPerformerIds(item).map(id => usersById.get(id)?.name).filter(Boolean).join(', ') || '—'}
               {' · '}지시자: {usersById.get(item.instructorId ?? '')?.name ?? '—'}
             </>
           )}

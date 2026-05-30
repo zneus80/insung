@@ -22,6 +22,7 @@ import AuthGuard from '@/components/layout/AuthGuard';
 import { Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, Search, User as UserIcon, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import type {
   User,
   InnovationActivity,
@@ -61,9 +62,9 @@ function InnovationContent() {
   const [formName, setFormName] = useState('');
   const [formStatus, setFormStatus] = useState<InnovationActivityStatus>('IN_PROGRESS');
   const [formConfidential, setFormConfidential] = useState(false);
-  const [formPmId, setFormPmId] = useState('');
+  const [formPmIds, setFormPmIds] = useState<string[]>([]);
   const [formMemberIds, setFormMemberIds] = useState<string[]>([]);
-  const [formPerformerId, setFormPerformerId] = useState('');
+  const [formPerformerIds, setFormPerformerIds] = useState<string[]>([]);
   const [formInstructorId, setFormInstructorId] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -106,9 +107,9 @@ function InnovationContent() {
     setFormName('');
     setFormStatus('IN_PROGRESS');
     setFormConfidential(false);
-    setFormPmId('');
+    setFormPmIds([]);
     setFormMemberIds([]);
-    setFormPerformerId('');
+    setFormPerformerIds([]);
     setFormInstructorId('');
   }
 
@@ -123,9 +124,9 @@ function InnovationContent() {
         isConfidential: formConfidential,
         status: formStatus,
         year: formYear,
-        pmId: tab === 'SMART_PROJECT' ? (formPmId || undefined) : undefined,
+        pmIds: tab === 'SMART_PROJECT' ? formPmIds : undefined,
         memberIds: tab === 'SMART_PROJECT' ? formMemberIds : undefined,
-        performerId: tab === 'TDS' ? (formPerformerId || undefined) : undefined,
+        performerIds: tab === 'TDS' ? formPerformerIds : undefined,
         instructorId: tab === 'TDS' ? (formInstructorId || undefined) : undefined,
         createdBy: userProfile.id,
       };
@@ -249,12 +250,12 @@ function InnovationContent() {
             </div>
             {tab === 'SMART_PROJECT' ? (
               <>
-                <UserPicker label="PM" users={users} value={formPmId} onChange={setFormPmId} />
+                <MultiUserPicker label="PM (복수 선택 가능)" users={users} values={formPmIds} onChange={setFormPmIds} />
                 <MultiUserPicker label="팀원" users={users} values={formMemberIds} onChange={setFormMemberIds} />
               </>
             ) : (
               <>
-                <UserPicker label="수행자" users={users} value={formPerformerId} onChange={setFormPerformerId} />
+                <MultiUserPicker label="수행자 (복수 선택 가능)" users={users} values={formPerformerIds} onChange={setFormPerformerIds} />
                 <UserPicker label="지시자" users={users} value={formInstructorId} onChange={setFormInstructorId} />
               </>
             )}
@@ -422,12 +423,12 @@ function InnovationItemRow({ it, usersById, onEdit, onDelete, deleting, showYear
         <p className="text-xs text-gray-500">
           {it.type === 'SMART_PROJECT' ? (
             <>
-              PM: {usersById.get(it.pmId ?? '')?.name ?? '—'}
+              PM: {getPmIds(it).map(id => usersById.get(id)?.name).filter(Boolean).join(', ') || '—'}
               {' · '}팀원: {(it.memberIds ?? []).map(id => usersById.get(id)?.name).filter(Boolean).join(', ') || '—'}
             </>
           ) : (
             <>
-              수행자: {usersById.get(it.performerId ?? '')?.name ?? '—'}
+              수행자: {getPerformerIds(it).map(id => usersById.get(id)?.name).filter(Boolean).join(', ') || '—'}
               {' · '}지시자: {usersById.get(it.instructorId ?? '')?.name ?? '—'}
             </>
           )}
@@ -466,9 +467,9 @@ function InnovationDialog({
   const [name, setName] = useState('');
   const [isConfidential, setIsConfidential] = useState(false);
   const [status, setStatus] = useState<InnovationActivityStatus>('IN_PROGRESS');
-  const [pmId, setPmId] = useState<string>('');
+  const [pmIds, setPmIds] = useState<string[]>([]);
   const [memberIds, setMemberIds] = useState<string[]>([]);
-  const [performerId, setPerformerId] = useState<string>('');
+  const [performerIds, setPerformerIds] = useState<string[]>([]);
   const [instructorId, setInstructorId] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
@@ -478,17 +479,17 @@ function InnovationDialog({
       setName(editTarget.name);
       setIsConfidential(editTarget.isConfidential);
       setStatus(editTarget.status);
-      setPmId(editTarget.pmId ?? '');
+      setPmIds(getPmIds(editTarget));
       setMemberIds(editTarget.memberIds ?? []);
-      setPerformerId(editTarget.performerId ?? '');
+      setPerformerIds(getPerformerIds(editTarget));
       setInstructorId(editTarget.instructorId ?? '');
     } else {
       setName('');
       setIsConfidential(false);
       setStatus('IN_PROGRESS');
-      setPmId('');
+      setPmIds([]);
       setMemberIds([]);
-      setPerformerId('');
+      setPerformerIds([]);
       setInstructorId('');
     }
   }, [open, editTarget]);
@@ -504,9 +505,12 @@ function InnovationDialog({
         isConfidential,
         status,
         year,
-        pmId: type === 'SMART_PROJECT' ? (pmId || undefined) : undefined,
+        pmIds: type === 'SMART_PROJECT' ? pmIds : undefined,
+        // 구버전 단일 필드 정리 (수정 시 잔여 데이터 제거)
+        pmId: undefined,
         memberIds: type === 'SMART_PROJECT' ? memberIds : undefined,
-        performerId: type === 'TDS' ? (performerId || undefined) : undefined,
+        performerIds: type === 'TDS' ? performerIds : undefined,
+        performerId: undefined,
         instructorId: type === 'TDS' ? (instructorId || undefined) : undefined,
         createdBy: editTarget?.createdBy ?? userProfile.id,
       };
@@ -573,12 +577,12 @@ function InnovationDialog({
 
           {type === 'SMART_PROJECT' ? (
             <>
-              <UserPicker label="PM (프로젝트 매니저)" users={users} value={pmId} onChange={setPmId} />
+              <MultiUserPicker label="PM (복수 선택 가능)" users={users} values={pmIds} onChange={setPmIds} />
               <MultiUserPicker label="팀원" users={users} values={memberIds} onChange={setMemberIds} />
             </>
           ) : (
             <>
-              <UserPicker label="수행자" users={users} value={performerId} onChange={setPerformerId} />
+              <MultiUserPicker label="수행자 (복수 선택 가능)" users={users} values={performerIds} onChange={setPerformerIds} />
               <UserPicker label="지시자" users={users} value={instructorId} onChange={setInstructorId} />
             </>
           )}
@@ -620,7 +624,18 @@ function UserPicker({ label, users, value, onChange }: {
         </div>
       ) : (
         <>
-          <SearchInput value={search} onChange={setSearch} placeholder="이름·이메일로 검색" />
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="이름·이메일로 검색 (검색 결과 1명일 때 Enter 로 자동 선택)"
+            onKeyDown={e => {
+              if (e.key === 'Enter' && search.trim() && filtered.length === 1) {
+                e.preventDefault();
+                onChange(filtered[0].id);
+                setSearch('');
+              }
+            }}
+          />
           {search.trim() && (
             <div className="rounded-lg border max-h-44 overflow-y-auto divide-y">
               {filtered.length === 0 ? (
@@ -676,7 +691,18 @@ function MultiUserPicker({ label, users, values, onChange }: {
           ))}
         </div>
       )}
-      <SearchInput value={search} onChange={setSearch} placeholder="이름·이메일로 검색해서 추가" />
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="이름·이메일로 검색해서 추가 (검색 결과 1명일 때 Enter 로 자동 추가)"
+        onKeyDown={e => {
+          if (e.key === 'Enter' && search.trim() && filtered.length === 1) {
+            e.preventDefault();
+            onChange([...values, filtered[0].id]);
+            setSearch('');
+          }
+        }}
+      />
       {search.trim() && (
         <div className="rounded-lg border max-h-44 overflow-y-auto divide-y">
           {filtered.length === 0 ? (

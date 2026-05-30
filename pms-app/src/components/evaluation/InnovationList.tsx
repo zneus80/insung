@@ -2,6 +2,7 @@
 
 import type { InnovationActivity } from '@/types';
 import { cn } from '@/lib/utils';
+import { getPmIds, getPerformerIds } from '@/lib/innovation';
 
 const TYPE_LABEL: Record<string, string> = {
   SMART_PROJECT: '스마트프로젝트',
@@ -19,10 +20,10 @@ const STATUS_LABEL: Record<string, string> = {
 /** 해당 멤버의 활동 내 역할 라벨 */
 function roleOf(a: InnovationActivity, memberId: string): string {
   if (a.type === 'SMART_PROJECT') {
-    if (a.pmId === memberId) return 'PM';
+    if (getPmIds(a).includes(memberId)) return 'PM';
     if ((a.memberIds ?? []).includes(memberId)) return '참여';
   } else {
-    if (a.performerId === memberId) return '수행';
+    if (getPerformerIds(a).includes(memberId)) return '수행';
     if (a.instructorId === memberId) return '지시';
   }
   return '';

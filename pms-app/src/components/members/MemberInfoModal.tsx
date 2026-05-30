@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getUser, getMileage, getOrganizations, getAwardsByUser, listInnovationActivities } from '@/lib/firestore';
 import { getTier } from '@/lib/mileage-tier';
+import { getPmIds, getPerformerIds, isInvolved } from '@/lib/innovation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import type { User, Mileage, Organization, Award, InnovationActivity } from '@/types';
@@ -63,12 +64,7 @@ export default function MemberInfoModal({ userId, userName, renderTrigger, open:
         getAwardsByUser(userId),
         listInnovationActivities(activeYear),
       ]);
-      const innovations = allInnovations.filter(a => (
-        a.pmId === userId ||
-        (a.memberIds ?? []).includes(userId) ||
-        a.performerId === userId ||
-        a.instructorId === userId
-      ));
+      const innovations = allInnovations.filter(a => isInvolved(a, userId));
       setData({ user, mileage, orgs, awards, innovations });
     } finally {
       setLoading(false);
@@ -221,10 +217,10 @@ function Row({ label, value }: { label: string; value?: string }) {
 // 혁신활동 실적 — 스마트프로젝트 PM/참여, TDS 지시/수행 카운트. 클릭 시 주제 목록 노출.
 function InnovationSection({ userId, year, items }: { userId: string; year: number; items: InnovationActivity[] }) {
   const [openKey, setOpenKey] = useState<'sp-pm' | 'sp-mem' | 'tds-ins' | 'tds-per' | null>(null);
-  const spPm = items.filter(a => a.type === 'SMART_PROJECT' && a.pmId === userId);
+  const spPm = items.filter(a => a.type === 'SMART_PROJECT' && getPmIds(a).includes(userId));
   const spMem = items.filter(a => a.type === 'SMART_PROJECT' && (a.memberIds ?? []).includes(userId));
   const tdsIns = items.filter(a => a.type === 'TDS' && a.instructorId === userId);
-  const tdsPer = items.filter(a => a.type === 'TDS' && a.performerId === userId);
+  const tdsPer = items.filter(a => a.type === 'TDS' && getPerformerIds(a).includes(userId));
 
   const cells: Array<{ key: typeof openKey; label: string; list: InnovationActivity[]; cls: string }> = [
     { key: 'sp-pm', label: '스마트프로젝트 PM', list: spPm, cls: 'text-purple-700' },

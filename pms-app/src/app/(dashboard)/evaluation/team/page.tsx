@@ -20,6 +20,7 @@ import {
 } from '@/lib/firestore';
 import type { Organization } from '@/types';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
+import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
 import SelfEvalGoalList, { EVAL_RETURN_KEY } from '@/components/evaluation/SelfEvalGoalList';
@@ -205,9 +206,9 @@ function TeamLeadEvalView() {
       active.forEach(m => { innovMap[m.id] = []; });
       innovations.forEach(a => {
         const involved = new Set<string>([
-          ...(a.pmId ? [a.pmId] : []),
+          ...getPmIds(a),
           ...(a.memberIds ?? []),
-          ...(a.performerId ? [a.performerId] : []),
+          ...getPerformerIds(a),
           ...(a.instructorId ? [a.instructorId] : []),
         ]);
         involved.forEach(uid => { if (innovMap[uid]) innovMap[uid].push(a); });
