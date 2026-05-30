@@ -67,6 +67,7 @@ export async function getUser(uid: string): Promise<User | null> {
   return {
     ...data,
     id: snap.id,
+    passwordChangedAt: fromTimestamp(data.passwordChangedAt),
     createdAt: fromTimestamp(data.createdAt) ?? new Date(),
     updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
   } as User;
