@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
-import { getAllUsers, getOrganizations } from '@/lib/firestore';
+import { getAllUsers, getOrganizations, getOrgEvaluations } from '@/lib/firestore';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
@@ -14,7 +14,9 @@ import { SearchInput } from '@/components/ui/search-input';
 import { fromTimestamp } from '@/lib/firestore';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import type { User, Organization, IndividualEvaluation, EvaluationGrade } from '@/types';
+import * as XLSX from 'xlsx';
+import { Download } from 'lucide-react';
+import type { User, Organization, IndividualEvaluation, OrganizationEvaluation, EvaluationGrade } from '@/types';
 
 const GRADE_COLORS: Record<EvaluationGrade, string> = {
   A: 'bg-blue-100 text-blue-700',
@@ -28,7 +30,7 @@ const YEARS = Array.from({ length: 3 }, (_, i) => new Date().getFullYear() - i);
 
 export default function EvaluationHistoryPage() {
   return (
-    <AuthGuard allowedRoles={['CEO']} requireHrAdmin>
+    <AuthGuard allowedRoles={['CEO']} requireHrMaster>
       <EvaluationHistoryContent />
     </AuthGuard>
   );
@@ -38,10 +40,15 @@ function EvaluationHistoryContent() {
   const { userProfile } = useAuth();
   const [selectedYear, setSelectedYear] = useState(YEARS[0]);
   const [evals, setEvals] = useState<IndividualEvaluation[]>([]);
+  const [prevEvals, setPrevEvals] = useState<IndividualEvaluation[]>([]);
   const [users, setUsers] = useState<Record<string, User>>({});
   const [orgs, setOrgs] = useState<Record<string, Organization>>({});
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareLoading, setCompareLoading] = useState(false);
+  // 비교 모드에서 표시할 당해년도 조직평가 등급
+  const [orgEvalsForYear, setOrgEvalsForYear] = useState<OrganizationEvaluation[]>([]);
   // 기본은 부문/공장 우선순위 정렬(NONE = grade 정렬 미적용). 헤더 클릭 시 등급순으로 토글.
   const [sortByGrade, setSortByGrade] = useState<'NONE' | 'ASC' | 'DESC'>('NONE');
 
@@ -71,6 +78,67 @@ function EvaluationHistoryContent() {
     }
     load();
   }, [selectedYear]);
+
+  // 비교 모드 — 전년도 개인평가 + 당해년도 조직평가 로딩
+  useEffect(() => {
+    if (!compareMode) {
+      setPrevEvals([]);
+      setOrgEvalsForYear([]);
+      return;
+    }
+    let cancelled = false;
+    async function loadCompareData() {
+      setCompareLoading(true);
+      try {
+        const [snap, orgEvs] = await Promise.all([
+          getDocs(query(
+            collection(db, 'individualEvaluations'),
+            where('cycleYear', '==', selectedYear - 1),
+          )),
+          getOrgEvaluations(selectedYear),
+        ]);
+        if (cancelled) return;
+        setPrevEvals(snap.docs.map(d => ({
+          ...d.data(),
+          id: d.id,
+          leadSubmittedAt: fromTimestamp(d.data().leadSubmittedAt),
+          hqReviewedAt: fromTimestamp(d.data().hqReviewedAt),
+          execConfirmedAt: fromTimestamp(d.data().execConfirmedAt),
+          createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+          updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
+        } as IndividualEvaluation)));
+        setOrgEvalsForYear(orgEvs);
+      } finally {
+        if (!cancelled) setCompareLoading(false);
+      }
+    }
+    loadCompareData();
+    return () => { cancelled = true; };
+  }, [compareMode, selectedYear]);
+
+  // 조직 ID → 조직평가 등급(당해년도)
+  const orgGradeById: Record<string, EvaluationGrade | undefined> = Object.fromEntries(
+    orgEvalsForYear.map(e => [e.organizationId, e.grade])
+  );
+
+  // userId → 전년도 평가
+  const prevByUser: Record<string, IndividualEvaluation> = Object.fromEntries(
+    prevEvals.map(e => [e.userId, e])
+  );
+
+  // 사용자가 속한 TEAM(팀) 조직 객체 — 체인에서 가장 가까운 TEAM
+  function getTeamOrg(orgId: string | undefined): Organization | null {
+    if (!orgId) return null;
+    let cur = orgs[orgId];
+    while (cur) {
+      if (cur.type === 'TEAM') return cur;
+      cur = cur.parentId ? orgs[cur.parentId] : (undefined as any);
+    }
+    return null;
+  }
+  function getTeamName(orgId: string | undefined): string {
+    return getTeamOrg(orgId)?.name ?? '-';
+  }
 
   // 조직 체인 따라 올라가며 모든 상위 조직명 수집 (재경팀 → 재경본부 → 재경부문)
   function orgChainNames(orgId: string | undefined): string[] {
@@ -119,7 +187,7 @@ function EvaluationHistoryContent() {
         const bv = b.execGrade ? rank[b.execGrade] : 99;
         if (av !== bv) return sortByGrade === 'ASC' ? av - bv : bv - av;
       }
-      // 부문/공장 우선순위 정렬 (기본 또는 등급 동률 시 보조 정렬)
+      // 부문/공장 우선순위 → 팀 우선순위 → 직책 → 이름 가나다순
       const ua = users[a.userId];
       const ub = users[b.userId];
       const da = getDivisionOrg(ua?.organizationId);
@@ -129,7 +197,29 @@ function EvaluationHistoryContent() {
         if (cmp !== 0) return cmp;
       } else if (da) return -1;
       else if (db) return 1;
-      // 같은 부문 내에서는 이름 가나다순
+      // 팀 우선순위 (팀 없음을 먼저, 그 다음 displayOrder)
+      const ta = getTeamOrg(ua?.organizationId);
+      const tb = getTeamOrg(ub?.organizationId);
+      if (!ta && tb) return -1;
+      if (ta && !tb) return 1;
+      if (ta && tb) {
+        const cmp = compareOrgByDisplayOrder(ta, tb);
+        if (cmp !== 0) return cmp;
+      }
+      // 직책 우선순위 (본부장 → 팀장 → 책임 → 주임 → 그 외 → 빈 값)
+      const POSITION_RANK: Record<string, number> = { '본부장': 1, '팀장': 2, '책임': 3, '주임': 4 };
+      const pa = ua?.position ?? '';
+      const pb = ub?.position ?? '';
+      const ra = POSITION_RANK[pa] ?? (pa ? 90 : 99);
+      const rb = POSITION_RANK[pb] ?? (pb ? 90 : 99);
+      if (ra !== rb) return ra - rb;
+      // 같은 직책이면 입사일 순 (이른 입사일이 위)
+      const ha = ua?.hireDate ?? '';
+      const hb = ub?.hireDate ?? '';
+      if (ha && !hb) return -1;
+      if (!ha && hb) return 1;
+      if (ha !== hb) return ha.localeCompare(hb);
+      // 마지막은 이름 가나다순
       return (ua?.name ?? '').localeCompare(ub?.name ?? '', 'ko');
     });
 
@@ -173,10 +263,169 @@ function EvaluationHistoryContent() {
             onChange={setSearch}
             className="max-w-xs"
           />
+          <button
+            type="button"
+            onClick={() => setCompareMode(v => !v)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              compareMode ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+            title={`${selectedYear}년 vs ${selectedYear - 1}년 비교`}
+          >
+            {compareMode ? `비교 해제` : `${selectedYear - 1}년과 비교`}
+          </button>
+          {compareMode && (
+            <button
+              type="button"
+              onClick={() => {
+                const rows = filtered.map(e => {
+                  const user = users[e.userId];
+                  const div = getDivisionOrg(user?.organizationId);
+                  const prev = prevByUser[e.userId];
+                  const orgGrade = div ? orgGradeById[div.id] : undefined;
+                  return {
+                    '부문/공장': div?.name ?? '-',
+                    '조직평가등급': orgGrade ?? '-',
+                    '이름': user?.name ?? '-',
+                    '팀': getTeamName(user?.organizationId),
+                    '직책': user?.position ?? '-',
+                    [`${selectedYear}년 최종등급`]: e.execGrade ?? '-',
+                    [`${selectedYear - 1}년 최종등급`]: prev?.execGrade ?? '-',
+                    '임원 최종등급의견': e.execComment?.trim() ?? '',
+                  };
+                });
+                const ws = XLSX.utils.json_to_sheet(rows);
+                // 같은 부문/공장 셀 병합 (부문/공장: A열=0, 조직평가등급: B열=1). row 0 = 헤더
+                const merges: XLSX.Range[] = [];
+                let s = 1;
+                while (s <= rows.length) {
+                  let e = s;
+                  while (e < rows.length && rows[e]['부문/공장'] === rows[s - 1]['부문/공장']) e++;
+                  if (e > s) {
+                    merges.push({ s: { r: s, c: 0 }, e: { r: e, c: 0 } });
+                    merges.push({ s: { r: s, c: 1 }, e: { r: e, c: 1 } });
+                  }
+                  s = e + 1;
+                }
+                ws['!merges'] = merges;
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, '평가 비교');
+                XLSX.writeFile(wb, `평가비교_${selectedYear}vs${selectedYear - 1}_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+              }}
+              disabled={loading || compareLoading || filtered.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              Excel
+            </button>
+          )}
           <span className="text-xs text-gray-400 ml-auto">총 {filtered.length}명</span>
         </div>
 
         {/* 테이블 */}
+        {compareMode ? (() => {
+          // 부문/공장 그룹별 첫 행과 span 계산 — filtered 는 이미 부문/공장 순으로 정렬됨
+          const divIdByRow = filtered.map(e => getDivisionOrg(users[e.userId]?.organizationId)?.id ?? '');
+          const groupSpan: Record<number, number> = {};
+          const isFirstInGroup: Record<number, boolean> = {};
+          let i = 0;
+          while (i < filtered.length) {
+            let j = i;
+            while (j < filtered.length && divIdByRow[j] === divIdByRow[i]) j++;
+            isFirstInGroup[i] = true;
+            groupSpan[i] = j - i;
+            i = j;
+          }
+          return (
+          <div className="rounded-xl border bg-white overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs">
+                <tr>
+                  <th className="px-4 py-3 text-left">부문/공장</th>
+                  <th className="px-4 py-3 text-center">조직평가등급</th>
+                  <th className="px-4 py-3 text-left">이름</th>
+                  <th className="px-4 py-3 text-left">팀</th>
+                  <th className="px-4 py-3 text-left">직책</th>
+                  <th className="px-4 py-3 text-center">{selectedYear}년 최종등급</th>
+                  <th className="px-4 py-3 text-center">{selectedYear - 1}년 최종등급</th>
+                  <th className="px-4 py-3 text-left">임원 최종등급의견</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(loading || compareLoading) ? (
+                  [1, 2, 3].map(i => (
+                    <tr key={i}>
+                      <td colSpan={8} className="px-4 py-3">
+                        <div className="h-4 animate-pulse rounded bg-gray-100" />
+                      </td>
+                    </tr>
+                  ))
+                ) : filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-sm">
+                      {selectedYear}년 평가 데이터가 없습니다.
+                    </td>
+                  </tr>
+                ) : filtered.map((e, idx) => {
+                  const user = users[e.userId];
+                  const div = getDivisionOrg(user?.organizationId);
+                  const teamName = getTeamName(user?.organizationId);
+                  const prev = prevByUser[e.userId];
+                  const orgGrade = div ? orgGradeById[div.id] : undefined;
+                  const firstInGroup = !!isFirstInGroup[idx];
+                  const isGroupBoundary = firstInGroup && idx > 0;
+                  const rowBorder = isGroupBoundary ? 'border-t-2 border-gray-300' : 'border-t border-gray-100';
+                  return (
+                    <tr key={e.id} className={`hover:bg-gray-50 ${rowBorder}`}>
+                      {firstInGroup && (
+                        <td
+                          rowSpan={groupSpan[idx]}
+                          className="px-4 py-3 text-gray-700 font-medium align-middle bg-gray-50/50 border-r border-gray-200"
+                        >
+                          {div?.name ?? '-'}
+                        </td>
+                      )}
+                      {firstInGroup && (
+                        <td
+                          rowSpan={groupSpan[idx]}
+                          className="px-4 py-3 text-center align-middle bg-gray-50/50 border-r border-gray-200"
+                        >
+                          {orgGrade ? (
+                            <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLORS[orgGrade]}`}>
+                              {orgGrade}
+                            </span>
+                          ) : <span className="text-gray-300">-</span>}
+                        </td>
+                      )}
+                      <td className="px-4 py-3 font-medium text-gray-900">
+                        {user ? <MemberInfoModal userId={user.id} userName={user.name} /> : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">{teamName}</td>
+                      <td className="px-4 py-3 text-gray-500">{user?.position ?? '-'}</td>
+                      <td className="px-4 py-3 text-center">
+                        {e.execGrade ? (
+                          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLORS[e.execGrade]}`}>
+                            {e.execGrade}
+                          </span>
+                        ) : <span className="text-gray-300">-</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {prev?.execGrade ? (
+                          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLORS[prev.execGrade]}`}>
+                            {prev.execGrade}
+                          </span>
+                        ) : <span className="text-gray-300">-</span>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 text-xs whitespace-pre-wrap max-w-md">
+                        {e.execComment?.trim() ? e.execComment : <span className="text-gray-300">-</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          );
+        })() : (
         <div className="rounded-xl border bg-white overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs">
@@ -280,6 +529,7 @@ function EvaluationHistoryContent() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   );

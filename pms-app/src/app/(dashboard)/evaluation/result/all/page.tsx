@@ -68,7 +68,7 @@ function getStage(ie: IndividualEvaluation | undefined): Stage {
 
 export default function EvaluationResultAllPage() {
   return (
-    <AuthGuard allowedRoles={['CEO']} requireHrAdmin>
+    <AuthGuard allowedRoles={['CEO']} requireHrMaster>
       <EvaluationResultAllContent />
     </AuthGuard>
   );

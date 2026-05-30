@@ -10,24 +10,27 @@ import type { UserRole } from '@/types';
 interface AuthGuardProps {
   children: React.ReactNode;
   allowedRoles?: UserRole[];
-  requireHrAdmin?: boolean;  // true면 isHrAdmin 사용자도 접근 가능
+  requireHrAdmin?: boolean;   // true면 isHrAdmin 사용자도 접근 가능
+  requireHrMaster?: boolean;  // true면 isHrMaster 사용자만 접근 가능 (마스터 전용)
 }
 
 function canAccess(
-  profile: { role: UserRole; isHrAdmin?: boolean } | null,
+  profile: { role: UserRole; isHrAdmin?: boolean; isHrMaster?: boolean } | null,
   allowedRoles?: UserRole[],
   requireHrAdmin?: boolean,
+  requireHrMaster?: boolean,
 ): boolean {
   if (!profile) return false;
-  if (!allowedRoles && !requireHrAdmin) return true;
+  if (!allowedRoles && !requireHrAdmin && !requireHrMaster) return true;
   const roleOk = !!allowedRoles && allowedRoles.includes(profile.role);
   const hrOk = !!requireHrAdmin && !!profile.isHrAdmin;
-  return roleOk || hrOk;
+  const masterOk = !!requireHrMaster && !!profile.isHrMaster;
+  return roleOk || hrOk || masterOk;
 }
 
 const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
 
-export default function AuthGuard({ children, allowedRoles, requireHrAdmin }: AuthGuardProps) {
+export default function AuthGuard({ children, allowedRoles, requireHrAdmin, requireHrMaster }: AuthGuardProps) {
   const { firebaseUser, userProfile, loading } = useAuth();
   const router = useRouter();
 
@@ -49,10 +52,10 @@ export default function AuthGuard({ children, allowedRoles, requireHrAdmin }: Au
       return;
     }
 
-    if ((allowedRoles || requireHrAdmin) && userProfile && !canAccess(userProfile, allowedRoles, requireHrAdmin)) {
+    if ((allowedRoles || requireHrAdmin || requireHrMaster) && userProfile && !canAccess(userProfile, allowedRoles, requireHrAdmin, requireHrMaster)) {
       router.replace('/dashboard');
     }
-  }, [isAuthenticated, userProfile, loading, allowedRoles, requireHrAdmin, router]);
+  }, [isAuthenticated, userProfile, loading, allowedRoles, requireHrAdmin, requireHrMaster, router]);
 
   if (loading) {
     return (
@@ -64,7 +67,7 @@ export default function AuthGuard({ children, allowedRoles, requireHrAdmin }: Au
 
   if (!isAuthenticated) return null;
 
-  if ((allowedRoles || requireHrAdmin) && userProfile && !canAccess(userProfile, allowedRoles, requireHrAdmin)) {
+  if ((allowedRoles || requireHrAdmin || requireHrMaster) && userProfile && !canAccess(userProfile, allowedRoles, requireHrAdmin, requireHrMaster)) {
     return null;
   }
 

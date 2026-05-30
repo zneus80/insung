@@ -92,16 +92,20 @@ export default function Header({ title, showBack }: HeaderProps) {
               </p>
             </div>
 
-            {/* 내 프로필 — MemberInfoModal 팝업으로 노출 (Header 최상위에 항상 마운트, 여기선 트리거 버튼만) */}
-            <button
-              onClick={() => { setOpen(false); setProfileOpen(true); }}
-              className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <User className="h-4 w-4" />
-              내 프로필
-            </button>
+            {/* 내 프로필 — 임원·최고관리자 제외 (프로필 불필요 역할) */}
+            {userProfile?.role !== 'EXECUTIVE' && userProfile?.role !== 'CEO' && (
+              <>
+                <button
+                  onClick={() => { setOpen(false); setProfileOpen(true); }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <User className="h-4 w-4" />
+                  내 프로필
+                </button>
 
-            <div className="border-t border-gray-100 my-1" />
+                <div className="border-t border-gray-100 my-1" />
+              </>
+            )}
 
             {/* 로그아웃 */}
             <button
@@ -115,8 +119,8 @@ export default function Header({ title, showBack }: HeaderProps) {
         )}
       </div>
 
-      {/* 내 프로필 모달 — 드롭다운 외부에서 제어 */}
-      {userProfile && (
+      {/* 내 프로필 모달 — 드롭다운 외부에서 제어 (임원·최고관리자 제외) */}
+      {userProfile && userProfile.role !== 'EXECUTIVE' && userProfile.role !== 'CEO' && (
         <MemberInfoModal
           userId={userProfile.id}
           userName={userProfile.name}

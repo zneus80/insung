@@ -7,6 +7,7 @@ import {
   getAllUsers, getAllGoalsByYear, getAllIndividualEvaluations,
   getOrgEvaluations, getMentoringFormsByUsers,
   getBackups, createBackup, deleteBackup,
+  createAuditLog,
   type BackupRecord,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
@@ -20,7 +21,7 @@ import * as XLSX from 'xlsx';
 
 export default function BackupPage() {
   return (
-    <AuthGuard requireHrAdmin>
+    <AuthGuard requireHrMaster>
       <BackupContent />
     </AuthGuard>
   );
@@ -70,6 +71,12 @@ function BackupContent() {
       };
 
       await createBackup(activeYear, userProfile.id, stats);
+      await createAuditLog({
+        action: 'BACKUP_CREATE',
+        actorId: userProfile.id,
+        actorName: userProfile.name,
+        details: `${activeYear}년 백업 생성 (목표 ${stats.goals}건, 평가 ${stats.individualEvaluations}건, 면담서 ${stats.mentoringForms}건)`,
+      });
       toast.success(`${activeYear}년 백업이 완료되었습니다.`);
       await loadBackups();
     } catch (e: any) {
@@ -84,6 +91,14 @@ function BackupContent() {
     setDeleting(backup.id);
     try {
       await deleteBackup(backup.id);
+      if (userProfile) {
+        await createAuditLog({
+          action: 'BACKUP_DELETE',
+          actorId: userProfile.id,
+          actorName: userProfile.name,
+          details: `${backup.year}년 백업 삭제 (${format(backup.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })})`,
+        });
+      }
       toast.success('백업이 삭제되었습니다.');
       setBackups(prev => prev.filter(b => b.id !== backup.id));
     } catch (e: any) {
@@ -132,13 +147,9 @@ function BackupContent() {
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(goalsData), '목표');
 
-      // ③ 개인평가 시트
+      // ③ 개인평가 시트 — 등급·의견 항상 제외 (다운로드 보안 정책)
       const indivData = indivEvals.map(e => ({
         '대상자': userMap[e.userId] ?? e.userId,
-        '팀장 평가등급': e.leadGrade ?? '',
-        '팀장 의견': e.leadComment ?? '',
-        '임원 최종등급': e.execGrade ?? '',
-        '임원 의견': e.execComment ?? '',
         '상태': e.status,
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(indivData), '개인평가');
@@ -165,6 +176,14 @@ function BackupContent() {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mentoringData), '육성면담서');
 
       XLSX.writeFile(wb, `인사데이터_${backup.year}년_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+      if (userProfile) {
+        await createAuditLog({
+          action: 'BACKUP_DOWNLOAD',
+          actorId: userProfile.id,
+          actorName: userProfile.name,
+          details: `${backup.year}년 백업 Excel 다운로드 (등급/의견 제외)`,
+        });
+      }
       toast.success('Excel 파일이 다운로드되었습니다.');
     } catch (e: any) {
       toast.error(`다운로드 실패: ${e?.message ?? '알 수 없는 오류'}`);

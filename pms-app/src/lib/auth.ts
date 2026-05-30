@@ -1,25 +1,25 @@
 import {
-  signInWithPopup,
-  GoogleAuthProvider,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   type User as FirebaseUser,
 } from 'firebase/auth';
 import { auth } from './firebase';
 
-const googleProvider = new GoogleAuthProvider();
-
-export async function signInWithGoogle() {
-  const result = await signInWithPopup(auth, googleProvider);
-  return result.user;
-}
-
-/** 에뮬레이터 전용 테스트 로그인 */
-export async function signInWithTestAccount(email: string, password: string) {
+/** 이메일·비밀번호 로그인 */
+export async function signInWithEmail(email: string, password: string) {
   const result = await signInWithEmailAndPassword(auth, email, password);
   return result.user;
 }
+
+/** 비밀번호 재설정 메일 발송 (사용자 본인이 분실 시) */
+export async function sendPasswordReset(email: string) {
+  await sendPasswordResetEmail(auth, email);
+}
+
+/** @deprecated 기존 호환용 — signInWithEmail 사용 권장 */
+export const signInWithTestAccount = signInWithEmail;
 
 export async function signOut() {
   await firebaseSignOut(auth);

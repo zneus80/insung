@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
@@ -106,7 +107,7 @@ function calcAutoQuotas(
 
 export default function OrgEvaluationPage() {
   return (
-    <AuthGuard allowedRoles={['CEO']} requireHrAdmin>
+    <AuthGuard allowedRoles={['CEO']} requireHrMaster>
       <OrgEvaluationContent />
     </AuthGuard>
   );
@@ -115,8 +116,20 @@ export default function OrgEvaluationPage() {
 function OrgEvaluationContent() {
   const { userProfile } = useAuth();
   const { activeYear: year } = useActiveYear();
+  const searchParams = useSearchParams();
+  const mode = searchParams.get('mode'); // 'grade' | 'quota' | null
   const isCeo = userProfile?.role === 'CEO';
+  const isHrMaster = !!userProfile?.isHrMaster;
   const isHrAdmin = !!userProfile?.isHrAdmin;
+  // 조직평가관리(등급 지정) — CEO 또는 HR 마스터
+  const canSeeGradeSection = isCeo || isHrMaster;
+  // mode 쿼리에 따라 표시할 섹션 결정. mode 없으면 권한대로 모두 표시
+  const showGradeSection = canSeeGradeSection && mode !== 'quota';
+  const showQuotaSection = isHrAdmin && mode !== 'grade';
+  // 페이지 헤더 — mode 별 라벨
+  const headerTitle = mode === 'grade' ? '조직평가관리'
+                    : mode === 'quota' ? '조직평가인원관리'
+                    : '조직평가 관리';
 
   // 공통 데이터
   const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
@@ -126,6 +139,14 @@ function OrgEvaluationContent() {
   const [divQuotas, setDivQuotas] = useState<DivisionGradeQuota[]>([]);
   const [globalQuotas, setGlobalQuotas] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+
+  // 조직평가관리 — 3개년 선택 + 비교 모드
+  const GRADE_YEARS = Array.from({ length: 3 }, (_, i) => year - i);
+  const [gradeSelectedYear, setGradeSelectedYear] = useState(year);
+  const [gradeYearEvals, setGradeYearEvals] = useState<OrganizationEvaluation[]>([]);
+  const [gradePrevEvals, setGradePrevEvals] = useState<OrganizationEvaluation[]>([]);
+  const [gradeCompareMode, setGradeCompareMode] = useState(false);
+  const [gradeYearLoading, setGradeYearLoading] = useState(false);
 
   // CEO 이력 다이얼로그
   const [historyOrg, setHistoryOrg] = useState<Organization | null>(null);
@@ -172,6 +193,43 @@ function OrgEvaluationContent() {
   }
 
   useEffect(() => { load(); }, []);
+
+  // 조직평가관리 — 선택 연도(및 비교 모드 시 전년도) 평가 로드
+  useEffect(() => {
+    if (!showGradeSection) return;
+    let cancelled = false;
+    async function loadGradeYear() {
+      setGradeYearLoading(true);
+      try {
+        // 활성 연도면 이미 로드된 evaluations 재사용
+        if (gradeSelectedYear === year) {
+          if (!cancelled) setGradeYearEvals(evaluations);
+        } else {
+          const evs = await getOrgEvaluations(gradeSelectedYear);
+          if (!cancelled) setGradeYearEvals(evs);
+        }
+        if (gradeCompareMode) {
+          const prev = await getOrgEvaluations(gradeSelectedYear - 1);
+          if (!cancelled) setGradePrevEvals(prev);
+        } else {
+          if (!cancelled) setGradePrevEvals([]);
+        }
+      } finally {
+        if (!cancelled) setGradeYearLoading(false);
+      }
+    }
+    loadGradeYear();
+    return () => { cancelled = true; };
+  }, [gradeSelectedYear, gradeCompareMode, showGradeSection, year, evaluations]);
+
+  // 선택 연도 평가에서 조회
+  function getGradeYearEval(orgId: string) {
+    return gradeYearEvals.find(e => e.organizationId === orgId);
+  }
+  function getGradePrevEval(orgId: string) {
+    return gradePrevEvals.find(e => e.organizationId === orgId);
+  }
+  const isActiveGradeYear = gradeSelectedYear === year;
 
   // 조직 산하 전체 평가 대상 인원 수 (재귀 하위 포함) — 임원·CEO 는 쿼터 기준에서 제외
   function getMemberCount(orgId: string): number {
@@ -408,21 +466,133 @@ function OrgEvaluationContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="조직평가 관리" />
+      <Header title={headerTitle} />
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
-        {/* ── CEO: 부문/공장 등급 지정 ── */}
-        {isCeo && (
+        {/* ── 등급 지정 (CEO·HR 마스터) ── */}
+        {showGradeSection && (
           <section className="space-y-3">
             <div>
-              <h3 className="font-semibold text-gray-900">{year}년 조직 등급 지정</h3>
+              <h3 className="font-semibold text-gray-900">{gradeSelectedYear}년 조직 등급 지정</h3>
               <p className="text-xs text-gray-500 mt-0.5">
                 부문/공장 단위 조직의 등급을 지정합니다. 상위 부문 없이 단독으로 운영되는 팀도 여기서 등급을 지정합니다.
                 등급 변경 시 이력이 자동으로 기록되며, 쿼터 확정 후 등급 변경 시 재확정이 필요합니다.
+                {!isActiveGradeYear && (
+                  <span className="ml-1 text-orange-600">· 활성 연도가 아니므로 등급 변경이 불가합니다 (조회 전용).</span>
+                )}
               </p>
             </div>
 
-            {loading ? (
+            {/* 연도 탭 + 비교 토글 */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex gap-1">
+                {GRADE_YEARS.map(y => (
+                  <button
+                    key={y}
+                    type="button"
+                    onClick={() => setGradeSelectedYear(y)}
+                    className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      gradeSelectedYear === y ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {y}년
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setGradeCompareMode(v => !v)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  gradeCompareMode ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+                title={`${gradeSelectedYear}년 vs ${gradeSelectedYear - 1}년 비교`}
+              >
+                {gradeCompareMode ? '비교 해제' : `${gradeSelectedYear - 1}년과 비교`}
+              </button>
+              {gradeCompareMode && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const XLSX = await import('xlsx');
+                    const rows = targetOrgs.map(org => {
+                      const cur = getGradeYearEval(org.id);
+                      const prev = getGradePrevEval(org.id);
+                      return {
+                        '조직명': org.name,
+                        '유형': ORG_TYPE_LABEL[org.type] ?? org.type,
+                        [`${gradeSelectedYear}년 등급`]: cur?.grade ?? '-',
+                        [`${gradeSelectedYear - 1}년 등급`]: prev?.grade ?? '-',
+                      };
+                    });
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), '조직 등급 비교');
+                    XLSX.writeFile(wb, `조직평가비교_${gradeSelectedYear}vs${gradeSelectedYear - 1}.xlsx`);
+                  }}
+                  disabled={loading || gradeYearLoading || targetOrgs.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Excel
+                </button>
+              )}
+            </div>
+
+            {gradeCompareMode ? (
+              <div className="rounded-xl border bg-white overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs text-gray-500">
+                    <tr>
+                      <th className="px-4 py-3 text-left">조직명</th>
+                      <th className="px-4 py-3 text-left">유형</th>
+                      <th className="px-4 py-3 text-center">{gradeSelectedYear}년 등급</th>
+                      <th className="px-4 py-3 text-center">{gradeSelectedYear - 1}년 등급</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {(loading || gradeYearLoading) ? (
+                      [1, 2, 3].map(i => (
+                        <tr key={i}>
+                          <td colSpan={4} className="px-4 py-3">
+                            <div className="h-4 animate-pulse rounded bg-gray-100" />
+                          </td>
+                        </tr>
+                      ))
+                    ) : targetOrgs.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-sm">평가 대상 조직이 없습니다.</td>
+                      </tr>
+                    ) : targetOrgs.map(org => {
+                      const cur = getGradeYearEval(org.id);
+                      const prev = getGradePrevEval(org.id);
+                      return (
+                        <tr key={org.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium text-gray-900">{org.name}</td>
+                          <td className="px-4 py-3">
+                            <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+                              {ORG_TYPE_LABEL[org.type] ?? org.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {cur?.grade ? (
+                              <span className={`inline-block rounded-full px-3 py-0.5 text-sm font-bold ${GRADE_COLOR[cur.grade]}`}>
+                                {cur.grade}
+                              </span>
+                            ) : <span className="text-gray-300">-</span>}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {prev?.grade ? (
+                              <span className={`inline-block rounded-full px-3 py-0.5 text-sm font-bold ${GRADE_COLOR[prev.grade]}`}>
+                                {prev.grade}
+                              </span>
+                            ) : <span className="text-gray-300">-</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (loading || gradeYearLoading) ? (
               [1, 2, 3].map(i => <div key={i} className="h-14 animate-pulse rounded-xl bg-gray-100" />)
             ) : targetOrgs.length === 0 ? (
               <div className="rounded-xl border border-dashed p-8 text-center text-sm text-gray-400">
@@ -444,7 +614,7 @@ function OrgEvaluationContent() {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {targetOrgs.map(org => {
-                      const ev = getEval(org.id);
+                      const ev = getGradeYearEval(org.id);
                       const quota = divQuotas.find(q => q.organizationId === org.id);
                       const memberCount = getMemberCount(org.id);
                       return (
@@ -469,10 +639,10 @@ function OrgEvaluationContent() {
                             <Select
                               value={ev?.grade ?? ''}
                               onValueChange={g => handleGradeAssign(org, g as EvaluationGrade)}
-                              disabled={savingGrade === org.id}
+                              disabled={savingGrade === org.id || !isActiveGradeYear}
                             >
                               <SelectTrigger className="w-28 mx-auto">
-                                <SelectValue placeholder="등급 선택" />
+                                <SelectValue placeholder={isActiveGradeYear ? '등급 선택' : '조회 전용'} />
                               </SelectTrigger>
                               <SelectContent>
                                 {GRADES.map(g => (
@@ -511,7 +681,7 @@ function OrgEvaluationContent() {
         )}
 
         {/* ── HR_ADMIN: 개인 등급 쿼터 확정 ── */}
-        {isHrAdmin && (
+        {showQuotaSection && (
           <section className="space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>

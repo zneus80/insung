@@ -15,7 +15,7 @@ const GRADES: EvaluationGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
 export default function SettingsPage() {
   return (
-    <AuthGuard requireHrAdmin>
+    <AuthGuard requireHrMaster>
       <SettingsContent />
     </AuthGuard>
   );

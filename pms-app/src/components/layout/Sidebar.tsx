@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   LayoutDashboard,
   Target,
@@ -24,6 +24,7 @@ import {
   HardDrive,
   ClipboardList,
   Lightbulb,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -39,6 +40,7 @@ interface NavItem {
   icon: React.ReactNode;
   roles?: UserRole[];
   requireHrAdmin?: boolean;
+  requireHrMaster?: boolean;  // HR 마스터 전용 메뉴 (평가이력·조직평가인원·등급설정 등)
   /** 조직 체인 기반 유효 평가 권한으로 필터 (있으면 roles 대신 이쪽 우선) */
   evalRoles?: EffectiveEvalRole[];
   exact?: boolean;
@@ -106,7 +108,7 @@ const navItems: NavItem[] = [
     roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
 
-  // ── 7-1. 전사 인원현황 (CEO + HR관리자) — 그룹 없이 단독 ─
+  // ── 7-1. 전사 인원현황 (CEO + HR 마스터) — 그룹 없이 단독 ─
   {
     label: '전사 인원현황',
     href: '/admin/all-members',
@@ -117,7 +119,7 @@ const navItems: NavItem[] = [
     label: '전사 인원현황',
     href: '/admin/all-members',
     icon: <Users className="h-5 w-5" />,
-    requireHrAdmin: true,
+    requireHrMaster: true,
   },
 
   // ══ EGG Meeting ═════════════════════════════
@@ -179,23 +181,8 @@ const navItems: NavItem[] = [
   },
   {
     label: '조직평가관리',
-    href: '/evaluation/org',
+    href: '/evaluation/org?mode=grade',
     icon: <BarChart3 className="h-5 w-5" />,
-    roles: ['CEO'],
-    group: '인사고과',
-  },
-  {
-    label: '평가결과 확인',
-    href: '/evaluation/result',
-    icon: <CheckSquare className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-    exact: true,
-    group: '인사고과',
-  },
-  {
-    label: '전사 평가결과확인',
-    href: '/evaluation/result/all',
-    icon: <CheckSquare className="h-5 w-5" />,
     roles: ['CEO'],
     group: '인사고과',
   },
@@ -207,10 +194,18 @@ const navItems: NavItem[] = [
     group: '인사고과',
   },
   {
-    label: '전사 평가결과확인',
+    label: '전사 평가진행확인',
     href: '/evaluation/result/all',
     icon: <CheckSquare className="h-5 w-5" />,
-    requireHrAdmin: true,
+    roles: ['CEO'],
+    group: '인사고과',
+  },
+  {
+    label: '평가결과 확인',
+    href: '/evaluation/result',
+    icon: <CheckSquare className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
     group: '인사고과',
   },
 
@@ -270,21 +265,35 @@ const navItems: NavItem[] = [
     label: '평가이력 관리',
     href: '/admin/evaluation-history',
     icon: <BarChart3 className="h-5 w-5" />,
-    requireHrAdmin: true,
+    requireHrMaster: true,
+    group: '인사평가 설정',
+  },
+  {
+    label: '조직평가관리',
+    href: '/evaluation/org?mode=grade',
+    icon: <BarChart3 className="h-5 w-5" />,
+    requireHrMaster: true,
     group: '인사평가 설정',
   },
   {
     label: '조직평가인원관리',
-    href: '/evaluation/org',
+    href: '/evaluation/org?mode=quota',
     icon: <BarChart3 className="h-5 w-5" />,
-    requireHrAdmin: true,
+    requireHrMaster: true,
+    group: '인사평가 설정',
+  },
+  {
+    label: '전사 평가진행확인',
+    href: '/evaluation/result/all',
+    icon: <CheckSquare className="h-5 w-5" />,
+    requireHrMaster: true,
     group: '인사평가 설정',
   },
   {
     label: '개인평가등급 설정',
     href: '/admin/settings',
     icon: <Settings className="h-5 w-5" />,
-    requireHrAdmin: true,
+    requireHrMaster: true,
     group: '인사평가 설정',
   },
 
@@ -300,13 +309,23 @@ const navItems: NavItem[] = [
     label: '데이터 백업 관리',
     href: '/admin/backup',
     icon: <HardDrive className="h-5 w-5" />,
-    requireHrAdmin: true,
+    requireHrMaster: true,
+    group: '시스템 설정',
+  },
+
+  // ── 최고관리자 전용 — HR 권한 관리 ───────────────────
+  {
+    label: 'HR 마스터 권한 관리',
+    href: '/admin/hr-master',
+    icon: <ShieldCheck className="h-5 w-5" />,
+    roles: ['CEO'],
     group: '시스템 설정',
   },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { userProfile, effectiveEvalRole } = useAuth();
   const { activeYear, calendarYear } = useActiveYear();
@@ -329,19 +348,20 @@ export default function Sidebar() {
 
   const visibleItemsRaw = navItems.filter(item => {
     // 역할·HR·평가권한 제한이 모두 없으면 전체 표시
-    if (!item.roles && !item.requireHrAdmin && !item.evalRoles) return true;
+    if (!item.roles && !item.requireHrAdmin && !item.requireHrMaster && !item.evalRoles) return true;
     // 역할 조건: roles 배열이 있을 때만 체크
     const roleOk = !!item.roles && !!userProfile && item.roles.includes(userProfile.role);
     // HR 관리자 조건
     const hrOk = !!item.requireHrAdmin && !!userProfile?.isHrAdmin;
+    const masterOk = !!item.requireHrMaster && !!userProfile?.isHrMaster;
     // 유효 평가 권한 조건 (조직 체인 기반)
     const evalOk = !!item.evalRoles && item.evalRoles.includes(effectiveEvalRole);
-    return roleOk || hrOk || evalOk;
+    return roleOk || hrOk || masterOk || evalOk;
   });
-  // CEO+HR 등 중복 진입(같은 href + group)을 한 번만 표시
+  // CEO+HR 등 중복 진입(같은 label + href + group)을 한 번만 표시 — 라벨이 다르면 별개 항목으로 유지
   const seenKeys = new Set<string>();
   const visibleItems = visibleItemsRaw.filter(item => {
-    const key = `${item.href}__${item.group ?? ''}`;
+    const key = `${item.label}__${item.href}__${item.group ?? ''}`;
     if (seenKeys.has(key)) return false;
     seenKeys.add(key);
     return true;
@@ -372,11 +392,21 @@ export default function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         {(() => {
           const normalizedPath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+          // 현재 URL 의 ?mode= 파라미터 (조직평가 페이지 등에서 메뉴 구분용)
+          const currentMode = searchParams.get('mode');
           let lastGroup: string | undefined = undefined;
           return visibleItems.map((item) => {
-            const isActive = item.exact
-              ? normalizedPath === item.href
-              : normalizedPath === item.href || normalizedPath.startsWith(item.href + '/');
+            // item.href 에서 path 와 query 분리
+            const [itemPath, itemQuery] = item.href.split('?');
+            const itemModeMatch = itemQuery?.match(/(?:^|&)mode=([^&]+)/);
+            const itemMode = itemModeMatch?.[1];
+            const pathOk = item.exact
+              ? normalizedPath === itemPath
+              : normalizedPath === itemPath || normalizedPath.startsWith(itemPath + '/');
+            // mode 가 지정된 항목은 현재 URL 의 mode 와 정확히 일치해야 active
+            // mode 가 없는 항목은 현재 URL 에도 mode 가 없을 때만 active (다른 mode 메뉴와 혼동 방지)
+            const modeOk = itemMode ? currentMode === itemMode : !currentMode;
+            const isActive = pathOk && modeOk;
             const showGroupHeader = item.group && item.group !== lastGroup;
             if (item.group) lastGroup = item.group;
             return (
