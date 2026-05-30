@@ -64,35 +64,47 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
           }
           return ids;
         }
-        // 본부장 판별: TEAM_LEAD 인데 본인 소속이 HEADQUARTERS 거나, HQ 의 leaderId
-        const myLedHQ = allOrgs.find(o => o.leaderId === userProfile.id && o.type === 'HEADQUARTERS');
+        // 다중 leader 겸직 지원 — 본인이 leaderId 인 모든 조직 + (TEAM_LEAD/MEMBER) home org
+        const myLedHQs = allOrgs.filter(o => o.leaderId === userProfile.id && o.type === 'HEADQUARTERS');
+        const myLedDivs = allOrgs.filter(o => o.leaderId === userProfile.id && o.type === 'DIVISION');
         const isHQHead =
           (userProfile.role === 'TEAM_LEAD' && myOrg?.type === 'HEADQUARTERS') ||
-          !!myLedHQ;
-        // 임원(부문/공장 책임) 판별: EXECUTIVE 거나 DIVISION 의 leaderId
-        const myLedDiv = allOrgs.find(o => o.leaderId === userProfile.id && o.type === 'DIVISION');
+          myLedHQs.length > 0;
 
-        if (userProfile.role === 'EXECUTIVE' || myLedDiv) {
-          // 임원 — 부문/공장 전체
-          const divOrg = myLedDiv ?? allOrgs.find(o => o.id === userProfile.organizationId && o.type === 'DIVISION')
-            ?? (myOrg ? findAncestor(myOrg, allOrgs, 'DIVISION') : undefined);
-          if (divOrg) {
-            scopeIds = descendantsOf(divOrg.id);
-            label = `${divOrg.name} 부문/공장 전체`;
+        if (userProfile.role === 'EXECUTIVE' || myLedDivs.length > 0) {
+          // 임원 — 본인이 leader 인 모든 부문/공장 + (home org 가 DIVISION 이면 포함). home org 의 DIVISION 조상도 포함.
+          const divs: Organization[] = [...myLedDivs];
+          if (myOrg?.type === 'DIVISION') divs.push(myOrg);
+          else if (myOrg) {
+            const anc = findAncestor(myOrg, allOrgs, 'DIVISION');
+            if (anc) divs.push(anc);
           }
+          const dedupedDivs = Array.from(new Map(divs.map(d => [d.id, d])).values());
+          scopeIds = Array.from(new Set(dedupedDivs.flatMap(d => descendantsOf(d.id))));
+          label = dedupedDivs.length === 1
+            ? `${dedupedDivs[0].name} 부문/공장 전체`
+            : dedupedDivs.length > 1
+              ? `${dedupedDivs.map(d => d.name).join(', ')} (${dedupedDivs.length}개 부문)`
+              : '';
         } else if (isHQHead) {
-          // 본부장 — 본부 descendants
-          const hqOrg = myLedHQ ?? myOrg;
-          if (hqOrg) {
-            scopeIds = descendantsOf(hqOrg.id);
-            label = `${hqOrg.name} 본부 전체`;
-          }
+          // 본부장 — 본인이 leader 인 모든 HQ + home HQ
+          const hqs: Organization[] = [...myLedHQs];
+          if (myOrg?.type === 'HEADQUARTERS') hqs.push(myOrg);
+          const dedupedHqs = Array.from(new Map(hqs.map(h => [h.id, h])).values());
+          scopeIds = Array.from(new Set(dedupedHqs.flatMap(h => descendantsOf(h.id))));
+          label = dedupedHqs.length === 1
+            ? `${dedupedHqs[0].name} 본부 전체`
+            : `${dedupedHqs.map(h => h.name).join(', ')} (${dedupedHqs.length}개 본부)`;
         } else {
-          // 팀원/팀장 — 본인 팀
-          if (myOrg) {
-            scopeIds = [myOrg.id];
-            label = `${myOrg.name}`;
-          }
+          // 팀원/일반팀장 — home team + 본인이 leader 인 다른 팀들
+          const myLedTeams = allOrgs.filter(o => o.leaderId === userProfile.id);
+          const teams: Organization[] = [...myLedTeams];
+          if (myOrg) teams.push(myOrg);
+          const dedupedTeams = Array.from(new Map(teams.map(t => [t.id, t])).values());
+          scopeIds = Array.from(new Set(dedupedTeams.flatMap(t => descendantsOf(t.id))));
+          label = dedupedTeams.length === 1
+            ? `${dedupedTeams[0].name}`
+            : dedupedTeams.map(t => t.name).join(', ');
         }
         setScopeLabel(label);
 
@@ -130,11 +142,39 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
             qualifyExec,
           };
         });
-        // 팀장 먼저, 이름 가나다순
+        // 1차: 팀(조직) displayOrder 우선, 2차: 직책(팀장→책임→주임→그 외), 3차: 이름 가나다순
+        const orgsMap = new Map(allOrgs.map(o => [o.id, o]));
+        const orgRank = (orgId: string): number => {
+          const o = orgsMap.get(orgId);
+          return o?.displayOrder ?? 999;
+        };
+        // 직책 우선순위 — 팀장 role / position 텍스트 기반 (책임/주임 등)
+        const positionRank = (u: User): number => {
+          if (u.role === 'TEAM_LEAD') return 0;
+          const p = (u.position ?? '').trim();
+          if (p.includes('팀장')) return 0;
+          if (p.includes('책임')) return 1;
+          if (p.includes('선임')) return 2;
+          if (p.includes('주임')) return 3;
+          if (p.includes('사원')) return 4;
+          return 5;
+        };
         data.sort((a, b) => {
-          const rank = (r: string) => r === 'TEAM_LEAD' ? 0 : 1;
-          const d = rank(a.user.role) - rank(b.user.role);
-          if (d !== 0) return d;
+          // 1차: 팀
+          const oa = orgRank(a.user.organizationId);
+          const ob = orgRank(b.user.organizationId);
+          if (oa !== ob) return oa - ob;
+          const orgNameA = orgsMap.get(a.user.organizationId)?.name ?? '';
+          const orgNameB = orgsMap.get(b.user.organizationId)?.name ?? '';
+          if (orgNameA !== orgNameB) return orgNameA.localeCompare(orgNameB, 'ko');
+          // 2차: 직책
+          const pa = positionRank(a.user);
+          const pb = positionRank(b.user);
+          if (pa !== pb) return pa - pb;
+          // 3차: 입사일 (오래된 사람 우선). 미입력은 최하단.
+          const ha = a.user.hireDate || '9999-99-99';
+          const hb = b.user.hireDate || '9999-99-99';
+          if (ha !== hb) return ha.localeCompare(hb);
           return a.user.name.localeCompare(b.user.name, 'ko');
         });
         setRows(data);

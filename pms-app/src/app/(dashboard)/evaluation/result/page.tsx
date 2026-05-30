@@ -116,6 +116,8 @@ function TeamMembersResultView({ year }: { year: number }) {
   const [indivEvals, setIndivEvals] = useState<Record<string, IndividualEvaluation>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [isHQHead, setIsHQHead] = useState(false);
+  const [teamTabs, setTeamTabs] = useState<Organization[]>([]);
+  const [activeTeamTabId, setActiveTeamTabId] = useState<string>('');
 
   function getDescendantIds(orgId: string, allOrgs: Organization[]): string[] {
     const ids: string[] = [orgId];
@@ -138,10 +140,15 @@ function TeamMembersResultView({ year }: { year: number }) {
       const detectedHQHead = hqOrgs.length > 0;
       setIsHQHead(detectedHQHead);
 
-      // scope orgIds 결정
-      const scopeOrgIds = detectedHQHead
-        ? [...new Set(hqOrgs.flatMap(o => getDescendantIds(o.id, allOrgs)))]
-        : [userProfile.organizationId];
+      // scope orgIds 결정 — 본부장이면 HQ descendants, 일반 팀장이면 home + 본인이 leader 인 모든 팀
+      let scopeOrgIds: string[];
+      if (detectedHQHead) {
+        scopeOrgIds = [...new Set(hqOrgs.flatMap(o => getDescendantIds(o.id, allOrgs)))];
+      } else {
+        const ledTeams = allOrgs.filter(o => o.leaderId === userProfile.id);
+        const ledIds = ledTeams.flatMap(o => getDescendantIds(o.id, allOrgs));
+        scopeOrgIds = Array.from(new Set([userProfile.organizationId, ...ledIds]));
+      }
 
       const [allUsers, ...evalLists] = await Promise.all([
         getAllUsers(),
@@ -160,6 +167,14 @@ function TeamMembersResultView({ year }: { year: number }) {
       const ieMap: Record<string, IndividualEvaluation> = {};
       evalList.forEach(ie => { ieMap[ie.userId] = ie; });
       setIndivEvals(ieMap);
+      // 팀 탭 — 멤버가 속한 leaf 조직들
+      const memberOrgIds = new Set(active.map(m => m.organizationId));
+      const leafOrgs = allOrgs
+        .filter(o => memberOrgIds.has(o.id))
+        .slice()
+        .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999) || a.name.localeCompare(b.name, 'ko'));
+      setTeamTabs(leafOrgs);
+      setActiveTeamTabId(prev => leafOrgs.some(o => o.id === prev) ? prev : (leafOrgs[0]?.id ?? ''));
       setLoading(false);
     }
     load();
@@ -169,14 +184,35 @@ function TeamMembersResultView({ year }: { year: number }) {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-2xl space-y-3">
         <p className="text-sm text-gray-500">{year}년 {isHQHead ? '본부 산하 인원' : '소속 팀원'} 평가결과</p>
-        {loading ? (
+        {/* 팀 탭 (다중 팀 겸직 시) */}
+        {teamTabs.length > 1 && (
+          <div className="flex gap-1 border-b bg-white px-1 pt-1 overflow-x-auto">
+            {teamTabs.map(o => (
+              <button
+                key={o.id}
+                onClick={() => setActiveTeamTabId(o.id)}
+                className={cn(
+                  'px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors whitespace-nowrap',
+                  activeTeamTabId === o.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700',
+                )}
+              >
+                {o.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {(() => {
+          const filteredMembers = teamTabs.length > 1
+            ? members.filter(m => m.organizationId === activeTeamTabId)
+            : members;
+          return loading ? (
           <div className="space-y-2">
             {[1,2,3].map(i => <div key={i} className="h-14 animate-pulse rounded-xl bg-gray-100" />)}
           </div>
-        ) : members.length === 0 ? (
+        ) : filteredMembers.length === 0 ? (
           <div className="py-16 text-center text-gray-400">{isHQHead ? '산하 인원이 없습니다.' : '소속 팀원이 없습니다.'}</div>
-        ) : (
-          members.map(member => {
+        ) : (<>{
+          filteredMembers.map(member => {
             const ie = indivEvals[member.id];
             const isOpen = expanded[member.id] ?? false;
             const isPublished = ie?.status === 'PUBLISHED';
@@ -232,7 +268,8 @@ function TeamMembersResultView({ year }: { year: number }) {
               </div>
             );
           })
-        )}
+        }</>);
+        })()}
       </div>
     </div>
   );

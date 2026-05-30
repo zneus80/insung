@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation, abandonActiveGoalsForUser, migrateActiveGoalsToNewOrg } from '@/lib/firestore';
+import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation, abandonActiveGoalsForUser, migrateActiveGoalsToNewOrg, transferActiveGoalsToUpstreamLeader } from '@/lib/firestore';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -249,22 +249,29 @@ function UsersContent() {
   async function handleSave() {
     if (!form.name) { toast.error('이름을 입력하세요.'); return; }
     // 사용자 조직 변경 시 기존 목표 처리 방식 묻기 (v0.75 B14)
-    let goalsAction: 'abandon' | 'migrate' | null = null;
+    let goalsAction: 'transfer' | 'migrate' | 'abandon' | null = null;
     if (editing && form.organizationId && editing.organizationId !== form.organizationId) {
       const fromName = orgs.find(o => o.id === editing.organizationId)?.name ?? '(이전 조직)';
       const toName = orgs.find(o => o.id === form.organizationId)?.name ?? '(새 조직)';
-      const choice = confirm(
+      // 3-way prompt: 숫자 입력 (기본 1)
+      const ans = window.prompt(
         `${editing.name}님의 소속 조직을 변경합니다.\n${fromName} → ${toName}\n\n` +
-        `기존 진행 중인 목표 처리 방식을 선택하세요:\n\n` +
-        `[확인] 모든 진행 중 목표를 자동 포기 확정 + 휴지통 이동\n` +
-        `       (인사평가 자료는 보존됨)\n\n` +
-        `[취소] 진행 중 목표를 새 조직으로 이전해서 재구성\n` +
-        `       (새 조직의 결재 라인·코멘트가 적용됨)`
+        `기존 진행 중인 목표 처리 방식을 선택하세요 (1~3):\n\n` +
+        `1) 상위 권한자에게 이관 (사용자 삭제와 동일 패턴, 수행자 재지정 대기)\n` +
+        `2) 새 조직으로 그대로 이전 (재구성, 새 결재 라인 적용)\n` +
+        `3) 모두 포기 처리 + 휴지통 이동 (인사평가 자료는 보존)`,
+        '1'
       );
-      goalsAction = choice ? 'abandon' : 'migrate';
-      const summary = choice
-        ? `진행 중 목표를 모두 포기 처리하고 휴지통으로 이동합니다.`
-        : `진행 중 목표를 새 조직(${toName})으로 이전하여 재구성합니다.`;
+      if (ans === null) return;
+      if (ans === '1') goalsAction = 'transfer';
+      else if (ans === '2') goalsAction = 'migrate';
+      else if (ans === '3') goalsAction = 'abandon';
+      else { toast.error('1, 2, 3 중 하나를 입력해주세요.'); return; }
+      const summary = goalsAction === 'transfer'
+        ? `진행 중 목표를 상위 권한자에게 자동 이관합니다.`
+        : goalsAction === 'migrate'
+          ? `진행 중 목표를 새 조직(${toName})으로 이전하여 재구성합니다.`
+          : `진행 중 목표를 모두 포기 처리하고 휴지통으로 이동합니다.`;
       if (!confirm(`${summary}\n\n계속하시겠습니까?`)) return;
     }
     setSaving(true);
@@ -279,6 +286,10 @@ function UsersContent() {
           } else if (goalsAction === 'migrate') {
             n = await migrateActiveGoalsToNewOrg(editing.id, form.organizationId);
             if (n > 0) toast.success(`진행 중 목표 ${n}건을 새 조직으로 이전했습니다.`);
+          } else if (goalsAction === 'transfer') {
+            const res = await transferActiveGoalsToUpstreamLeader(editing.id, editing.organizationId, editing.name, userProfile.id);
+            if (res.transferred > 0) toast.success(`진행 중 목표 ${res.transferred}건을 상위 권한자에게 이관했습니다.`);
+            else toast.error('이관 대상 상위 권한자를 찾지 못했습니다.');
           }
         }
         await updateUser(editing.id, {

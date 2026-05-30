@@ -600,14 +600,27 @@ export default function GoalDetailPage() {
             .map(uid => usersMap[uid]?.organizationId)
             .filter((v): v is string => !!v);
           const newRelatedOrgIds = Array.from(new Set([newOwnerOrgId, ...collabOrgIds]));
+          // 스왑 판별: 새 책임자(newOwnerId) 가 변경 전 collaborator 였고, 변경 후 collaborator 목록에 이전 책임자(prevOwnerIdForBadge) 가 포함 → 단순 역할 교체이므로 이관업무 분류 X.
+          // 변경 전 collaboratorIds: pending 방식이면 goal.collaboratorIds (그대로), 구버전이면 modifySnapshot.collaboratorIds 가 있을 때만 정확.
+          const prevCollabs: string[] = goal.pendingOwnerId
+            ? (goal.collaboratorIds ?? [])
+            : ((goal.modifySnapshot?.collaboratorIds as string[] | undefined) ?? []);
+          const isSwap = prevCollabs.includes(newOwnerId) && newCollabs.includes(prevOwnerIdForBadge);
           await rawUpdate(fsDoc(db, COLLECTIONS.GOALS, id), {
             userId: newOwnerId,
             organizationId: newOwnerOrgId,
             collaboratorIds: newCollabs,
             relatedOrgIds: newRelatedOrgIds,
-            previousOwnerId: prevOwnerIdForBadge,
-            previousOwnerName: prevOwnerNameForBadge,
-            transferredAt: sts(),
+            // 스왑이 아닌 진짜 이관일 때만 previousOwnerId/transferredAt 설정
+            ...(isSwap ? {
+              previousOwnerId: deleteField(),
+              previousOwnerName: deleteField(),
+              transferredAt: deleteField(),
+            } : {
+              previousOwnerId: prevOwnerIdForBadge,
+              previousOwnerName: prevOwnerNameForBadge,
+              transferredAt: sts(),
+            }),
             pendingOwnerId: deleteField(),
             pendingOwnerName: deleteField(),
             pendingOwnerOrgId: deleteField(),
@@ -623,7 +636,9 @@ export default function GoalDetailPage() {
             goalId: id, changedBy: userProfile.id,
             changeType: 'OWNER_REASSIGNED',
             previousStatus: goal.status, newStatus: 'APPROVED',
-            comment: `최종 승인으로 수행자 변경 확정: ${prevOwnerNameForBadge} → ${goal.pendingOwnerName ?? goalOwner.name}`,
+            comment: isSwap
+              ? `최종 승인으로 수행자/공동수행자 스왑 확정: ${prevOwnerNameForBadge} ↔ ${goal.pendingOwnerName ?? goalOwner.name}`
+              : `최종 승인으로 수행자 변경 확정: ${prevOwnerNameForBadge} → ${goal.pendingOwnerName ?? goalOwner.name}`,
           });
           // 새 수행자에게 확정 알림
           try {
