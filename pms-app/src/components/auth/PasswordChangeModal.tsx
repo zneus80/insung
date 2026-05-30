@@ -61,7 +61,19 @@ export default function PasswordChangeModal({ open, onOpenChange, onSuccess }: P
       await reauthenticateWithCredential(firebaseUser, cred);
       await updatePassword(firebaseUser, next);
       await updateUser(userProfile.id, { passwordChangedAt: new Date() });
-      toast.success('비밀번호가 변경되었습니다.');
+
+      // 다른 디바이스 세션 강제 로그아웃 — 현재 세션은 즉시 새 idToken 발급으로 유지
+      try {
+        const idToken = await firebaseUser.getIdToken(/*forceRefresh*/ true);
+        await fetch('/api/auth/revoke-sessions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        // 현재 세션 토큰을 재발급해서 살리기
+        await firebaseUser.getIdToken(true);
+      } catch { /* revoke 실패해도 비번 변경 자체는 성공 */ }
+
+      toast.success('비밀번호가 변경되었습니다. 다른 디바이스는 자동 로그아웃됩니다.');
       reset();
       onOpenChange(false);
       onSuccess?.();
