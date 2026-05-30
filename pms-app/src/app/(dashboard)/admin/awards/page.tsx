@@ -382,8 +382,15 @@ function UserPicker({
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder={loading ? '사용자 불러오는 중…' : '이름·이메일로 검색'}
+            placeholder={loading ? '사용자 불러오는 중…' : '이름·이메일로 검색 (1명일 때 Enter 로 자동 선택)'}
             disabled={loading}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && search.trim() && filtered.length === 1) {
+                e.preventDefault();
+                onChange(filtered[0].id);
+                setSearch('');
+              }
+            }}
           />
           {search.trim() && (
             <div className="rounded-lg border max-h-44 overflow-y-auto divide-y bg-white">

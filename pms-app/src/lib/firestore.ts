@@ -1845,15 +1845,17 @@ export async function listInnovationActivitiesByYearRange(startYear: number, end
 }
 
 export async function listInnovationActivitiesByUser(userId: string): Promise<InnovationActivity[]> {
-  // 4개 필드 (pmId, memberIds, performerId, instructorId) 에 대해 별도 쿼리 후 dedupe
-  const [snapPm, snapMem, snapPer, snapIns] = await Promise.all([
+  // 6개 필드 — 구버전(pmId/performerId 단일) + 신버전(pmIds/performerIds 배열) + memberIds + instructorId 모두 매칭
+  const [snapPm, snapPms, snapMem, snapPer, snapPers, snapIns] = await Promise.all([
     getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('pmId', '==', userId))),
+    getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('pmIds', 'array-contains', userId))),
     getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('memberIds', 'array-contains', userId))),
     getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('performerId', '==', userId))),
+    getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('performerIds', 'array-contains', userId))),
     getDocs(query(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES), where('instructorId', '==', userId))),
   ]);
   const seen = new Map<string, InnovationActivity>();
-  for (const snap of [snapPm, snapMem, snapPer, snapIns]) {
+  for (const snap of [snapPm, snapPms, snapMem, snapPer, snapPers, snapIns]) {
     for (const d of snap.docs) {
       if (seen.has(d.id)) continue;
       const data = d.data();
@@ -1883,10 +1885,12 @@ export async function updateInnovationActivity(
   id: string,
   patch: Partial<Omit<InnovationActivity, 'id' | 'createdAt'>>,
 ): Promise<void> {
-  await updateDoc(doc(db, COLLECTIONS.INNOVATION_ACTIVITIES, id), {
-    ...patch,
-    updatedAt: serverTimestamp(),
-  });
+  // 구버전 단일 pmId/performerId 잔존 시 deleteField 처리 (pmIds/performerIds 새 구조 사용)
+  const { deleteField } = await import('firebase/firestore');
+  const payload: any = { ...patch, updatedAt: serverTimestamp() };
+  if ('pmIds' in patch && patch.pmIds !== undefined) payload.pmId = deleteField();
+  if ('performerIds' in patch && patch.performerIds !== undefined) payload.performerId = deleteField();
+  await updateDoc(doc(db, COLLECTIONS.INNOVATION_ACTIVITIES, id), payload);
 }
 
 export async function deleteInnovationActivity(id: string): Promise<void> {
