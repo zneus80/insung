@@ -5,8 +5,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User, ArrowLeft } from 'lucide-react';
+import { LogOut, User, ArrowLeft, KeyRound } from 'lucide-react';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
+import PasswordChangeModal from '@/components/auth/PasswordChangeModal';
 
 interface HeaderProps {
   title?: string;
@@ -18,6 +19,7 @@ export default function Header({ title, showBack }: HeaderProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [pwdOpen, setPwdOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   // 외부 클릭 시 닫기
@@ -37,8 +39,9 @@ export default function Header({ title, showBack }: HeaderProps) {
     router.replace('/login');
   }
 
+  // 한국식 이름 표기: 끝 두 글자(= 보통 이름) 사용. 2자 이하면 그대로.
   const initials = userProfile?.name
-    ? userProfile.name.slice(0, 2)
+    ? userProfile.name.length <= 2 ? userProfile.name : userProfile.name.slice(-2)
     : firebaseUser?.email?.slice(0, 2).toUpperCase() ?? 'U';
 
   return (
@@ -94,18 +97,25 @@ export default function Header({ title, showBack }: HeaderProps) {
 
             {/* 내 프로필 — 임원·최고관리자 제외 (프로필 불필요 역할) */}
             {userProfile?.role !== 'EXECUTIVE' && userProfile?.role !== 'CEO' && (
-              <>
-                <button
-                  onClick={() => { setOpen(false); setProfileOpen(true); }}
-                  className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  <User className="h-4 w-4" />
-                  내 프로필
-                </button>
-
-                <div className="border-t border-gray-100 my-1" />
-              </>
+              <button
+                onClick={() => { setOpen(false); setProfileOpen(true); }}
+                className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <User className="h-4 w-4" />
+                내 프로필
+              </button>
             )}
+
+            {/* 비밀번호 변경 — 전 역할 공통 */}
+            <button
+              onClick={() => { setOpen(false); setPwdOpen(true); }}
+              className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <KeyRound className="h-4 w-4" />
+              비밀번호 변경
+            </button>
+
+            <div className="border-t border-gray-100 my-1" />
 
             {/* 로그아웃 */}
             <button
@@ -118,6 +128,9 @@ export default function Header({ title, showBack }: HeaderProps) {
           </div>
         )}
       </div>
+
+      {/* 비밀번호 변경 모달 */}
+      <PasswordChangeModal open={pwdOpen} onOpenChange={setPwdOpen} />
 
       {/* 내 프로필 모달 — 드롭다운 외부에서 제어 (임원·최고관리자 제외) */}
       {userProfile && userProfile.role !== 'EXECUTIVE' && userProfile.role !== 'CEO' && (
