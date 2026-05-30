@@ -45,6 +45,7 @@ export const COLLECTIONS = {
   YEAR_END_EVALS: 'yearEndEvals',
   MENTORING_FORMS: 'mentoringForms',
   ANNOUNCEMENTS: 'announcements',
+  AUDIT_LOGS: 'auditLogs',
   AWARDS: 'awards',
   SYSTEM_SETTINGS: 'systemSettings',
   BACKUPS: 'backups',
@@ -1715,6 +1716,31 @@ export async function getWeeklyTasksByUsersAndYear(
   );
   return results.flatMap(snap => snap.docs.map(d => toWeeklyTask(d)))
     .sort((a, b) => a.weekNumber - b.weekNumber);
+}
+
+// ─── 감사 로그 (Audit Log) — HR 마스터 보안 액션 추적 ──
+import type { AuditLog, AuditLogAction } from '@/types';
+
+export async function createAuditLog(data: Omit<AuditLog, 'id' | 'createdAt'>): Promise<void> {
+  await addDoc(collection(db, COLLECTIONS.AUDIT_LOGS), {
+    ...data,
+    createdAt: serverTimestamp(),
+  });
+}
+
+export async function listAuditLogs(limit = 200): Promise<AuditLog[]> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.AUDIT_LOGS),
+    orderBy('createdAt', 'desc'),
+  ));
+  return snap.docs.slice(0, limit).map(d => {
+    const data = d.data();
+    return {
+      ...data,
+      id: d.id,
+      createdAt: fromTimestamp(data.createdAt) ?? new Date(),
+    } as AuditLog;
+  });
 }
 
 // ─── 알림 (Notification) ──────────────────────

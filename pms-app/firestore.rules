@@ -21,6 +21,10 @@ service cloud.firestore {
       let d = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
       return d.isHrAdmin == true || d.role == 'HR_ADMIN';
     }
+    function isHrMaster() {
+      let d = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return d.isHrMaster == true;
+    }
     function isCeo()     { return getRole() == 'CEO'; }
     function isExec()    { return getRole() == 'EXECUTIVE'; }
     function isLead()    { return getRole() == 'TEAM_LEAD'; }
@@ -239,6 +243,13 @@ service cloud.firestore {
       allow read: if isHrAdmin();
       allow create: if isHrAdmin();
       allow delete: if isHrAdmin();
+    }
+
+    // 감사 로그 (HR 마스터·최고관리자만 읽기 / HR관리자·최고관리자·본인 행위는 생성 가능 / 삭제 금지)
+    match /auditLogs/{id} {
+      allow read: if isHrMaster() || isCeo();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
     }
   }
 }

@@ -43,6 +43,7 @@ export interface User {
   // - isActive=false && wasActivated!==true: 초대 대기
   wasActivated?: boolean;
   isHrAdmin?: boolean;      // HR 관리자 권한 (역할과 독립적으로 부여)
+  isHrMaster?: boolean;     // HR 마스터 권한 (마스터 전용 기능: 평가이력관리·등급설정·권한부여·백업·비밀번호초기화). 마스터=true 면 isHrAdmin 도 자동 true.
   isActingLead?: boolean;   // 팀장대행 — role === TEAM_LEAD 인 경우에만 유효, 정식 팀장은 false/undefined
   createdAt: Date;
   updatedAt: Date;
@@ -548,6 +549,29 @@ export interface YearEndEval {
 // ─────────────────────────────────────────────
 // 공지사항
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 감사 로그 (HR 마스터 보안 액션 추적)
+// ─────────────────────────────────────────────
+export type AuditLogAction =
+  | 'HR_ROLE_GRANT'      // HR 관리자/마스터 권한 부여
+  | 'HR_ROLE_REVOKE'     // HR 권한 제거
+  | 'PASSWORD_RESET'     // 비밀번호 초기화
+  | 'BACKUP_CREATE'      // 백업 생성
+  | 'BACKUP_DOWNLOAD'    // 백업 다운로드
+  | 'BACKUP_DELETE'      // 백업 삭제
+  | 'USER_DELETE';       // 사용자 삭제
+
+export interface AuditLog {
+  id: string;
+  action: AuditLogAction;
+  actorId: string;       // 행위자 userId (HR 마스터 등)
+  actorName: string;
+  targetId?: string;     // 대상 userId (해당되는 경우)
+  targetName?: string;
+  details?: string;      // 추가 컨텍스트 (변경 전후 등)
+  createdAt: Date;
+}
+
 export interface Announcement {
   id: string;
   title: string;

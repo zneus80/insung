@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { getOrganizations } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
@@ -19,7 +20,15 @@ const ROLE_LABEL: Record<string, string> = {
 // 내 프로필 — 모든 인사 정보는 HR 관리자가 사용자 관리에서 입력. 본인은 읽기 전용 조회만 가능.
 export default function ProfilePage() {
   const { userProfile, firebaseUser } = useAuth();
+  const router = useRouter();
   const [orgs, setOrgs] = useState<Organization[]>([]);
+
+  // 임원·최고관리자는 프로필 불필요 — 대시보드로 리다이렉트
+  useEffect(() => {
+    if (userProfile && (userProfile.role === 'EXECUTIVE' || userProfile.role === 'CEO')) {
+      router.replace('/dashboard');
+    }
+  }, [userProfile, router]);
 
   useEffect(() => {
     getOrganizations().then(setOrgs).catch(() => {});

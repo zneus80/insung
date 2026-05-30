@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation, abandonActiveGoalsForUser, migrateActiveGoalsToNewOrg, transferActiveGoalsToUpstreamLeader } from '@/lib/firestore';
+import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation, abandonActiveGoalsForUser, migrateActiveGoalsToNewOrg, transferActiveGoalsToUpstreamLeader, createAuditLog } from '@/lib/firestore';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -58,7 +58,7 @@ function UsersContent() {
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', hireDate: '', isHrAdmin: false, isActingLead: false });
+  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isActingLead: false });
   const [orgSearch, setOrgSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
@@ -233,14 +233,14 @@ function UsersContent() {
   // ── 단건 저장 ─────────────────────────────────
   function openNew() {
     setEditing(null);
-    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', hireDate: '', isHrAdmin: false, isActingLead: false });
+    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isActingLead: false });
     setOrgSearch('');
     setShowDialog(true);
   }
 
   function openEdit(user: User) {
     setEditing(user);
-    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', hireDate: user.hireDate ?? '', isHrAdmin: !!user.isHrAdmin, isActingLead: !!user.isActingLead });
+    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', hireDate: user.hireDate ?? '', isHrAdmin: !!user.isHrAdmin, isHrMaster: !!user.isHrMaster, isActingLead: !!user.isActingLead });
     setOrgSearch('');
     setShowDialog(true);
   }
@@ -292,26 +292,51 @@ function UsersContent() {
             else toast.error('이관 대상 상위 권한자를 찾지 못했습니다.');
           }
         }
+        // HR 마스터=true 면 관리자도 자동 true
+        const effectiveIsHrAdmin = form.isHrMaster || form.isHrAdmin;
+        const prevAdmin = !!editing.isHrAdmin;
+        const prevMaster = !!editing.isHrMaster;
         await updateUser(editing.id, {
           name: form.name, role: form.role,
           organizationId: form.organizationId || '',
           position: form.position,
           hireDate: form.hireDate || '',
-          isHrAdmin: form.isHrAdmin,
+          isHrAdmin: effectiveIsHrAdmin,
+          isHrMaster: form.isHrMaster,
           // 팀장 역할일 때만 의미 있음 — 다른 역할은 false 로 저장
           isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
         });
+        // 감사 로그 — HR 권한 변경 추적
+        if (userProfile && (prevAdmin !== effectiveIsHrAdmin || prevMaster !== form.isHrMaster)) {
+          const grantedMaster = !prevMaster && form.isHrMaster;
+          const revokedMaster = prevMaster && !form.isHrMaster;
+          const grantedAdmin = !prevAdmin && effectiveIsHrAdmin;
+          const revokedAdmin = prevAdmin && !effectiveIsHrAdmin;
+          const action: 'HR_ROLE_GRANT' | 'HR_ROLE_REVOKE' = (grantedMaster || grantedAdmin) ? 'HR_ROLE_GRANT' : 'HR_ROLE_REVOKE';
+          const detail = [
+            grantedMaster ? '마스터 부여' : revokedMaster ? '마스터 해제' : '',
+            grantedAdmin ? '관리자 부여' : revokedAdmin ? '관리자 해제' : '',
+          ].filter(Boolean).join(' / ');
+          createAuditLog({
+            action,
+            actorId: userProfile.id, actorName: userProfile.name,
+            targetId: editing.id, targetName: editing.name,
+            details: detail,
+          }).catch(err => console.error('[감사로그] 실패:', err));
+        }
         toast.success('수정되었습니다.');
         setShowDialog(false);
         await load();
       } else {
         if (!form.email) { toast.error('이메일을 입력하세요.'); return; }
+        const effectiveIsHrAdmin = form.isHrMaster || form.isHrAdmin;
         await createUser(crypto.randomUUID(), {
           email: form.email, name: form.name, role: form.role,
           organizationId: form.organizationId || '',
           position: form.position || '',
           hireDate: form.hireDate || '',
-          isHrAdmin: form.isHrAdmin,
+          isHrAdmin: effectiveIsHrAdmin,
+          isHrMaster: form.isHrMaster,
           isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
           isActive: false,
         });
@@ -392,6 +417,14 @@ function UsersContent() {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       toast.success(`${user.name}님의 비밀번호가 초기화되었습니다. (1q2w3e4r!)`);
+      // 감사 로그
+      if (userProfile) {
+        createAuditLog({
+          action: 'PASSWORD_RESET',
+          actorId: userProfile.id, actorName: userProfile.name,
+          targetId: user.id, targetName: user.name,
+        }).catch(err => console.error('[감사로그] 실패:', err));
+      }
     } catch (e: any) {
       toast.error(`비밀번호 초기화 실패: ${e?.message}`);
     } finally {
@@ -437,6 +470,14 @@ function UsersContent() {
       } else if (result.transferTarget == null) {
         transferMsg = ' · 이관 대상자 없음 (모두 백업)';
       }
+      await createAuditLog({
+        action: 'USER_DELETE',
+        actorId: userProfile.id,
+        actorName: userProfile.name,
+        targetId: deleteTarget.id,
+        targetName: deleteTarget.name,
+        details: `${deleteTarget.email} 삭제${summary ? ` (백업: ${summary})` : ''}${transferMsg}`,
+      });
       toast.success(
         `${deleteTarget.name}님이 삭제되었습니다.` +
         (summary ? ` (백업: ${summary})` : '') +
@@ -672,9 +713,11 @@ function UsersContent() {
                         </>
                       ) : (
                         <>
-                          <button onClick={() => handleResetPassword(user)} className="p-1.5 rounded hover:bg-gray-100" title="비밀번호 초기화 (1q2w3e4r!)">
-                            <KeyRound className="h-3.5 w-3.5 text-purple-400" />
-                          </button>
+                          {userProfile?.isHrMaster && (
+                            <button onClick={() => handleResetPassword(user)} className="p-1.5 rounded hover:bg-gray-100" title="비밀번호 초기화 (HR 마스터 전용)">
+                              <KeyRound className="h-3.5 w-3.5 text-purple-400" />
+                            </button>
+                          )}
                           <button onClick={() => toggleActive(user)} className="p-1.5 rounded hover:bg-gray-100" title="비활성화">
                             <UserX className="h-3.5 w-3.5 text-orange-400" />
                           </button>
@@ -827,19 +870,57 @@ function UsersContent() {
                   </Label>
                 </div>
               )}
-              <div className="flex items-center gap-2">
-                <input
-                  id="isHrAdmin"
-                  type="checkbox"
-                  checked={form.isHrAdmin}
-                  onChange={e => setForm(f => ({ ...f, isHrAdmin: e.target.checked }))}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                <Label htmlFor="isHrAdmin" className="cursor-pointer">
-                  HR 관리자 권한 부여
-                  <span className="ml-1.5 text-xs text-gray-400 font-normal">(역할과 별개로 HR 관리 기능 접근 가능)</span>
-                </Label>
-              </div>
+              {(() => {
+                // HR 권한 부여/제거 가능 주체:
+                //  - HR 마스터 (상시)
+                //  - CEO (단, 시스템에 마스터가 아직 없을 때 한정 — 부트스트랩용)
+                const isMaster = !!userProfile?.isHrMaster;
+                const noMasterExists = !users.some(u => u.isHrMaster);
+                const isBootstrapCEO = userProfile?.role === 'CEO' && noMasterExists;
+                const canManageHrRoles = isMaster || isBootstrapCEO;
+                return (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="isHrAdmin"
+                        type="checkbox"
+                        checked={form.isHrAdmin || form.isHrMaster}
+                        disabled={!canManageHrRoles || form.isHrMaster}
+                        onChange={e => setForm(f => ({ ...f, isHrAdmin: e.target.checked }))}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <Label htmlFor="isHrAdmin" className="cursor-pointer">
+                        HR 관리자 권한
+                        <span className="ml-1.5 text-xs text-gray-400 font-normal">(기본정보입력·평가기간 등)</span>
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="isHrMaster"
+                        type="checkbox"
+                        checked={form.isHrMaster}
+                        disabled={!canManageHrRoles}
+                        onChange={e => setForm(f => ({ ...f, isHrMaster: e.target.checked }))}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <Label htmlFor="isHrMaster" className="cursor-pointer">
+                        HR 마스터 권한
+                        <span className="ml-1.5 text-xs text-amber-600 font-normal">
+                          (평가이력·등급설정·권한부여·백업·비밀번호 초기화 가능 — 자동으로 관리자 권한 포함)
+                        </span>
+                      </Label>
+                    </div>
+                    {!canManageHrRoles && (
+                      <p className="text-xs text-gray-400">HR 권한 변경은 HR 마스터만 가능합니다.</p>
+                    )}
+                    {isBootstrapCEO && (
+                      <p className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">
+                        💡 시스템에 아직 HR 마스터가 없습니다. 최고관리자가 1명에게 마스터 권한을 부여해주세요.
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
               <OrgPicker
                 orgs={orgs}
                 value={form.organizationId}

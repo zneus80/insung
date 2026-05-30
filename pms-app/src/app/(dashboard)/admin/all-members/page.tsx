@@ -136,7 +136,7 @@ interface MemberRow {
 
 export default function AllMembersPage() {
   return (
-    <AuthGuard allowedRoles={['CEO']} requireHrAdmin>
+    <AuthGuard allowedRoles={['CEO']} requireHrMaster>
       <AllMembersContent />
     </AuthGuard>
   );
