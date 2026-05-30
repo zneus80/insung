@@ -25,6 +25,7 @@ import {
   ClipboardList,
   Lightbulb,
   ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -319,6 +320,14 @@ const navItems: NavItem[] = [
     href: '/admin/hr-master',
     icon: <ShieldCheck className="h-5 w-5" />,
     roles: ['CEO'],
+    group: '시스템 설정',
+  },
+  {
+    label: '감사 로그',
+    href: '/admin/audit-log',
+    icon: <ShieldAlert className="h-5 w-5" />,
+    roles: ['CEO'],
+    requireHrMaster: true,
     group: '시스템 설정',
   },
 ];
