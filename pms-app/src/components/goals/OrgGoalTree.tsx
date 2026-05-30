@@ -84,7 +84,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 // ── 구성원 + 목표 행 ──────────────────────────────
-function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false }: { user: User; goals: Goal[]; persistKey?: string; defaultMemberOpen?: boolean }) {
+function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false, currentOrgId, allOrgs }: { user: User; goals: Goal[]; persistKey?: string; defaultMemberOpen?: boolean; currentOrgId?: string; allOrgs?: Organization[] }) {
   const [open, setOpen] = useState(() => readOpen(persistKey, 'member', user.id, defaultMemberOpen));
   const avg = avgProgress(goals);
   const hasGoals = goals.length > 0;
@@ -115,9 +115,20 @@ function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false }: {
         >
           <MemberInfoModal userId={user.id} userName={user.name[0]} />
         </div>
-        <span className={`text-sm flex-1 ${hasGoals ? 'text-gray-800' : 'text-gray-400'}`}>
-          {user.name}
-          {user.position && <span className="ml-1 text-sm text-gray-400">· {user.position}</span>}
+        <span className={`text-sm flex-1 ${hasGoals ? 'text-gray-800' : 'text-gray-400'} flex items-center gap-1.5 flex-wrap`}>
+          <span>{user.name}</span>
+          {user.position && <span className="text-sm text-gray-400">· {user.position}</span>}
+          {/* 겸직 배지 — 현재 표시 중인 org 외 다른 팀의 leader 인 경우 */}
+          {(() => {
+            if (!allOrgs || !currentOrgId) return null;
+            const concurrent = allOrgs.filter(o => o.leaderId === user.id && o.id !== currentOrgId);
+            if (concurrent.length === 0) return null;
+            return concurrent.map(c => (
+              <span key={c.id} className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">
+                {c.name} 팀장 겸직
+              </span>
+            ));
+          })()}
         </span>
         {hasGoals ? (
           <>
@@ -174,6 +185,7 @@ export function OrgTreeNode({
   persistKey,
   defaultOpenDepth = 2,
   defaultMemberOpen = false,
+  allOrgs,
 }: {
   node: OrgNode;
   depth?: number;
@@ -183,6 +195,8 @@ export function OrgTreeNode({
   defaultOpenDepth?: number;
   /** 개인 목표 행을 기본 펼침 상태로 표시 (기본 false) */
   defaultMemberOpen?: boolean;
+  /** 전체 조직 (겸직 배지 계산용) — 미지정 시 배지 표시 안 함 */
+  allOrgs?: Organization[];
 }) {
   const [open, setOpen] = useState(() => readOpen(persistKey, 'org', node.org.id, depth < defaultOpenDepth));
   const avg = avgProgress(node.goals);
@@ -227,10 +241,10 @@ export function OrgTreeNode({
       {open && (
         <div className="ml-4 space-y-1 mt-1">
           {node.members.map(member => (
-            <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id)} persistKey={persistKey} defaultMemberOpen={defaultMemberOpen} />
+            <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id)} persistKey={persistKey} defaultMemberOpen={defaultMemberOpen} currentOrgId={node.org.id} allOrgs={allOrgs} />
           ))}
           {node.children.map(child => (
-            <OrgTreeNode key={child.org.id} node={child} depth={depth + 1} orgGoalMap={orgGoalMap} persistKey={persistKey} defaultOpenDepth={defaultOpenDepth} defaultMemberOpen={defaultMemberOpen} />
+            <OrgTreeNode key={child.org.id} node={child} depth={depth + 1} orgGoalMap={orgGoalMap} persistKey={persistKey} defaultOpenDepth={defaultOpenDepth} defaultMemberOpen={defaultMemberOpen} allOrgs={allOrgs} />
           ))}
         </div>
       )}

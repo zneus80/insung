@@ -266,7 +266,7 @@ function OrganizationsContent() {
 
         {/* 안내 */}
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shrink-0">
-          <strong>권장 등록 순서:</strong> 조직 등록 (수행자 없이) → 사용자 등록 (소속 지정) → 조직 수정으로 수행자 지정
+          <strong>권장 등록 순서:</strong> 조직 등록 (책임자 없이) → 사용자 등록 (소속 지정) → 조직 수정으로 책임자 지정
         </div>
 
         <div className="flex justify-end shrink-0">
@@ -282,7 +282,7 @@ function OrganizationsContent() {
               <tr>
                 <th className="px-4 py-3 text-left">조직명</th>
                 <th className="px-4 py-3 text-left">구분</th>
-                <th className="px-4 py-3 text-left">수행자</th>
+                <th className="px-4 py-3 text-left">책임자</th>
                 <th className="px-4 py-3 text-center">인원</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -476,7 +476,7 @@ function OrganizationsContent() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>수행자 <span className="text-gray-400 text-xs font-normal">(나중에 지정 가능)</span></Label>
+                <Label>책임자 <span className="text-gray-400 text-xs font-normal">(나중에 지정 가능)</span></Label>
                 <Select
                   value={form.leaderId ?? ''}
                   onValueChange={v => setForm(f => ({ ...f, leaderId: v || null }))}
@@ -492,6 +492,19 @@ function OrganizationsContent() {
                     ))}
                   </SelectContent>
                 </Select>
+                {/* 겸직 정보 — 선택된 leader 가 이미 다른 조직 책임자인 경우 안내 */}
+                {(() => {
+                  if (!form.leaderId) return null;
+                  const concurrent = orgs.filter(o =>
+                    o.leaderId === form.leaderId && o.id !== editing?.id,
+                  );
+                  if (concurrent.length === 0) return null;
+                  return (
+                    <p className="text-xs text-amber-600">
+                      ℹ️ 이 사용자는 이미 {concurrent.length}개 조직({concurrent.map(c => c.name).join(', ')}) 의 책임자입니다. 겸직으로 처리됩니다.
+                    </p>
+                  );
+                })()}
               </div>
               {/* 부문/공장 표시 순서 — DIVISION 타입에만 노출 */}
               {form.type === 'DIVISION' && (

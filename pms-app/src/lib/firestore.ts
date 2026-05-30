@@ -232,6 +232,87 @@ export async function abandonActiveGoalsForUser(userId: string, approvedBy: stri
 }
 
 /**
+ * 특정 사용자의 진행 중 목표를 상위 권한자에게 강제 이관 (사용자 삭제와 동일 패턴).
+ * 조직 변경 시 사용자가 더 이상 그 조직의 일원이 아니지만 목표는 보존하면서 다음 권한자가 처리하게 함.
+ * 대상 권한자: 사용자의 현재 조직 부모 체인을 따라 가장 먼저 발견되는 leaderId (본인 제외) 또는 같은 조직 TEAM_LEAD/EXECUTIVE 폴백.
+ */
+export async function transferActiveGoalsToUpstreamLeader(
+  userId: string,
+  userOrgId: string,
+  userName: string,
+  changedBy: string,
+): Promise<{ transferred: number; targetUserId: string | null; targetOrgId: string | null }> {
+  const [orgsSnap, usersSnap] = await Promise.all([
+    getDocs(collection(db, COLLECTIONS.ORGANIZATIONS)),
+    getDocs(collection(db, COLLECTIONS.USERS)),
+  ]);
+  const orgsById = new Map<string, any>();
+  orgsSnap.docs.forEach(d => orgsById.set(d.id, { id: d.id, ...d.data() }));
+  const allUsers = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+  function findLeaderInOrg(orgId: string): string | null {
+    const cand = allUsers.find(u =>
+      u.id !== userId &&
+      u.organizationId === orgId &&
+      u.isActive !== false &&
+      (u.role === 'TEAM_LEAD' || u.role === 'EXECUTIVE'),
+    );
+    return cand?.id ?? null;
+  }
+
+  // 부모 체인을 따라 leader 찾기
+  let current: any = orgsById.get(userOrgId);
+  let target: { targetUserId: string; targetOrgId: string } | null = null;
+  while (current) {
+    if (current.leaderId && current.leaderId !== userId) {
+      target = { targetUserId: current.leaderId, targetOrgId: current.id };
+      break;
+    }
+    const fb = findLeaderInOrg(current.id);
+    if (fb) { target = { targetUserId: fb, targetOrgId: current.id }; break; }
+    if (!current.parentId) break;
+    current = orgsById.get(current.parentId);
+  }
+  if (!target) return { transferred: 0, targetUserId: null, targetOrgId: null };
+
+  // 활성 목표 이관
+  const snap = await getDocs(query(collection(db, COLLECTIONS.GOALS), where('userId', '==', userId)));
+  let processed = 0;
+  await Promise.all(snap.docs.map(async d => {
+    const data = d.data();
+    if (data.status === 'COMPLETED' && data.completionExecApprovedBy) return;
+    if (data.status === 'ABANDONED' && data.approvedBy) return;
+    if (data.trashedAt) return;
+    const newRelated = Array.from(new Set([
+      ...(data.relatedOrgIds ?? []),
+      target!.targetOrgId,
+      userOrgId,
+    ]));
+    await updateDoc(d.ref, {
+      userId: target!.targetUserId,
+      organizationId: target!.targetOrgId,
+      relatedOrgIds: newRelated,
+      previousOwnerId: userId,
+      previousOwnerName: userName,
+      transferredAt: serverTimestamp(),
+      needsReassignment: true,
+      updatedAt: serverTimestamp(),
+    });
+    await addDoc(collection(db, COLLECTIONS.GOAL_HISTORIES), {
+      goalId: d.id,
+      changedBy,
+      changeType: 'OWNER_TRANSFERRED',
+      previousStatus: data.status,
+      newStatus: data.status,
+      comment: `조직 변경으로 인한 이관: ${userName} → 수행자 재지정 대기`,
+      createdAt: serverTimestamp(),
+    });
+    processed += 1;
+  }));
+  return { transferred: processed, targetUserId: target.targetUserId, targetOrgId: target.targetOrgId };
+}
+
+/**
  * 특정 사용자의 진행 중 목표(완료·포기 확정 제외)의 organizationId 를 새 조직으로 이전 (v0.75 B14).
  * 사용자 조직 변경 시 옵션 "아니오" (재구성) 를 선택했을 때 사용.
  * 완료/포기 확정된 historical 데이터는 그대로 유지하여 인사평가 자료 보존.
@@ -1642,6 +1723,9 @@ type CreateNotificationInput =
   Omit<AppNotification, 'id' | 'createdAt' | 'link' | 'title' | 'category'>
   & Partial<Pick<AppNotification, 'link' | 'title' | 'category'>>;
 
+/** 사용자당 알림 보관 상한 — 초과 시 오래된 것부터 자동 삭제 */
+const NOTIFICATION_CAP = 100;
+
 export async function createNotification(data: CreateNotificationInput) {
   const link = data.link ?? (data.goalId ? `/goals/${data.goalId}` : '');
   const title = data.title ?? data.goalTitle ?? '';
@@ -1653,6 +1737,19 @@ export async function createNotification(data: CreateNotificationInput) {
     category,
     createdAt: serverTimestamp(),
   });
+  // 상한 초과 시 오래된 것부터 정리 (백그라운드, 실패 무시)
+  trimNotifications(data.userId).catch(err => console.error('[알림] 정리 실패:', err));
+}
+
+async function trimNotifications(userId: string): Promise<void> {
+  const snap = await getDocs(query(
+    collection(db, COLLECTIONS.NOTIFICATIONS),
+    where('userId', '==', userId),
+    orderBy('createdAt', 'desc'),
+  ));
+  if (snap.size <= NOTIFICATION_CAP) return;
+  const excess = snap.docs.slice(NOTIFICATION_CAP); // 정렬 desc 라 인덱스 100 이후가 오래된 것들
+  await Promise.all(excess.map(d => deleteDoc(d.ref)));
 }
 
 export async function getNotifications(userId: string): Promise<AppNotification[]> {

@@ -143,17 +143,23 @@ function TeamLeadEvalView() {
       const detectedHQHead = hqOrgs.length > 0;
       setIsHQHead(detectedHQHead);
 
-      // scope orgIds 결정
-      const scopeOrgIds = detectedHQHead
-        ? [...new Set(hqOrgs.flatMap(o => getDescendantIds(o.id, allOrgs)))]
-        : [userProfile.organizationId];
+      // scope orgIds 결정 — 본부장이면 HQ descendants, 일반 팀장이면 home + 본인이 leader 인 모든 팀
+      let scopeOrgIds: string[];
+      if (detectedHQHead) {
+        scopeOrgIds = [...new Set(hqOrgs.flatMap(o => getDescendantIds(o.id, allOrgs)))];
+      } else {
+        // 다중 팀 겸직 지원 — home team + 본인이 leaderId 인 모든 team descendants
+        const ledTeams = allOrgs.filter(o => o.leaderId === userProfile.id);
+        const ledIds = ledTeams.flatMap(o => getDescendantIds(o.id, allOrgs));
+        scopeOrgIds = Array.from(new Set([userProfile.organizationId, ...ledIds]));
+      }
 
       // 사용자·목표·평가 fetch
       const [allUsers, allGoals, evalLists] = await Promise.all([
         getAllUsers().then(us => { setAllUsersCache(us); return us; }),
-        detectedHQHead
+        scopeOrgIds.length > 1
           ? getGoalsByOrganizations(scopeOrgIds, year)
-          : getGoalsByOrganization(userProfile.organizationId, year),
+          : getGoalsByOrganization(scopeOrgIds[0] ?? userProfile.organizationId, year),
         Promise.all(scopeOrgIds.map(id => getIndividualEvaluationsByOrg(id, year))),
       ]);
       const evalList = evalLists.flat();

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
+import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import type {
   WeeklyTask, SimpleTaskItem, LeadCommentEntry, User, Organization,
 } from '@/types';
@@ -536,15 +537,13 @@ function WeeklyReport({ year, week, onWeekChange }: {
                     <div className={cn('flex items-start gap-3 px-4 py-3 group hover:bg-gray-50 transition-colors',
                       isGreen && 'bg-green-50/20',
                       item.important && 'bg-amber-50/60')}>
-                      {/* 중요(별표) 토글 — Has Done(실적)만, 본문 잠금 시 비활성 */}
+                      {/* 중요(별표) 토글 — Has Done(실적)만. 본문 잠금되어도 별표는 항상 토글 가능 */}
                       {isGreen && (
                         <button
-                          onClick={() => !isBodyLocked && toggleImportant(section, item.id)}
-                          disabled={isBodyLocked}
+                          onClick={() => toggleImportant(section, item.id)}
                           title={item.important ? '중요 해제' : '중요 표시'}
                           className={cn('shrink-0 mt-0.5 rounded p-0.5 transition-colors',
-                            item.important ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400',
-                            isBodyLocked && 'opacity-60 cursor-not-allowed')}
+                            item.important ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400')}
                         >
                           <Star className={cn('h-4 w-4', item.important && 'fill-amber-400')} />
                         </button>
@@ -730,6 +729,8 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
   const { userProfile } = useAuth();
   const me = userProfile;  // Comment 작성자 정보
   const [members, setMembers] = useState<User[]>([]);
+  const [teamTabs, setTeamTabs] = useState<Organization[]>([]);
+  const [activeTeamTabId, setActiveTeamTabId] = useState<string>('');
   const [orgsById, setOrgsById] = useState<Map<string, Organization>>(new Map());
   const [tasksByUser, setTasksByUser] = useState<Record<string, WeeklyTask>>({});
   const [loading, setLoading] = useState(true);
@@ -779,16 +780,23 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
     if (!userProfile) return;
     setLoading(true);
     (async () => {
-      // 본부장(HEADQUARTERS 팀장) 등 산하 조직이 있는 경우까지 포괄
+      // 본부장·다중 팀 겸직 등 모든 leader 케이스 포괄 — home org descendants ∪ 본인 led orgs descendants
       const [allUsers, allOrgs] = await Promise.all([getAllUsers(), getOrganizations()]);
-      const scopeOrgIds = userProfile!.organizationId
-        ? findDescendantIds(userProfile!.organizationId, allOrgs)
-        : [];
+      const scopeOrgIds = getMyScopeOrgIds(userProfile!.id, userProfile!.role, userProfile!.organizationId, allOrgs);
       const users = allUsers.filter(u =>
         u.id !== userProfile!.id && scopeOrgIds.includes(u.organizationId),
       );
       setMembers(users);
       setOrgsById(new Map(allOrgs.map(o => [o.id, o])));
+      // 팀 탭 — scope 의 leaf 조직(자식이 scope 에 없는) 들을 탭으로
+      const scopeSet = new Set(scopeOrgIds);
+      const leafOrgs = allOrgs
+        .filter(o => scopeSet.has(o.id))
+        .filter(o => !allOrgs.some(c => c.parentId === o.id && scopeSet.has(c.id)))
+        .slice()
+        .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999) || a.name.localeCompare(b.name, 'ko'));
+      setTeamTabs(leafOrgs);
+      setActiveTeamTabId(prev => leafOrgs.some(o => o.id === prev) ? prev : (leafOrgs[0]?.id ?? ''));
       const tasks = await getWeeklyTasksByUsersAndWeek(users.map(u => u.id), year, week);
       const map: Record<string, WeeklyTask> = {};
       tasks.forEach(t => { map[t.userId] = t; });
@@ -844,15 +852,38 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
         onSelect={(y, w) => onWeekChange(y, w)}
       />
 
-      {loading ? (
+      {/* 팀 탭 (다중 팀 겸직 시) */}
+      {teamTabs.length > 1 && (
+        <div className="flex gap-1 border-b bg-white px-1 pt-1 overflow-x-auto">
+          {teamTabs.map(o => (
+            <button
+              key={o.id}
+              onClick={() => setActiveTeamTabId(o.id)}
+              className={cn(
+                'px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors whitespace-nowrap',
+                activeTeamTabId === o.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700',
+              )}
+            >
+              {o.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {(() => {
+        const filteredMembers = teamTabs.length > 1
+          ? members.filter(m => m.organizationId === activeTeamTabId)
+          : members;
+        return (
+      loading ? (
         <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-100" />)}</div>
-      ) : members.length === 0 ? (
+      ) : filteredMembers.length === 0 ? (
         <div className="rounded-xl border border-dashed p-10 text-center">
           <p className="text-sm text-gray-400">같은 조직의 팀원이 없습니다.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {members.map(member => {
+          {filteredMembers.map(member => {
             const wt = tasksByUser[member.id];
             const hdItems = wt?.hasDoneItems ?? [];
             const wdItems = wt?.willDoItems ?? [];
@@ -1028,7 +1059,9 @@ function TeamWeeklyView({ year, week, onWeekChange }: {
             );
           })}
         </div>
-      )}
+      )
+        );
+      })()}
     </div>
   );
 }

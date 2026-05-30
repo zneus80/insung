@@ -75,14 +75,21 @@ function MemberDashboard() {
           });
           return ids;
         }
-        // 본부장 판별: TEAM_LEAD 인데 본인 소속이 HEADQUARTERS 거나 HQ 의 leaderId
+        // 본부장 판별: TEAM_LEAD 인데 본인 소속이 HEADQUARTERS 거나 HQ 의 leaderId.
+        // 다중 본부 겸직 지원 — filter 로 모든 led HQ 처리.
         const myOrg = allOrgs.find(o => o.id === userProfile!.organizationId);
         if (myOrg?.name) setMyOrgName(myOrg.name);
-        const myLedHQ = allOrgs.find(o => o.leaderId === userProfile!.id && o.type === 'HEADQUARTERS');
-        const isHQHead = userProfile!.role === 'TEAM_LEAD' && (myOrg?.type === 'HEADQUARTERS' || !!myLedHQ);
-        // 팀 스코프: 본부장이면 본부 descendants, 그 외엔 본인 팀
+        const myLedHQs = allOrgs.filter(o => o.leaderId === userProfile!.id && o.type === 'HEADQUARTERS');
+        const isHQHead = userProfile!.role === 'TEAM_LEAD' && (myOrg?.type === 'HEADQUARTERS' || myLedHQs.length > 0);
+        // 팀 스코프: 본부장이면 본인이 leader 인 모든 HQ + home HQ descendants, 그 외엔 본인 팀
+        const hqRootIds = isHQHead
+          ? Array.from(new Set([
+              ...(myOrg?.type === 'HEADQUARTERS' ? [myOrg.id] : []),
+              ...myLedHQs.map(h => h.id),
+            ]))
+          : [];
         const teamScopeOrgIds = isHQHead
-          ? getDescendantIds((myLedHQ ?? myOrg)!.id)
+          ? Array.from(new Set(hqRootIds.flatMap(id => getDescendantIds(id))))
           : [userProfile!.organizationId];
 
         // 팀장(승인대기) 범위 계산 — 본인 leaderId 조직 포함
@@ -368,6 +375,7 @@ function ExecDashboard() {
   const [loading, setLoading] = useState(true);
   const [companyGoal, setCompanyGoal] = useState<AnnualGoal | null>(null);
   const [treeNodes, setTreeNodes] = useState<ReturnType<typeof buildTree>>([]);
+  const [allOrgsCache, setAllOrgsCache] = useState<Organization[]>([]);
   const [orgSummaries, setOrgSummaries] = useState<OrgSummary[]>([]);
   const [myOrgName, setMyOrgName] = useState<string>('');
   const [orgGoalMap, setOrgGoalMap] = useState<Record<string, AnnualGoal>>({});
@@ -393,6 +401,7 @@ function ExecDashboard() {
           setCompanyGoal(cGoal);
           setRecentAnnouncements(announcements.slice(0, 3));
           setUpcomingMeetings(meetings.slice(0, 3));
+          setAllOrgsCache(allOrgs);
           const myOrg = allOrgs.find(o => o.id === userProfile!.organizationId);
           if (myOrg?.name) setMyOrgName(myOrg.name);
 
@@ -591,7 +600,7 @@ function ExecDashboard() {
               <div className="rounded-xl border bg-white p-4 space-y-1">
                 {treeNodes.length === 0
                   ? <p className="text-center text-sm text-gray-400 py-8">표시할 데이터가 없습니다.</p>
-                  : treeNodes.map(node => <OrgTreeNode key={node.org.id} node={node} orgGoalMap={orgGoalMap} />)}
+                  : treeNodes.map(node => <OrgTreeNode key={node.org.id} node={node} orgGoalMap={orgGoalMap} allOrgs={allOrgsCache} />)}
               </div>
             )}
           </div>

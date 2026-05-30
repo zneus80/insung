@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getAllUsers, getOrganizations, getAllGoalsByYear, getGoalsByUser } from '@/lib/firestore';
+import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
 import { Progress } from '@/components/ui/progress';
@@ -217,7 +218,8 @@ export default function ProgressPage() {
           const [allUsers, allOrgs, allGoals] = await Promise.all([
             getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
           ]);
-          const descIds = findDescendantIds(profile.organizationId, allOrgs);
+          // 다중 부문 겸직 지원 — 본인이 leaderId 인 모든 조직 descendants 합집합
+          const descIds = getMyScopeOrgIds(profile.id, 'EXECUTIVE', profile.organizationId, allOrgs);
           const leads   = allUsers.filter(u => u.role === 'TEAM_LEAD' && u.isActive && descIds.includes(u.organizationId));
           const members = allUsers.filter(u => u.role === 'MEMBER'    && u.isActive && descIds.includes(u.organizationId));
           const gMap: Record<string, Goal[]> = {};
@@ -230,7 +232,8 @@ export default function ProgressPage() {
           const [allUsers, allOrgs, allGoals] = await Promise.all([
             getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
           ]);
-          const scopeOrgIds = findDescendantIds(profile.organizationId, allOrgs);
+          // 다중 팀·본부 겸직 지원 — home org descendants ∪ 본인이 leaderId 인 모든 조직 descendants
+          const scopeOrgIds = getMyScopeOrgIds(profile.id, 'TEAM_LEAD', profile.organizationId, allOrgs);
           const scopeUsers  = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
           const scopeUserIdSet = new Set(scopeUsers.map(u => u.id));
           // 조직목표현황 (F3): 최종 승인 이후 상태만 표시 — APPROVED/IN_PROGRESS/COMPLETED + 포기 확정.

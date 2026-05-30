@@ -33,6 +33,28 @@ export function getDescendantOrgIds(orgId: string, orgs: Organization[]): string
   return result;
 }
 
+/**
+ * 사용자의 스코프 조직 ID 합집합 — 다중 팀·본부·부문 leader 케이스 지원.
+ *  - EXECUTIVE/CEO: 본인이 leaderId 인 조직만 → descendants 합집합 (home org 무시; CLAUDE.md §6-1 가시성 원칙)
+ *  - TEAM_LEAD/MEMBER 등: home org descendants ∪ 본인이 leaderId 인 조직 descendants
+ *  - HR 관리자는 별도 — 호출자가 전사 스코프를 요구하면 직접 처리할 것 (이 헬퍼는 본인 권한 스코프용)
+ */
+export function getMyScopeOrgIds(
+  userId: string,
+  userRole: string,
+  userOrgId: string | undefined,
+  allOrgs: Organization[],
+): string[] {
+  const led = allOrgs
+    .filter(o => o.leaderId === userId)
+    .flatMap(o => getDescendantOrgIds(o.id, allOrgs));
+  if (userRole === 'EXECUTIVE' || userRole === 'CEO') {
+    return Array.from(new Set(led));
+  }
+  const own = userOrgId ? getDescendantOrgIds(userOrgId, allOrgs) : [];
+  return Array.from(new Set([...own, ...led]));
+}
+
 /** orgId 기준으로 상위 조직 체인 반환 (자신 포함, 아래→위 순서) */
 export function getOrgChain(orgId: string, allOrgs: Organization[]): Organization[] {
   const chain: Organization[] = [];
@@ -66,7 +88,7 @@ export interface ApprovalStage {
   role: ApprovalRole;
   orgId: string;
   orgName: string;
-  userId?: string;  // 해당 단계 수행자 (leaderId)
+  userId?: string;  // 해당 단계 책임자 (leaderId)
 }
 
 /**
