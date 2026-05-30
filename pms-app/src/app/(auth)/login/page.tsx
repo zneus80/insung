@@ -151,7 +151,7 @@ export default function LoginPage() {
           계정이 없으신가요? HR 관리자에게 초대를 요청하세요.
         </p>
 
-        <span className="absolute bottom-2 right-3 text-[10px] text-gray-300 select-none">{APP_VERSION}</span>
+        <span className="absolute bottom-3 right-4 text-xs font-medium text-gray-400 select-none">{APP_VERSION}</span>
       </div>
     </div>
   );

@@ -458,11 +458,15 @@ export default function Sidebar() {
               <p className="text-xs font-medium text-gray-900">{userProfile.name}</p>
               <div className="flex gap-1 flex-wrap">
                 <RoleBadge role={userProfile.role} />
-                {userProfile.isHrAdmin && (
+                {userProfile.isHrMaster ? (
+                  <span className="inline-block rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-700">
+                    HR마스터
+                  </span>
+                ) : userProfile.isHrAdmin ? (
                   <span className="inline-block rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-700">
                     HR관리자
                   </span>
-                )}
+                ) : null}
               </div>
             </div>
             <button
