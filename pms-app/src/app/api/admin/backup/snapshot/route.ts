@@ -14,7 +14,7 @@ function getAdminApp() {
   if (!serviceAccount) throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY 환경변수가 없습니다.');
   return initializeApp({
     credential: cert(serviceAccount),
-    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? 'insung-pms.firebasestorage.app',
+    storageBucket: process.env.BACKUP_STORAGE_BUCKET ?? 'insung-pms-backups',
   });
 }
 
@@ -207,6 +207,7 @@ export async function POST(req: NextRequest) {
       stats,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'failed' }, { status: 500 });
+    console.error('[backup/snapshot] failed:', e?.message, e?.code, e?.stack);
+    return NextResponse.json({ error: e?.message ?? 'failed', code: e?.code }, { status: 500 });
   }
 }

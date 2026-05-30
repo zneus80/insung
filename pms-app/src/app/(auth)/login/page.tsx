@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signInWithEmail, sendPasswordReset } from '@/lib/auth';
+import { APP_VERSION } from '@/lib/version';
 import { getUser } from '@/lib/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -92,7 +93,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
+    <div className="relative flex min-h-screen items-center justify-center bg-gray-50">
+      <span className="absolute bottom-3 right-4 text-[10px] text-gray-300 select-none">{APP_VERSION}</span>
       <div className="w-full max-w-sm space-y-6 rounded-2xl bg-white p-10 shadow-lg">
         {/* 로고 */}
         <div className="text-center">
