@@ -1520,13 +1520,20 @@ export interface BackupRecord {
   id: string;
   year: number;
   createdBy: string;
+  createdByName?: string;
   createdAt: Date;
+  /** 실제 스냅샷 JSON 의 Firebase Storage 경로 (구버전 메타데이터-only 백업은 undefined) */
+  storagePath?: string;
+  sizeBytes?: number;
+  isAuto?: boolean;
   stats: {
     goals: number;
     users: number;
     orgEvaluations: number;
     individualEvaluations: number;
     mentoringForms: number;
+    /** 전체 컬렉션별 카운트 (신규 스냅샷 백업만 채워짐) */
+    all?: Record<string, number>;
   };
 }
 
@@ -1535,13 +1542,20 @@ export async function getBackups(): Promise<BackupRecord[]> {
     collection(db, COLLECTIONS.BACKUPS),
     orderBy('createdAt', 'desc'),
   ));
-  return snap.docs.map(d => ({
-    id: d.id,
-    year: d.data().year,
-    createdBy: d.data().createdBy,
-    createdAt: (d.data().createdAt as Timestamp).toDate(),
-    stats: d.data().stats ?? {},
-  }));
+  return snap.docs.map(d => {
+    const data = d.data();
+    return {
+      id: d.id,
+      year: data.year,
+      createdBy: data.createdBy,
+      createdByName: data.createdByName,
+      isAuto: data.isAuto,
+      storagePath: data.storagePath,
+      sizeBytes: data.sizeBytes,
+      createdAt: (data.createdAt as Timestamp).toDate(),
+      stats: data.stats ?? {},
+    };
+  });
 }
 
 export async function createBackup(year: number, createdBy: string, stats: BackupRecord['stats']): Promise<string> {

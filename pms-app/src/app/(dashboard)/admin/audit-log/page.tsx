@@ -18,6 +18,7 @@ const ACTION_LABEL: Record<AuditLogAction, string> = {
   BACKUP_CREATE:    '백업 생성',
   BACKUP_DOWNLOAD:  '백업 다운로드',
   BACKUP_DELETE:    '백업 삭제',
+  BACKUP_RESTORE:   '백업 복원',
   USER_DELETE:      '사용자 삭제',
 };
 
@@ -28,6 +29,7 @@ const ACTION_COLOR: Record<AuditLogAction, string> = {
   BACKUP_CREATE:    'bg-green-100 text-green-700',
   BACKUP_DOWNLOAD:  'bg-teal-100 text-teal-700',
   BACKUP_DELETE:    'bg-red-100 text-red-700',
+  BACKUP_RESTORE:   'bg-orange-100 text-orange-700',
   USER_DELETE:      'bg-red-100 text-red-700',
 };
 

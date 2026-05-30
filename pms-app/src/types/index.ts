@@ -562,6 +562,7 @@ export type AuditLogAction =
   | 'BACKUP_CREATE'      // 백업 생성
   | 'BACKUP_DOWNLOAD'    // 백업 다운로드
   | 'BACKUP_DELETE'      // 백업 삭제
+  | 'BACKUP_RESTORE'     // 백업 복원 (전체 덮어쓰기)
   | 'USER_DELETE';       // 사용자 삭제
 
 export interface AuditLog {
