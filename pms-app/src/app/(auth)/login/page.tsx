@@ -93,9 +93,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-gray-50">
-      <span className="absolute bottom-3 right-4 text-[10px] text-gray-300 select-none">{APP_VERSION}</span>
-      <div className="w-full max-w-sm space-y-6 rounded-2xl bg-white p-10 shadow-lg">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="relative w-full max-w-sm space-y-6 rounded-2xl bg-white p-10 shadow-lg">
         {/* 로고 */}
         <div className="text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-blue-600 text-2xl font-bold text-white">
@@ -151,6 +150,8 @@ export default function LoginPage() {
         <p className="text-center text-xs text-gray-400">
           계정이 없으신가요? HR 관리자에게 초대를 요청하세요.
         </p>
+
+        <span className="absolute bottom-2 right-3 text-[10px] text-gray-300 select-none">{APP_VERSION}</span>
       </div>
     </div>
   );
