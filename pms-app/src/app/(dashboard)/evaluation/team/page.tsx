@@ -205,14 +205,13 @@ function TeamLeadEvalView() {
       const evalList = evalLists.flat();
       const memberList = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
       // 일반 팀장: 본인 팀의 MEMBER 만
-      // 본부장: 산하 팀의 MEMBER + TEAM_LEAD (본인 제외) 모두 평가 대상
-      // 차순위 임원(EXEC_SUB): 산하의 MEMBER + TEAM_LEAD + (다른) EXECUTIVE 모두 (본인 제외)
+      // 본부장 / 차순위 임원: 산하의 MEMBER + TEAM_LEAD (본인 제외) — 다른 임원은 평가 대상 X
+      // (CLAUDE.md §6-1: 임원 가시 범위 = 본인 + 책임조직의 본부장(TEAM_LEAD)·팀장·팀원)
       const isExecSub = effectiveEvalRole === 'EXEC_SUB';
       const active = memberList.filter(u => {
         if (!u.isActive) return false;
         if (u.id === userProfile.id) return false; // 본인 제외
-        if (isExecSub) return u.role === 'MEMBER' || u.role === 'TEAM_LEAD' || u.role === 'EXECUTIVE';
-        if (detectedHQHead) return u.role === 'MEMBER' || u.role === 'TEAM_LEAD';
+        if (isExecSub || detectedHQHead) return u.role === 'MEMBER' || u.role === 'TEAM_LEAD';
         return u.role === 'MEMBER';
       });
       setMembers(active);
