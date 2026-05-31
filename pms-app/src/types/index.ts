@@ -272,9 +272,14 @@ export interface SelfEvaluation {
   id: string;               // `${userId}_${year}`
   userId: string;
   cycleYear: number;
+  /** 저장 시점 사용자 조직 — viewableBy 다년도 정확도를 위해 박아둠 (v0.9.1+). 과거 doc 은 없을 수 있음. */
+  organizationId?: string;
   goalEvals: SelfEvalGoalEntry[];
   status: SelfEvalStatus;
   submittedAt?: Date;
+  /** 가시성 ACL — 본인 + 조직 트리 상위 리더 userId 목록.
+   *  v0.9.1 부터 평가 저장 시 자동 계산되어 Firestore 규칙의 read 권한 검증에 사용. */
+  viewableBy?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -339,6 +344,9 @@ export interface IndividualEvaluation {
   execConfirmedAt?: Date;
 
   status: IndividualEvalStatus;
+  /** 가시성 ACL — 본인 + 조직 트리 상위 리더 userId 목록.
+   *  v0.9.1 부터 저장 시 자동 계산. Firestore 규칙 read 권한 검증에 사용. */
+  viewableBy?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -525,6 +533,8 @@ export interface MentoringForm {
   editRequestedAt?: Date;
   editRequestApprovedBy?: string;   // HR userId (감사용 — 마지막 승인자)
   editRequestApprovedAt?: Date;
+  /** 가시성 ACL — v0.9.1 */
+  viewableBy?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -550,6 +560,8 @@ export interface YearEndEval {
   taskSummaries: TaskSummaryEntry[]; // 과제업무 세부요약 목록
   status: YearEndEvalStatus;
   submittedAt?: Date;
+  /** 가시성 ACL — v0.9.1 */
+  viewableBy?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -568,7 +580,9 @@ export type AuditLogAction =
   | 'BACKUP_DOWNLOAD'    // 백업 다운로드
   | 'BACKUP_DELETE'      // 백업 삭제
   | 'BACKUP_RESTORE'     // 백업 복원 (전체 덮어쓰기)
-  | 'USER_DELETE';       // 사용자 삭제
+  | 'BACKUP_FAILED'      // 백업 실패 (자동 감지 — D-4)
+  | 'USER_DELETE'        // 사용자 삭제
+  | 'EVAL_GRADE_CHANGE'; // 평가 등급 변경 — 핵심 확정 이벤트 (D-3)
 
 export interface AuditLog {
   id: string;

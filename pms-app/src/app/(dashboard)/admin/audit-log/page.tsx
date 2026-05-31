@@ -12,25 +12,29 @@ import { Download, ShieldAlert } from 'lucide-react';
 import type { AuditLog, AuditLogAction } from '@/types';
 
 const ACTION_LABEL: Record<AuditLogAction, string> = {
-  HR_ROLE_GRANT:    'HR 권한 부여',
-  HR_ROLE_REVOKE:   'HR 권한 제거',
-  PASSWORD_RESET:   '비밀번호 초기화',
-  BACKUP_CREATE:    '백업 생성',
-  BACKUP_DOWNLOAD:  '백업 다운로드',
-  BACKUP_DELETE:    '백업 삭제',
-  BACKUP_RESTORE:   '백업 복원',
-  USER_DELETE:      '사용자 삭제',
+  HR_ROLE_GRANT:     'HR 권한 부여',
+  HR_ROLE_REVOKE:    'HR 권한 제거',
+  PASSWORD_RESET:    '비밀번호 초기화',
+  BACKUP_CREATE:     '백업 생성',
+  BACKUP_DOWNLOAD:   '백업 다운로드',
+  BACKUP_DELETE:     '백업 삭제',
+  BACKUP_RESTORE:    '백업 복원',
+  BACKUP_FAILED:     '백업 실패',
+  USER_DELETE:       '사용자 삭제',
+  EVAL_GRADE_CHANGE: '평가 등급 변경',
 };
 
 const ACTION_COLOR: Record<AuditLogAction, string> = {
-  HR_ROLE_GRANT:    'bg-blue-100 text-blue-700',
-  HR_ROLE_REVOKE:   'bg-orange-100 text-orange-700',
-  PASSWORD_RESET:   'bg-purple-100 text-purple-700',
-  BACKUP_CREATE:    'bg-green-100 text-green-700',
-  BACKUP_DOWNLOAD:  'bg-teal-100 text-teal-700',
-  BACKUP_DELETE:    'bg-red-100 text-red-700',
-  BACKUP_RESTORE:   'bg-orange-100 text-orange-700',
-  USER_DELETE:      'bg-red-100 text-red-700',
+  HR_ROLE_GRANT:     'bg-blue-100 text-blue-700',
+  HR_ROLE_REVOKE:    'bg-orange-100 text-orange-700',
+  PASSWORD_RESET:    'bg-purple-100 text-purple-700',
+  BACKUP_CREATE:     'bg-green-100 text-green-700',
+  BACKUP_DOWNLOAD:   'bg-teal-100 text-teal-700',
+  BACKUP_DELETE:     'bg-red-100 text-red-700',
+  BACKUP_RESTORE:    'bg-orange-100 text-orange-700',
+  BACKUP_FAILED:     'bg-red-100 text-red-700',
+  USER_DELETE:       'bg-red-100 text-red-700',
+  EVAL_GRADE_CHANGE: 'bg-indigo-100 text-indigo-700',
 };
 
 export default function AuditLogPage() {

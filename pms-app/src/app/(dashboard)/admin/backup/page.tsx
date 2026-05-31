@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { auth } from '@/lib/firebase';
@@ -13,6 +13,7 @@ import {
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
+import ReauthModal from '@/components/auth/ReauthModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -38,6 +39,10 @@ function BackupContent() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [jsonDownloading, setJsonDownloading] = useState<string | null>(null);
+  // 본인 재인증 (D-2): 백업 삭제
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [reauthReason, setReauthReason] = useState('');
+  const pendingReauthAction = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // 백업 JSON 원본 다운로드 (HR 마스터 검증용)
   async function handleJsonDownload(backup: BackupRecord) {
@@ -153,24 +158,29 @@ function BackupContent() {
 
   async function handleDelete(backup: BackupRecord) {
     if (!confirm(`${backup.year}년 백업 (${format(backup.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })})을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
-    setDeleting(backup.id);
-    try {
-      await deleteBackup(backup.id);
-      if (userProfile) {
-        await createAuditLog({
-          action: 'BACKUP_DELETE',
-          actorId: userProfile.id,
-          actorName: userProfile.name,
-          details: `${backup.year}년 백업 삭제 (${format(backup.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })})`,
-        });
+    // 본인 재인증 후 삭제 (D-2)
+    pendingReauthAction.current = async () => {
+      setDeleting(backup.id);
+      try {
+        await deleteBackup(backup.id);
+        if (userProfile) {
+          await createAuditLog({
+            action: 'BACKUP_DELETE',
+            actorId: userProfile.id,
+            actorName: userProfile.name,
+            details: `${backup.year}년 백업 삭제 (${format(backup.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })}, 재인증 완료)`,
+          });
+        }
+        toast.success('백업이 삭제되었습니다.');
+        setBackups(prev => prev.filter(b => b.id !== backup.id));
+      } catch (e: any) {
+        toast.error(`삭제 실패: ${e?.message ?? '알 수 없는 오류'}`);
+      } finally {
+        setDeleting(null);
       }
-      toast.success('백업이 삭제되었습니다.');
-      setBackups(prev => prev.filter(b => b.id !== backup.id));
-    } catch (e: any) {
-      toast.error(`삭제 실패: ${e?.message ?? '알 수 없는 오류'}`);
-    } finally {
-      setDeleting(null);
-    }
+    };
+    setReauthReason(`${backup.year}년 백업 삭제`);
+    setReauthOpen(true);
   }
 
   async function handleDownload(backup: BackupRecord) {
@@ -545,6 +555,17 @@ function BackupContent() {
         </div>
 
       </div>
+
+      <ReauthModal
+        open={reauthOpen}
+        onOpenChange={setReauthOpen}
+        reason={reauthReason}
+        onConfirmed={async () => {
+          const fn = pendingReauthAction.current;
+          pendingReauthAction.current = undefined;
+          if (fn) await fn();
+        }}
+      />
     </div>
   );
 }
