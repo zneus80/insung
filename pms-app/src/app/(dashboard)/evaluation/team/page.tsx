@@ -72,11 +72,12 @@ export default function EvaluationTeamPage() {
 
   if (!userProfile) return null;
 
-  // 팀장 또는 본부장(HQ leader — TEAM_LEAD/EXECUTIVE role 무관) 진입 허용
+  // 팀장 또는 본부장(HQ leader) 또는 차순위 임원(EXEC_SUB) 진입 허용
   // 조직 체인 기반 effectiveEvalRole 로 판단 — role 필드는 보조 fallback
   const canEnter =
     effectiveEvalRole === 'TEAM_LEAD' ||
     effectiveEvalRole === 'HQ_HEAD' ||
+    effectiveEvalRole === 'EXEC_SUB' ||
     userProfile.role === 'TEAM_LEAD'; // legacy fallback
   if (!canEnter) {
     return (
@@ -93,7 +94,7 @@ export default function EvaluationTeamPage() {
 }
 
 function TeamLeadEvalView() {
-  const { userProfile } = useAuth();
+  const { userProfile, effectiveEvalRole } = useAuth();
   const { activeYear: year } = useActiveYear();
 
   const [members, setMembers]             = useState<User[]>([]);
@@ -173,9 +174,18 @@ function TeamLeadEvalView() {
         }
       }
 
-      // scope orgIds 결정 — 본부장이면 HQ descendants, 일반 팀장이면 home + 본인이 leader 인 모든 팀
+      // scope orgIds 결정
+      //  - EXEC_SUB (차순위 임원 — DIVISION 소속 비-leader EXECUTIVE): home DIVISION 의 산하 모두
+      //  - 본부장 (HQ leader / HQ 소속 비-leader EXECUTIVE): HQ descendants
+      //  - 일반 팀장: home + 본인이 leader 인 모든 팀
       let scopeOrgIds: string[];
-      if (detectedHQHead) {
+      if (effectiveEvalRole === 'EXEC_SUB' && userProfile.organizationId) {
+        // 차순위 임원 — 본인 소속 DIVISION 의 산하 모두 read 가능 (CLAUDE.md §2 케이스 B)
+        const ledOrgs = allOrgs.filter(o => o.leaderId === userProfile.id);
+        const ledIds = ledOrgs.flatMap(o => getDescendantIds(o.id, allOrgs));
+        const homeIds = getDescendantIds(userProfile.organizationId, allOrgs);
+        scopeOrgIds = Array.from(new Set([...homeIds, ...ledIds]));
+      } else if (detectedHQHead) {
         scopeOrgIds = [...new Set(hqOrgs.flatMap(o => getDescendantIds(o.id, allOrgs)))];
       } else {
         // 다중 팀 겸직 지원 — home team + 본인이 leaderId 인 모든 team descendants
@@ -196,9 +206,12 @@ function TeamLeadEvalView() {
       const memberList = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
       // 일반 팀장: 본인 팀의 MEMBER 만
       // 본부장: 산하 팀의 MEMBER + TEAM_LEAD (본인 제외) 모두 평가 대상
+      // 차순위 임원(EXEC_SUB): 산하의 MEMBER + TEAM_LEAD + (다른) EXECUTIVE 모두 (본인 제외)
+      const isExecSub = effectiveEvalRole === 'EXEC_SUB';
       const active = memberList.filter(u => {
         if (!u.isActive) return false;
         if (u.id === userProfile.id) return false; // 본인 제외
+        if (isExecSub) return u.role === 'MEMBER' || u.role === 'TEAM_LEAD' || u.role === 'EXECUTIVE';
         if (detectedHQHead) return u.role === 'MEMBER' || u.role === 'TEAM_LEAD';
         return u.role === 'MEMBER';
       });

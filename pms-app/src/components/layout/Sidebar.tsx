@@ -167,8 +167,8 @@ const navItems: NavItem[] = [
     label: '인사평가',
     href: '/evaluation/team',
     icon: <BarChart3 className="h-5 w-5" />,
-    // 1차 의견(팀장) + 2차 의견(본부장 = HQ leader) 모두 진입
-    evalRoles: ['TEAM_LEAD', 'HQ_HEAD'],
+    // 1차 의견(팀장) + 2차 의견(본부장 = HQ leader) + 차순위 임원(EXEC_SUB) 모두 진입
+    evalRoles: ['TEAM_LEAD', 'HQ_HEAD', 'EXEC_SUB'],
     group: '인사고과',
   },
   {

@@ -84,9 +84,15 @@ export default function EvaluationPage() {
 
   if (!userProfile) return null;
   const { role } = userProfile;
-  // 자기평가는 본인이 평가 대상이면 모두(팀원·팀장·본부장) 진입 가능 → MEMBER/TEAM_LEAD/HQ_HEAD
-  if (role === 'MEMBER' || role === 'TEAM_LEAD' || effectiveEvalRole === 'HQ_HEAD') return <MemberEvalView />;
-  // 평가등급확정은 EXEC_TOP(최상위 임원) 만 — 본부장(차순위 임원)은 인사평가로 이동
+  // 자기평가는 본인이 평가 대상이면 모두(팀원·팀장·본부장·차순위임원) 진입 가능
+  // → MEMBER / TEAM_LEAD / HQ_HEAD / EXEC_SUB
+  if (
+    role === 'MEMBER' ||
+    role === 'TEAM_LEAD' ||
+    effectiveEvalRole === 'HQ_HEAD' ||
+    effectiveEvalRole === 'EXEC_SUB'
+  ) return <MemberEvalView />;
+  // 평가등급확정은 EXEC_TOP(최상위 임원) 만 — 차순위 임원·본부장은 인사평가로 이동
   if (effectiveEvalRole === 'EXEC_TOP') return <ExecutiveEvalView />;
   return (
     <div className="flex flex-col h-full">

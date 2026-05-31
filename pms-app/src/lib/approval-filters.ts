@@ -203,7 +203,22 @@ export function myStageIdxIn(
  * 우선순위: 본인이 leader 인 조직 중 가장 상위 type 으로 판단.
  *   (예: 동일 인물이 TEAM + HQ 모두 leader → HQ_HEAD)
  */
-export type EffectiveEvalRole = 'EXEC_TOP' | 'HQ_HEAD' | 'TEAM_LEAD' | 'MEMBER';
+/**
+ * 유효 평가 권한 (조직 체인 + role 기반).
+ *
+ *  - 'EXEC_TOP'  : 부문/공장(DIVISION) leader, 또는 상위에 DIVISION 이 없는 최상위 HQ leader.
+ *                  → 평가등급 확정 권한 (CLAUDE.md §2 케이스 B 최상위 임원).
+ *  - 'EXEC_SUB'  : DIVISION 소속 EXECUTIVE 인데 leader 아닌 경우 (부공장장·부부문장).
+ *                  → CLAUDE.md §2 케이스 B 차순위 임원. 산하 read·의견 가능, 확정 불가.
+ *  - 'HQ_HEAD'   : HQ leader (DIVISION 산하) 또는 HQ 소속 비-leader EXECUTIVE (본부장·부본부장).
+ *                  → 산하 read·의견 가능, 확정 불가.
+ *  - 'TEAM_LEAD' : TEAM leader.
+ *                  → 1차 의견(leadGrade) 권한.
+ *  - 'MEMBER'    : 그 외 일반 팀원.
+ *
+ * 우선순위: 본인이 leader 인 조직 중 가장 상위 type → leader 아닌 EXECUTIVE → ...
+ */
+export type EffectiveEvalRole = 'EXEC_TOP' | 'EXEC_SUB' | 'HQ_HEAD' | 'TEAM_LEAD' | 'MEMBER';
 
 export function getEffectiveEvalRole(
   userId: string,
@@ -238,10 +253,15 @@ export function getEffectiveEvalRole(
   if (myLedOrgs.some(o => o.type === 'TEAM')) return 'TEAM_LEAD';
 
   // ④ leadership 없음 → 본인 소속 조직 + 선언 role 기반 fallback (leaderId 미설정 환경)
+  //    + CLAUDE.md §2 케이스 B (같은 조직 복수 임원 중 비-leader = 차순위)
   const myOrg = userOrgId ? allOrgs.find(o => o.id === userOrgId) : undefined;
   if (userRole === 'EXECUTIVE') {
-    // 본인 소속이 HQ + 상위에 DIVISION 있음 → 차순위 임원(본부장)
+    // HQ 소속 EXECUTIVE — 본부장 (산하 read 가능, 확정 불가)
     if (myOrg?.type === 'HEADQUARTERS' && hasDivisionAncestor(myOrg)) return 'HQ_HEAD';
+    if (myOrg?.type === 'HEADQUARTERS') return 'HQ_HEAD'; // 최상위 HQ + 비-leader = 차순위 본부장
+    // DIVISION 소속 EXECUTIVE — 부부문장·부공장장 (차순위)
+    if (myOrg?.type === 'DIVISION') return 'EXEC_SUB';
+    // 그 외 (COMPANY 직속 등) — 최상위 임원
     return 'EXEC_TOP';
   }
   if (userRole === 'TEAM_LEAD') return 'TEAM_LEAD';
