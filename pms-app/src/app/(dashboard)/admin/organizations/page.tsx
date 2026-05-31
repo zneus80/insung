@@ -467,9 +467,10 @@ function OrganizationsContent() {
                     {treeNodes
                       .filter(n => !excludedFromParent.includes(n.org.id))
                       .map(({ org, prefix }) => (
+                        // SelectItem 의 children 은 텍스트만 — 선택 후 SelectValue 가 정상 표시되도록.
+                        // 이전에 <span> 으로 감싸서 prefix 가 들어가면 SelectValue 가 텍스트 추출 못해 UUID 가 노출됐음.
                         <SelectItem key={org.id} value={org.id}>
-                          <span className="font-mono text-xs text-gray-400">{prefix}</span>
-                          {org.name}
+                          {prefix}{org.name}
                         </SelectItem>
                       ))}
                   </SelectContent>
