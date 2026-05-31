@@ -19,6 +19,7 @@ import {
   getMyApprovalRole as sharedGetMyApprovalRole,
   getApprovalRowState,
   stageLabel,
+  approverTitle,
 } from '@/lib/approval-filters';
 
 export default function ApprovalsPage() {
@@ -262,7 +263,7 @@ function ApprovalsContent() {
                       actionLoading={actionLoading === goal.id}
                       onPromotionApprove={handlePromotionApprove}
                       isUpstream={rs.state === 'UPSTREAM'}
-                      pendingStageLabel={rs.pendingStage ? stageLabel(rs.pendingStage.role) : undefined}
+                      pendingStageLabel={rs.pendingStage ? approverTitle(rs.pendingStage.userId, Object.values(users), stageLabel(rs.pendingStage.role)) : undefined}
                     />
                   );
                 })}
@@ -293,7 +294,7 @@ function ApprovalsContent() {
                       actionLoading={actionLoading === goal.id}
                       onPromotionApprove={handlePromotionApprove}
                       isUpstream={rs.state === 'UPSTREAM'}
-                      pendingStageLabel={rs.pendingStage ? stageLabel(rs.pendingStage.role) : undefined}
+                      pendingStageLabel={rs.pendingStage ? approverTitle(rs.pendingStage.userId, Object.values(users), stageLabel(rs.pendingStage.role)) : undefined}
                     />
                   );
                 })}
@@ -324,7 +325,7 @@ function ApprovalsContent() {
                       actionLoading={actionLoading === goal.id}
                       onPromotionApprove={handlePromotionApprove}
                       isUpstream={rs.state === 'UPSTREAM'}
-                      pendingStageLabel={rs.pendingStage ? stageLabel(rs.pendingStage.role) : undefined}
+                      pendingStageLabel={rs.pendingStage ? approverTitle(rs.pendingStage.userId, Object.values(users), stageLabel(rs.pendingStage.role)) : undefined}
                     />
                   );
                 })}

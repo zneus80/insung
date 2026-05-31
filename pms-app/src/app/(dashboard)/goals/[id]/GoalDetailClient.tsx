@@ -19,6 +19,7 @@ import {
   COLLECTIONS,
 } from '@/lib/firestore';
 import { notifyNextApprover, notifyAllChainParties, type GoalBroadcastEvent } from '@/lib/goal-notifications';
+import { approverTitle } from '@/lib/approval-filters';
 import TaskGoalForm from '@/components/goals/TaskGoalForm';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import GeneralGoalForm from '@/components/goals/GeneralGoalForm';
@@ -480,6 +481,11 @@ export default function GoalDetailPage() {
       let updateData: Parameters<typeof updateGoal>[1] = {};
       let newStatus: Goal['status'] = goal.status;
       let successMsg = '';
+      // 승인자 직책 라벨 — 본인 직책(position) 우선
+      const usersArr = Object.values(usersMap);
+      const teamLeadTitle = approverTitle(teamOrg?.leaderId, usersArr, '팀장');
+      const hqTitle = approverTitle(hqOrg?.leaderId, usersArr, '본부장');
+      const execTitle = approverTitle(divOrg?.leaderId ?? hqOrg?.leaderId, usersArr, '임원');
 
       if (iAmTeamLead && ownerIsMemberLike) {
         if (goal.status === 'PENDING_APPROVAL') {
@@ -490,26 +496,26 @@ export default function GoalDetailPage() {
           updateData = { status: 'LEAD_APPROVED', leadApprovedBy: userProfile.id, leadApprovedAt: new Date() };
           if (goal.goalType === 'TASK') {
             successMsg = hasHQInChain
-              ? '과제업무 1차 승인. 본부장 2차 승인을 기다립니다.'
-              : '과제업무 1차 승인. 임원의 최종 승인을 기다립니다.';
+              ? `과제업무 1차 승인. ${hqTitle} 2차 승인을 기다립니다.`
+              : `과제업무 1차 승인. ${execTitle}의 최종 승인을 기다립니다.`;
           } else {
             successMsg = hasHQInChain
-              ? '주요업무 1차 승인. 본부장 2차 승인을 기다립니다.'
-              : '주요업무 1차 승인. 임원의 최종 승인을 기다립니다.';
+              ? `주요업무 1차 승인. ${hqTitle} 2차 승인을 기다립니다.`
+              : `주요업무 1차 승인. ${execTitle}의 최종 승인을 기다립니다.`;
           }
         } else if (goal.status === 'COMPLETED' && !goal.completionLeadApprovedBy) {
           updateData = { completionLeadApprovedBy: userProfile.id, completionLeadApprovedAt: new Date() };
-          successMsg = hasHQInChain ? '완료 1차 확인. 본부장 2차 확인 대기 중.' : '완료 1차 확인. 임원 최종 확인 대기 중.';
+          successMsg = hasHQInChain ? `완료 1차 확인. ${hqTitle} 2차 확인 대기 중.` : `완료 1차 확인. ${execTitle} 최종 확인 대기 중.`;
         } else if (goal.status === 'PENDING_ABANDON' && !goal.abandonLeadApprovedBy) {
           // 팀장 포기 1차 승인: 별도 필드 기록, 상태는 PENDING_ABANDON 유지
           updateData = { abandonLeadApprovedBy: userProfile.id, abandonLeadApprovedAt: new Date() };
-          successMsg = '포기 1차 승인. 임원의 최종 승인을 기다립니다.';
+          successMsg = `포기 1차 승인. ${execTitle}의 최종 승인을 기다립니다.`;
         }
       } else if (iAmHQHead) {
         // 본부장 2차 승인: 상태 변경 없이 hqApprovedBy만 기록
         if (goal.status === 'LEAD_APPROVED' && !goal.hqApprovedBy) {
           updateData = { hqApprovedBy: userProfile.id, hqApprovedAt: new Date() };
-          successMsg = '본부 2차 승인 완료. 임원의 최종 승인을 기다립니다.';
+          successMsg = `${hqTitle} 2차 승인 완료. ${execTitle}의 최종 승인을 기다립니다.`;
         } else if (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') {
           // 팀장 신규 목표 — 본부장이 1차 승인 (LEAD_APPROVED + hqApprovedBy 동시 기록)
           newStatus = 'LEAD_APPROVED';
@@ -517,31 +523,31 @@ export default function GoalDetailPage() {
             status: 'LEAD_APPROVED',
             hqApprovedBy: userProfile.id, hqApprovedAt: new Date(),
           };
-          successMsg = '본부 1차 승인 완료. 임원의 최종 승인을 기다립니다.';
+          successMsg = `${hqTitle} 1차 승인 완료. ${execTitle}의 최종 승인을 기다립니다.`;
         } else if (goal.status === 'COMPLETED' && ownerIsMemberLike && !!goal.completionLeadApprovedBy && !goal.completionHqApprovedBy) {
           // 팀원 목표: 팀장 1차 → 본부장 2차
           updateData = { completionHqApprovedBy: userProfile.id, completionHqApprovedAt: new Date() };
-          successMsg = '완료 2차 확인. 임원 최종 확인 대기 중.';
+          successMsg = `완료 2차 확인. ${execTitle} 최종 확인 대기 중.`;
         } else if (goal.status === 'COMPLETED' && ownerRole === 'TEAM_LEAD' && !goal.completionHqApprovedBy) {
           // 팀장 목표: 본부장이 1차 (팀장 본인 단계는 건너뜀)
           updateData = { completionHqApprovedBy: userProfile.id, completionHqApprovedAt: new Date() };
-          successMsg = '완료 1차 확인. 임원 최종 확인 대기 중.';
+          successMsg = `완료 1차 확인. ${execTitle} 최종 확인 대기 중.`;
         } else if (teamHasNoLead && ownerIsMemberLike && goal.status === 'PENDING_APPROVAL') {
           // 팀장 부재 — 본부장이 1차 승인 대행 (LEAD_APPROVED 로 진행)
           newStatus = 'LEAD_APPROVED';
           updateData = { status: 'LEAD_APPROVED', leadApprovedBy: userProfile.id, leadApprovedAt: new Date() };
-          successMsg = '팀장 부재로 본부장이 1차 승인을 대행했습니다. 임원의 최종 승인을 기다립니다.';
+          successMsg = `팀장 부재로 ${hqTitle}이 1차 승인을 대행했습니다. ${execTitle}의 최종 승인을 기다립니다.`;
         } else if (teamHasNoLead && ownerIsMemberLike && goal.status === 'COMPLETED' && !goal.completionLeadApprovedBy && !goal.completionHqApprovedBy) {
           // 팀장 부재 — 본부장이 완료 1차 대행 (LeadApprovedBy 와 HqApprovedBy 동시 기록)
           updateData = {
             completionLeadApprovedBy: userProfile.id, completionLeadApprovedAt: new Date(),
             completionHqApprovedBy: userProfile.id, completionHqApprovedAt: new Date(),
           };
-          successMsg = '팀장 부재로 본부장이 완료 1차 확인을 대행했습니다. 임원 최종 확인 대기 중.';
+          successMsg = `팀장 부재로 ${hqTitle}이 완료 1차 확인을 대행했습니다. ${execTitle} 최종 확인 대기 중.`;
         } else if (teamHasNoLead && ownerIsMemberLike && goal.status === 'PENDING_ABANDON' && !goal.abandonLeadApprovedBy) {
           // 팀장 부재 — 본부장이 포기 1차 대행
           updateData = { abandonLeadApprovedBy: userProfile.id, abandonLeadApprovedAt: new Date() };
-          successMsg = '팀장 부재로 본부장이 포기 1차 승인을 대행했습니다. 임원의 최종 승인을 기다립니다.';
+          successMsg = `팀장 부재로 ${hqTitle}이 포기 1차 승인을 대행했습니다. ${execTitle}의 최종 승인을 기다립니다.`;
         }
       } else if (iAmExec) {
         if (goal.status === 'LEAD_APPROVED') {
@@ -1012,14 +1018,24 @@ export default function GoalDetailPage() {
       if (goal!.status === 'PENDING_ABANDON') return '포기 1차 승인';
     }
     if (iAmHQHead) {
-      if (goal!.status === 'LEAD_APPROVED') return '2차 승인 (본부)';
+      // 본인 직책(position) 우선, 없으면 "본부"
+      const myTitle = userProfile?.position || '본부';
+      if (goal!.status === 'LEAD_APPROVED') return `2차 승인 (${myTitle})`;
       if (goal!.status === 'COMPLETED') return '완료 2차 확인';
     }
     if (iAmExec) {
-      if (goal!.status === 'LEAD_APPROVED') return '최종 승인';
-      if (goal!.status === 'COMPLETED') return '완료 최종 확인';
-      if (goal!.status === 'PENDING_ABANDON') return '포기 최종 승인';
-      return '승인';
+      const myTitle = userProfile?.position || '임원';
+      if (goal!.status === 'LEAD_APPROVED') return `최종 승인 (${myTitle})`;
+      if (goal!.status === 'COMPLETED') return `완료 최종 확인 (${myTitle})`;
+      if (goal!.status === 'PENDING_ABANDON') return `포기 최종 승인 (${myTitle})`;
+      return `승인 (${myTitle})`;
+    }
+    if (iAmTeamLead) {
+      // 팀장 라벨도 본인 직책 표시 가능
+      const myTitle = userProfile?.position || '팀장';
+      if (goal!.status === 'PENDING_APPROVAL') return `1차 승인 (${myTitle})`;
+      if (goal!.status === 'COMPLETED') return `완료 1차 확인 (${myTitle})`;
+      if (goal!.status === 'PENDING_ABANDON') return `포기 1차 승인 (${myTitle})`;
     }
     return '승인';
   }
@@ -1286,13 +1302,13 @@ export default function GoalDetailPage() {
                 {/* 승인 단계 레이블 */}
                 <div className="flex items-center gap-2">
                   {iAmTeamLead && goal.status === 'PENDING_APPROVAL' && (
-                    <span className="text-xs text-indigo-600 bg-indigo-50 rounded px-2 py-1">팀장 1차 승인 단계</span>
+                    <span className="text-xs text-indigo-600 bg-indigo-50 rounded px-2 py-1">1차 승인 단계</span>
                   )}
                   {iAmHQHead && goal.status === 'LEAD_APPROVED' && (
-                    <span className="text-xs text-purple-600 bg-purple-50 rounded px-2 py-1">본부장 2차 승인 단계</span>
+                    <span className="text-xs text-purple-600 bg-purple-50 rounded px-2 py-1">2차 승인 단계</span>
                   )}
                   {iAmExec && goal.status === 'LEAD_APPROVED' && (
-                    <span className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">임원 최종 승인 단계</span>
+                    <span className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">최종 승인 단계</span>
                   )}
                   {iAmExec && goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD' && (
                     <span className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">팀장 목표 승인</span>

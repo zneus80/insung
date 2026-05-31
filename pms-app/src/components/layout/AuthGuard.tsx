@@ -15,7 +15,7 @@ interface AuthGuardProps {
 }
 
 function canAccess(
-  profile: { role: UserRole; isHrAdmin?: boolean; isHrMaster?: boolean } | null,
+  profile: { role: UserRole; isHrAdmin?: boolean; isHrMaster?: boolean; isCeoViewer?: boolean } | null,
   allowedRoles?: UserRole[],
   requireHrAdmin?: boolean,
   requireHrMaster?: boolean,
@@ -25,7 +25,9 @@ function canAccess(
   const roleOk = !!allowedRoles && allowedRoles.includes(profile.role);
   const hrOk = !!requireHrAdmin && !!profile.isHrAdmin;
   const masterOk = !!requireHrMaster && !!profile.isHrMaster;
-  return roleOk || hrOk || masterOk;
+  // CEO Viewer — CEO 가 통과하는 페이지(allowedRoles 에 CEO 포함) 는 같이 통과 (read-only 모드, 화면에서 write 차단)
+  const ceoViewerOk = !!profile.isCeoViewer && !!allowedRoles && allowedRoles.includes('CEO');
+  return roleOk || hrOk || masterOk || ceoViewerOk;
 }
 
 const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';

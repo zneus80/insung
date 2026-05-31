@@ -45,6 +45,10 @@ function HrMasterContent() {
 
   async function handleToggleMaster(user: User) {
     if (!userProfile) return;
+    if (userProfile.isCeoViewer) {
+      toast.error('조회 권한입니다. HR 마스터 권한 부여는 실권자 최고관리자만 가능합니다.');
+      return;
+    }
     const nextMaster = !user.isHrMaster;
     const action = nextMaster ? '부여' : '제거';
     if (!confirm(`${user.name}님에게 HR 마스터 권한을 ${action}하시겠습니까?\n${nextMaster ? '마스터 권한이 부여되면 자동으로 HR 관리자 권한도 함께 부여됩니다.' : '마스터 권한만 제거됩니다. HR 관리자 권한은 유지됩니다.'}`)) return;

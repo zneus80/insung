@@ -107,6 +107,7 @@ function OrganizationsContent() {
   const [deleteTarget, setDeleteTarget] = useState<Organization | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [leaderSearch, setLeaderSearch] = useState('');
+  const [parentSearch, setParentSearch] = useState('');
   const [expandedOrgs, setExpandedOrgs] = useState<Record<string, boolean>>({});
 
   async function load() {
@@ -127,6 +128,7 @@ function OrganizationsContent() {
     setEditing(null);
     setForm(EMPTY_FORM);
     setLeaderSearch('');
+    setParentSearch('');
     setShowDialog(true);
   }
 
@@ -137,6 +139,7 @@ function OrganizationsContent() {
       displayOrder: org.displayOrder != null ? String(org.displayOrder) : '',
     });
     setLeaderSearch('');
+    setParentSearch('');
     setShowDialog(true);
   }
 
@@ -460,30 +463,13 @@ function OrganizationsContent() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>상위 조직</Label>
-                <Select
-                  value={form.parentId ?? ''}
-                  onValueChange={v => setForm(f => ({ ...f, parentId: v || null }))}
-                >
-                  {/* 명시적 children — 편집 시 form.parentId 가 먼저 set 되어도 정상 표시 */}
-                  <SelectTrigger>
-                    <SelectValue placeholder="없음 (최상위)">
-                      {form.parentId
-                        ? (orgs.find(o => o.id === form.parentId)?.name ?? '없음 (최상위)')
-                        : '없음 (최상위)'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">없음 (최상위)</SelectItem>
-                    {treeNodes
-                      .filter(n => !excludedFromParent.includes(n.org.id))
-                      .map(({ org, prefix }) => (
-                        <SelectItem key={org.id} value={org.id}>
-                          {prefix}{org.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                <ParentOrgPicker
+                  treeNodes={treeNodes.filter(n => !excludedFromParent.includes(n.org.id))}
+                  value={form.parentId}
+                  search={parentSearch}
+                  onSearchChange={setParentSearch}
+                  onChange={(id) => setForm(f => ({ ...f, parentId: id }))}
+                />
               </div>
               <div className="space-y-1.5">
                 <LeaderPicker
@@ -529,6 +515,63 @@ function OrganizationsContent() {
         </Dialog>
       </div>
     </div>
+  );
+}
+
+// ─── 상위 조직 검색 픽커 (조직 등록·수정 폼) ─────────────────
+function ParentOrgPicker({
+  treeNodes, value, search, onSearchChange, onChange,
+}: {
+  treeNodes: OrgTreeNode[];
+  value: string | null;
+  search: string;
+  onSearchChange: (s: string) => void;
+  onChange: (id: string | null) => void;
+}) {
+  const selected = treeNodes.find(n => n.org.id === value);
+  const filtered = (() => {
+    if (!search.trim()) return treeNodes.slice(0, 15);
+    const k = search.toLowerCase();
+    return treeNodes.filter(n => n.org.name.toLowerCase().includes(k)).slice(0, 30);
+  })();
+  return (
+    <>
+      <Label>상위 조직 <span className="text-gray-400 text-xs font-normal">(검색 가능 · 없음 = 최상위)</span></Label>
+      {selected ? (
+        <div className="flex items-center gap-2 rounded-lg border px-3 py-2 bg-gray-50">
+          <span className="text-sm font-medium">{selected.org.name}</span>
+          {selected.prefix && <span className="text-xs text-gray-400 truncate font-mono">{selected.prefix.trim()}</span>}
+          <button type="button" onClick={() => { onChange(null); onSearchChange(''); }} className="ml-auto text-gray-400 hover:text-red-500 text-xs">
+            해제 (최상위) ✕
+          </button>
+        </div>
+      ) : (
+        <>
+          <Input
+            value={search}
+            onChange={e => onSearchChange(e.target.value)}
+            placeholder="조직명으로 검색 (예: 영업부문). 비워두면 최상위 조직으로 등록됩니다."
+          />
+          {(search.trim() || treeNodes.length > 0) && (
+            <div className="rounded-lg border max-h-56 overflow-y-auto divide-y bg-white mt-1.5">
+              {filtered.length === 0 ? (
+                <p className="text-xs text-gray-400 px-3 py-2">검색 결과 없음</p>
+              ) : filtered.map(({ org, prefix }) => (
+                <button
+                  key={org.id}
+                  type="button"
+                  onClick={() => { onChange(org.id); onSearchChange(''); }}
+                  className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm flex items-center gap-2"
+                >
+                  <span className="font-mono text-xs text-gray-400">{prefix}</span>
+                  <span className="font-medium">{org.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </>
   );
 }
 

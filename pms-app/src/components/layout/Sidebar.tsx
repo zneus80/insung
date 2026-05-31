@@ -371,7 +371,9 @@ export default function Sidebar() {
     const masterOk = !!item.requireHrMaster && !!userProfile?.isHrMaster;
     // 유효 평가 권한 조건 (조직 체인 기반)
     const evalOk = !!item.evalRoles && item.evalRoles.includes(effectiveEvalRole);
-    return roleOk || hrOk || masterOk || evalOk;
+    // CEO Viewer — CEO 전용 메뉴 모두 표시 (read-only)
+    const ceoViewerOk = !!item.roles && item.roles.includes('CEO') && !!userProfile?.isCeoViewer;
+    return roleOk || hrOk || masterOk || evalOk || ceoViewerOk;
   });
   // CEO+HR 등 중복 진입(같은 label + href + group)을 한 번만 표시 — 라벨이 다르면 별개 항목으로 유지
   const seenKeys = new Set<string>();

@@ -21,6 +21,7 @@ import {
 } from '@/lib/firestore';
 import type { Organization, OrganizationEvaluation } from '@/types';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
+import { approverTitle } from '@/lib/approval-filters';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
@@ -329,7 +330,7 @@ function TeamLeadEvalView() {
           hqReviewedAt: new Date(),
           status: 'HQ_REVIEWED',
         });
-        toast.success(`${member?.name ?? ''} 본부장 2차 의견을 제출했습니다.`);
+        toast.success(`${member?.name ?? ''} ${userProfile.position || '본부장'} 2차 의견을 제출했습니다.`);
         nextStage = 'EXEC';
         notifType = 'EVAL_HQ_REVIEWED';
       } else {
@@ -395,9 +396,10 @@ function TeamLeadEvalView() {
     const member = members.find(m => m.id === memberId);
     const isHQ2nd = isHQHead && member?.role === 'MEMBER';
 
+    const myTitle = userProfile.position || '본부장';
     if (!confirm(
       isHQ2nd
-        ? '본부장 2차 의견을 회수합니다. 회수 후 다시 수정·제출이 가능합니다. 계속하시겠습니까?'
+        ? `${myTitle} 2차 의견을 회수합니다. 회수 후 다시 수정·제출이 가능합니다. 계속하시겠습니까?`
         : '평가 의견을 회수합니다. 회수 시 평가 대상자가 자기평가를 다시 회수·수정할 수 있는 상태로 돌아갑니다. 계속하시겠습니까?',
     )) return;
 
@@ -405,7 +407,7 @@ function TeamLeadEvalView() {
     try {
       if (isHQ2nd) {
         await withdrawHqOpinion(ie);
-        toast.success('본부장 2차 의견을 회수했습니다.');
+        toast.success(`${myTitle} 2차 의견을 회수했습니다.`);
       } else {
         await withdrawLeadOpinion(ie);
         toast.success('평가 의견을 회수했습니다.');
@@ -436,11 +438,11 @@ function TeamLeadEvalView() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title={isHQHead ? '본부장 2차 평가 의견' : '팀원 평가 의견 제출'} />
+      <Header title={isHQHead ? `${userProfile?.position || '본부장'} 2차 평가 의견` : '팀원 평가 의견 제출'} />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <p className="text-sm text-gray-500">
           {isHQHead
-            ? '본부 산하 팀원의 자기평가와 팀장 의견을 검토한 후 본부장 2차 의견을 작성하세요. (팀장 의견 제출 후에만 입력 가능)'
+            ? `산하 팀원의 자기평가와 팀장 의견을 검토한 후 ${userProfile?.position || '본부장'} 2차 의견을 작성하세요. (팀장 의견 제출 후에만 입력 가능)`
             : '팀원의 업무 성과와 자기평가를 검토한 후 등급 의견과 이유를 작성하고 제출하세요.'}
         </p>
 
@@ -670,7 +672,7 @@ function TeamLeadEvalView() {
                     {/* 본부장이 팀원 평가 시에만 — 팀장 1차 의견 표시 (읽기 전용) */}
                     {isHQ2ndOpinion && (
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
-                        <p className="text-sm font-bold text-gray-800">팀장 의견 (1차)</p>
+                        <p className="text-sm font-bold text-gray-800">{approverTitle(ie?.leadSubmittedBy, allUsersCache, '팀장')} 의견 (1차)</p>
                         {leadOp ? (
                           <>
                             <div className="flex items-center gap-2">
@@ -703,7 +705,12 @@ function TeamLeadEvalView() {
                     {canHQInput ? (
                       <div className={`rounded-lg border p-4 space-y-3 ${isHQHead ? 'border-indigo-100 bg-indigo-50' : 'border-blue-100 bg-blue-50'}`}>
                         <p className={`text-sm font-bold ${isHQHead ? 'text-indigo-700' : 'text-blue-700'}`}>
-                          {isHQ2ndOpinion ? '본부장 2차 의견' : isHQ1stOpinion ? '본부장 1차 의견 (팀장 평가)' : '팀장 등급 의견'}
+                          {(() => {
+                            const myTitle = userProfile?.position || (isHQHead ? '본부장' : '팀장');
+                            if (isHQ2ndOpinion) return `${myTitle} 2차 의견`;
+                            if (isHQ1stOpinion) return `${myTitle} 1차 의견 (팀장 평가)`;
+                            return `${myTitle} 등급 의견`;
+                          })()}
                         </p>
                         <div>
                           <p className="text-xs text-gray-500 mb-2">등급 선택</p>
@@ -770,7 +777,7 @@ function TeamLeadEvalView() {
                       </div>
                     ) : (
                       <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center">
-                        <p className="text-xs text-gray-400">팀장 의견 제출 후에 본부장 2차 의견을 입력할 수 있습니다.</p>
+                        <p className="text-xs text-gray-400">팀장 의견 제출 후에 {userProfile?.position || '본부장'} 2차 의견을 입력할 수 있습니다.</p>
                       </div>
                     )}
                   </div>
