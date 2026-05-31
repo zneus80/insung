@@ -719,6 +719,9 @@ export async function getSelfEvaluationsByUsers(userIds: string[], year: number)
 /** 조직 트리 캐시 — leader/parent 만 추출한 가벼운 맵 */
 export type OrgTreeCache = Map<string, { id: string; parentId: string | null; leaderId: string | null }>;
 
+/** 조직별 leader-role 사용자 목록 캐시 — 같은 조직에 소속된 TEAM_LEAD/EXECUTIVE 의 userId 목록 */
+export type OrgLeadersCache = Map<string, string[]>;
+
 /** 전체 조직을 한 번에 로드해 캐시 맵을 반환 — caller 가 여러 computeViewableBy 호출에 재사용 */
 export async function loadOrgTreeCache(): Promise<OrgTreeCache> {
   const snap = await getDocs(collection(db, COLLECTIONS.ORGANIZATIONS));
@@ -731,28 +734,66 @@ export async function loadOrgTreeCache(): Promise<OrgTreeCache> {
 }
 
 /**
- * 평가 대상자 본인과 조직 트리 상위 leader 들의 userId 를 모은다.
- * 조직 트리: 대상자 소속 조직 → parentId → parentId ... 루트까지 거슬러 올라가며 각 조직의 leaderId 수집.
+ * 조직별 TEAM_LEAD/EXECUTIVE role 활성 사용자 목록 로드.
+ * leaderId 가 명시되지 않은 조직에서도 "팀장 직급 사용자가 본인 소속 팀 평가를 봐야 한다" 는
+ * 기존 UI 가정과 일치시키기 위한 fallback.
+ */
+export async function loadOrgLeadersCache(): Promise<OrgLeadersCache> {
+  const snap = await getDocs(collection(db, COLLECTIONS.USERS));
+  const map: OrgLeadersCache = new Map();
+  snap.docs.forEach(d => {
+    const data = d.data() as { role?: string; organizationId?: string; isActive?: boolean };
+    if (data.isActive === false) return;
+    if (data.role !== 'TEAM_LEAD' && data.role !== 'EXECUTIVE') return;
+    if (!data.organizationId) return;
+    const arr = map.get(data.organizationId) ?? [];
+    arr.push(d.id);
+    map.set(data.organizationId, arr);
+  });
+  return map;
+}
+
+/**
+ * 평가 대상자 본인과 가시성 원칙에 따른 viewer 들을 모은다.
  *
- * @param orgsCache 선택 — 미리 로드한 OrgTreeCache. 대량 재계산 시 N×Orgs read 방지용으로 주입.
+ * 가시성 (CLAUDE.md §6-1):
+ *  - 본인
+ *  - 본인 소속 조직 → parent → parent ... 루트까지 거슬러 올라가며 각 조직의:
+ *    a) leaderId (명시적 리더)
+ *    b) 그 조직에 소속된 TEAM_LEAD/EXECUTIVE role 사용자 (UI 의 home-org 가정과 일치)
+ *
+ * 케이스:
+ *  - 일반팀장: 본인 팀의 TEAM_LEAD = 본인. 자기 자신 + 상위 본부장·임원이 viewer.
+ *  - 본부장(TEAM_LEAD@HQ): 산하 팀원의 평가에 본부장 UID 가 포함됨 (산하 팀의 parent 가 HQ 이므로).
+ *  - 임원(EXECUTIVE@DIVISION): 산하 본부·팀 모든 평가에 임원 UID 포함.
+ *  - leaderId 가 비어있어도 (b) 조건으로 본인 소속 leader role 이 자동 viewer 됨.
+ *
+ * @param orgsCache 선택 — 미리 로드한 OrgTreeCache. 대량 재계산 시 N×Orgs read 방지용.
+ * @param leadersCache 선택 — 미리 로드한 OrgLeadersCache. 대량 재계산 시 N×Users read 방지용.
  */
 export async function computeViewableBy(
   userId: string,
   organizationId: string,
   orgsCache?: OrgTreeCache,
+  leadersCache?: OrgLeadersCache,
 ): Promise<string[]> {
   const viewers = new Set<string>();
   viewers.add(userId);
   if (!organizationId) return Array.from(viewers);
 
   const orgsById = orgsCache ?? await loadOrgTreeCache();
+  const leadersByOrg = leadersCache ?? await loadOrgLeadersCache();
   const visited = new Set<string>();
   let cur: string | null = organizationId;
   while (cur && !visited.has(cur)) {
     visited.add(cur);
     const org = orgsById.get(cur);
     if (!org) break;
+    // (a) 명시적 leaderId
     if (org.leaderId) viewers.add(org.leaderId);
+    // (b) 같은 조직 소속 leader role 사용자 (home-org fallback)
+    const sameOrgLeaders = leadersByOrg.get(cur) ?? [];
+    for (const uid of sameOrgLeaders) viewers.add(uid);
     cur = org.parentId;
   }
   return Array.from(viewers);
@@ -767,10 +808,12 @@ export async function computeViewableBy(
 export async function recomputeViewableByForUser(
   userId: string,
   orgsCache?: OrgTreeCache,
+  leadersCache?: OrgLeadersCache,
 ): Promise<{ updated: number }> {
   const user = await getUser(userId);
   if (!user) return { updated: 0 };
-  const cache = orgsCache ?? await loadOrgTreeCache();
+  const oCache = orgsCache ?? await loadOrgTreeCache();
+  const lCache = leadersCache ?? await loadOrgLeadersCache();
   let updated = 0;
 
   // individualEvaluations
@@ -781,7 +824,7 @@ export async function recomputeViewableByForUser(
   for (const d of ieSnap.docs) {
     const data = d.data();
     const orgId = data.organizationId ?? user.organizationId;
-    const viewableBy = await computeViewableBy(userId, orgId, cache);
+    const viewableBy = await computeViewableBy(userId, orgId, oCache, lCache);
     await updateDoc(d.ref, { viewableBy, updatedAt: serverTimestamp() });
     updated++;
   }
@@ -794,7 +837,7 @@ export async function recomputeViewableByForUser(
   for (const d of seSnap.docs) {
     const data = d.data();
     const orgId = (data.organizationId as string | undefined) ?? user.organizationId;
-    const viewableBy = await computeViewableBy(userId, orgId, cache);
+    const viewableBy = await computeViewableBy(userId, orgId, oCache, lCache);
     await updateDoc(d.ref, { viewableBy, updatedAt: serverTimestamp() });
     updated++;
   }
@@ -807,7 +850,7 @@ export async function recomputeViewableByForUser(
   for (const d of yeSnap.docs) {
     const data = d.data();
     const orgId = data.organizationId ?? user.organizationId;
-    const viewableBy = await computeViewableBy(userId, orgId, cache);
+    const viewableBy = await computeViewableBy(userId, orgId, oCache, lCache);
     await updateDoc(d.ref, { viewableBy, updatedAt: serverTimestamp() });
     updated++;
   }
@@ -820,7 +863,7 @@ export async function recomputeViewableByForUser(
   for (const d of mfSnap.docs) {
     const data = d.data();
     const orgId = data.organizationId ?? user.organizationId;
-    const viewableBy = await computeViewableBy(userId, orgId, cache);
+    const viewableBy = await computeViewableBy(userId, orgId, oCache, lCache);
     await updateDoc(d.ref, { viewableBy, updatedAt: serverTimestamp() });
     updated++;
   }
@@ -833,6 +876,7 @@ export async function recomputeViewableByForUser(
  */
 export async function recomputeViewableByForOrgTree(rootOrgId: string): Promise<{ users: number; docs: number }> {
   const cache = await loadOrgTreeCache();
+  const leadersCache = await loadOrgLeadersCache();
 
   // rootOrgId 의 산하 조직 ID 집합 (BFS)
   const descendantIds = new Set<string>([rootOrgId]);
@@ -858,7 +902,7 @@ export async function recomputeViewableByForOrgTree(rootOrgId: string): Promise<
 
   let totalDocs = 0;
   for (const uid of affectedUserIds) {
-    const { updated } = await recomputeViewableByForUser(uid, cache);  // C-4: 캐시 재사용
+    const { updated } = await recomputeViewableByForUser(uid, cache, leadersCache);  // C-4: 캐시 재사용
     totalDocs += updated;
   }
   return { users: affectedUserIds.length, docs: totalDocs };

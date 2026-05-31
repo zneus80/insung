@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { collection, doc, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { computeViewableBy, getUser, COLLECTIONS, createAuditLog, loadOrgTreeCache, type OrgTreeCache } from '@/lib/firestore';
+import { computeViewableBy, getUser, COLLECTIONS, createAuditLog, loadOrgTreeCache, loadOrgLeadersCache, type OrgTreeCache, type OrgLeadersCache } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { ShieldCheck, AlertCircle, CheckCircle2 } from 'lucide-react';
@@ -79,7 +79,7 @@ function SecurityAclContent() {
     return u?.organizationId ?? null;
   }
 
-  async function processCollection(key: CollectionKey, useUserOrg: boolean, forceRecompute: boolean, orgsCache: OrgTreeCache): Promise<Stats> {
+  async function processCollection(key: CollectionKey, useUserOrg: boolean, forceRecompute: boolean, orgsCache: OrgTreeCache, leadersCache: OrgLeadersCache): Promise<Stats> {
     const collName = COLLECTION_NAMES[key];
     const snap = await getDocs(collection(db, collName));
     const stat: Stats = { total: snap.size, alreadyHasAcl: 0, updated: 0, failed: 0, errors: [] };
@@ -117,7 +117,7 @@ function SecurityAclContent() {
         continue;
       }
       try {
-        const viewableBy = await computeViewableBy(userId, orgId, orgsCache);
+        const viewableBy = await computeViewableBy(userId, orgId, orgsCache, leadersCache);
         await updateDoc(doc(db, collName, d.id), {
           viewableBy,
           updatedAt: serverTimestamp(),
@@ -144,19 +144,20 @@ function SecurityAclContent() {
     userCache.clear();
 
     try {
-      // 조직 트리 1회 로드 — 모든 doc 처리에 재사용 (N×Orgs read 방지)
+      // 조직 트리 + leader 캐시 1회 로드 — 모든 doc 처리에 재사용
       const orgsCache = await loadOrgTreeCache();
+      const leadersCache = await loadOrgLeadersCache();
 
-      const ie = await processCollection('individualEvaluations', false, isForce, orgsCache);
+      const ie = await processCollection('individualEvaluations', false, isForce, orgsCache, leadersCache);
       setStats(s => ({ ...s, individualEvaluations: ie }));
 
-      const se = await processCollection('selfEvaluations', true, isForce, orgsCache);
+      const se = await processCollection('selfEvaluations', true, isForce, orgsCache, leadersCache);
       setStats(s => ({ ...s, selfEvaluations: se }));
 
-      const ye = await processCollection('yearEndEvals', false, isForce, orgsCache);
+      const ye = await processCollection('yearEndEvals', false, isForce, orgsCache, leadersCache);
       setStats(s => ({ ...s, yearEndEvals: ye }));
 
-      const mf = await processCollection('mentoringForms', false, isForce, orgsCache);
+      const mf = await processCollection('mentoringForms', false, isForce, orgsCache, leadersCache);
       setStats(s => ({ ...s, mentoringForms: mf }));
 
       const totalUpdated = ie.updated + se.updated + ye.updated + mf.updated;

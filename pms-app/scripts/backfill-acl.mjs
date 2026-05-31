@@ -35,12 +35,22 @@ orgsSnap.docs.forEach(d => {
 });
 console.log(`  → ${orgsById.size}개 조직`);
 
-// 사용자 캐시
-console.log('[2/3] 사용자 organizationId 캐시 로드...');
+// 사용자 캐시 + 조직별 leader-role 사용자 캐시 (옵션 X)
+console.log('[2/3] 사용자·조직별 leader 캐시 로드...');
 const usersSnap = await db.collection('users').get();
 const userOrgById = new Map();
-usersSnap.docs.forEach(d => userOrgById.set(d.id, d.data().organizationId ?? null));
-console.log(`  → ${userOrgById.size}명 사용자`);
+const leadersByOrg = new Map();  // orgId → [uid, uid, ...] (TEAM_LEAD/EXECUTIVE 활성 사용자)
+usersSnap.docs.forEach(d => {
+  const data = d.data();
+  userOrgById.set(d.id, data.organizationId ?? null);
+  if (data.isActive === false) return;
+  if (data.role !== 'TEAM_LEAD' && data.role !== 'EXECUTIVE') return;
+  if (!data.organizationId) return;
+  const arr = leadersByOrg.get(data.organizationId) ?? [];
+  arr.push(d.id);
+  leadersByOrg.set(data.organizationId, arr);
+});
+console.log(`  → ${userOrgById.size}명 사용자, ${leadersByOrg.size}개 조직에 leader-role 사용자`);
 
 function computeViewableBy(userId, organizationId) {
   const viewers = new Set([userId]);
@@ -51,7 +61,10 @@ function computeViewableBy(userId, organizationId) {
     visited.add(cur);
     const org = orgsById.get(cur);
     if (!org) break;
+    // (a) 명시적 leaderId
     if (org.leaderId) viewers.add(org.leaderId);
+    // (b) 같은 조직 소속 leader role 사용자 (옵션 X — UI home-org 가정과 일치)
+    for (const uid of (leadersByOrg.get(cur) ?? [])) viewers.add(uid);
     cur = org.parentId;
   }
   return [...viewers];
@@ -64,9 +77,10 @@ for (const collName of COLLECTIONS) {
   const snap = await db.collection(collName).get();
   const stat = { total: snap.size, skip: 0, updated: 0, failed: 0 };
   const batch = [];
+  const FORCE = process.argv.includes('--force');
   for (const d of snap.docs) {
     const data = d.data();
-    if (Array.isArray(data.viewableBy) && data.viewableBy.length > 0) {
+    if (!FORCE && Array.isArray(data.viewableBy) && data.viewableBy.length > 0) {
       stat.skip++;
       continue;
     }
