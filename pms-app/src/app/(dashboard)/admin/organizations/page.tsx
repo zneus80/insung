@@ -450,7 +450,8 @@ function OrganizationsContent() {
               <div className="space-y-1.5">
                 <Label>구분 *</Label>
                 <Select value={form.type} onValueChange={v => setForm(f => ({ ...f, type: v as OrgType }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  {/* SelectValue 에 명시적 children 전달 — Radix 의 자동 textContent 추출 실패(편집 폼처럼 값 먼저 set 되는 케이스) 회피 */}
+                  <SelectTrigger><SelectValue>{TYPE_LABEL[form.type]}</SelectValue></SelectTrigger>
                   <SelectContent>
                     {(Object.keys(TYPE_LABEL) as OrgType[]).map(t => (
                       <SelectItem key={t} value={t}>{TYPE_LABEL[t]}</SelectItem>
@@ -464,14 +465,19 @@ function OrganizationsContent() {
                   value={form.parentId ?? ''}
                   onValueChange={v => setForm(f => ({ ...f, parentId: v || null }))}
                 >
-                  <SelectTrigger><SelectValue placeholder="없음 (최상위)" /></SelectTrigger>
+                  {/* 명시적 children — 편집 시 form.parentId 가 먼저 set 되어도 정상 표시 */}
+                  <SelectTrigger>
+                    <SelectValue placeholder="없음 (최상위)">
+                      {form.parentId
+                        ? (orgs.find(o => o.id === form.parentId)?.name ?? '없음 (최상위)')
+                        : '없음 (최상위)'}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">없음 (최상위)</SelectItem>
                     {treeNodes
                       .filter(n => !excludedFromParent.includes(n.org.id))
                       .map(({ org, prefix }) => (
-                        // SelectItem 의 children 은 텍스트만 — 선택 후 SelectValue 가 정상 표시되도록.
-                        // 이전에 <span> 으로 감싸서 prefix 가 들어가면 SelectValue 가 텍스트 추출 못해 UUID 가 노출됐음.
                         <SelectItem key={org.id} value={org.id}>
                           {prefix}{org.name}
                         </SelectItem>

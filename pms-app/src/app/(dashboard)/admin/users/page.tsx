@@ -866,7 +866,10 @@ function UsersContent() {
               <div className="space-y-1.5">
                 <Label>역할 *</Label>
                 <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v as UserRole }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  {/* 명시적 children — 편집 시 form.role 가 먼저 set 되어도 한글 라벨 정상 표시 */}
+                  <SelectTrigger>
+                    <SelectValue>{ROLES.find(r => r.value === form.role)?.label ?? form.role}</SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
                     {ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                   </SelectContent>
