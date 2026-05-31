@@ -35,7 +35,7 @@ const ACTION_COLOR: Record<AuditLogAction, string> = {
 
 export default function AuditLogPage() {
   return (
-    <AuthGuard allowedRoles={['CEO']} requireHrMaster>
+    <AuthGuard requireHrMaster>
       <AuditLogContent />
     </AuthGuard>
   );

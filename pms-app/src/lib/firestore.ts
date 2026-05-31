@@ -1086,12 +1086,23 @@ export async function getAnnualGoal(type: 'company' | 'org', year: number, orgId
 export async function setAnnualGoal(
   type: 'company' | 'org',
   year: number,
-  data: { content?: string; items?: { id: string; content: string }[]; updatedBy: string; organizationId?: string }
+  data: {
+    content?: string;
+    /** v0.9+ : subject/detail. 구버전 호환을 위해 content 도 받음 */
+    items?: { id: string; subject?: string; detail?: string; content?: string }[];
+    updatedBy: string;
+    organizationId?: string;
+  }
 ) {
   const id = annualGoalDocId(type, year, data.organizationId);
-  // items 가 있으면 content 는 items 첫 항목 또는 합쳐서 저장 (legacy 호환)
+  // items → content 합성 (구버전 단일 텍스트 호환). subject 우선, 없으면 content.
+  function itemText(i: { subject?: string; detail?: string; content?: string }): string {
+    const head = i.subject ?? i.content ?? '';
+    const body = i.detail ?? '';
+    return [head, body].filter(s => s && s.trim()).join('\n');
+  }
   const content = data.content ?? (data.items && data.items.length > 0
-    ? data.items.map(i => i.content).filter(Boolean).join('\n')
+    ? data.items.map(itemText).filter(Boolean).join('\n\n')
     : '');
   await setDoc(doc(db, COLLECTIONS.ANNUAL_GOALS, id), {
     type, year,

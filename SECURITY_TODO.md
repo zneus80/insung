@@ -20,6 +20,45 @@
 
 ---
 
+## 🔴 0순위 — 가장 시급 (베타 운영 중에도 우선 검토)
+
+### 0. 개인평가 Firestore 읽기 권한 서버 검증 강화
+
+**현재 상태 (v0.9):**
+- `individualEvaluations` 읽기 권한: 팀원은 본인 평가만, **팀장·임원·CEO·HR관리자·HR마스터는 전체 읽기 가능**
+- 실제 화면별 scope ("팀장은 본인 책임 조직만") 는 **UI 자바스크립트 코드에서만 필터**
+- 비정상 시나리오: 팀장이 브라우저 콘솔에서 `getDocs(collection(db, 'individualEvaluations'))` 직접 호출 → 본인 권한 밖 평가 데이터 조회 가능
+
+**왜 지금까지 못 막았는가:**
+Firestore 보안 규칙은 조직 트리 재귀 탐색을 지원하지 않음. "본인이 leaderId 인 조직 + 산하 모든 조직 사용자만" 조건을 규칙으로 표현 불가.
+
+**보강 옵션 (택일):**
+
+#### 옵션 A. 평가 문서에 scope 메타 박아두기 (가장 가벼움)
+- 평가 작성 시 `viewableBy: [userId(본인), leaderId(팀장), leaderLeaderId(본부장), execId(임원)]` 배열 동봉
+- 규칙: `allow read: if request.auth.uid in resource.data.viewableBy || isCeo() || isHrMaster()`
+- 장점: 추가 인프라 0, 빠른 쿼리
+- 단점: 조직 변경·이관 시 모든 평가 doc 의 viewableBy 갱신 필요
+
+#### 옵션 B. Cloud Function read 프록시
+- 클라이언트는 Function 만 호출, Function 이 권한 검증 후 데이터 반환
+- 장점: 권한 로직 중앙화, Firestore 규칙은 클라이언트 read 전부 차단
+- 단점: 콜드스타트 지연, Function 운영 비용
+
+#### 옵션 C. 별도 비공개 컬렉션
+- 등급/의견 같은 민감 필드만 `individualEvaluationsPrivate/{id}` 로 분리
+- 규칙: private 컬렉션은 본인 + 직접 권한자만 read
+- 장점: 데이터 모델 단순, 강력한 격리
+- 단점: 마이그레이션·이중 쓰기
+
+**우선순위:** 정식 운영 직전 반드시 적용. 베타 동안은 App Check + 감사 로그 + UI 필터로 운영 → 신뢰 가정.
+
+**중간 완화 조치 (지금 가능):**
+- [ ] 베타 사용자 안내 — "비정상적 데이터 접근 시도는 자동 감지 및 감사 로그 기록" 명시
+- [ ] 평가 등급/의견 필드를 별도 서브컬렉션으로 분리 검토 (옵션 C 마이그레이션 사전 준비)
+
+---
+
 ## 🟢 1순위 — 베타 종료 직후
 
 ### 1. App Check Enforce 전환

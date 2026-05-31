@@ -61,6 +61,7 @@ function MemberDashboard() {
   const [loading, setLoading] = useState(true);
   const [orgStatusOpen, setOrgStatusOpen] = useState(false);
   const [myOrgName, setMyOrgName] = useState<string>('');
+  const [myDivisionName, setMyDivisionName] = useState<string>('');
 
   useEffect(() => {
     if (!userProfile) return;
@@ -79,6 +80,17 @@ function MemberDashboard() {
         // 다중 본부 겸직 지원 — filter 로 모든 led HQ 처리.
         const myOrg = allOrgs.find(o => o.id === userProfile!.organizationId);
         if (myOrg?.name) setMyOrgName(myOrg.name);
+        // 본인이 속한 부문/공장(DIVISION) 조직 찾기 — 조직 트리를 거슬러 올라가며 type === 'DIVISION'
+        function findDivisionAncestor(orgId: string | undefined): typeof allOrgs[number] | null {
+          let cur = orgId ? allOrgs.find(o => o.id === orgId) : null;
+          while (cur) {
+            if (cur.type === 'DIVISION') return cur;
+            cur = cur.parentId ? (allOrgs.find(o => o.id === cur!.parentId) ?? null) : null;
+          }
+          return null;
+        }
+        const myDivision = findDivisionAncestor(userProfile!.organizationId);
+        if (myDivision?.name) setMyDivisionName(myDivision.name);
         const myLedHQs = allOrgs.filter(o => o.leaderId === userProfile!.id && o.type === 'HEADQUARTERS');
         const isHQHead = userProfile!.role === 'TEAM_LEAD' && (myOrg?.type === 'HEADQUARTERS' || myLedHQs.length > 0);
         // 팀 스코프: 본부장이면 본인이 leader 인 모든 HQ + home HQ descendants, 그 외엔 본인 팀
@@ -116,7 +128,7 @@ function MemberDashboard() {
           getOneOnOnesForUser(userProfile!.id),
           getMileage(userProfile!.id),
           getAnnualGoal('company', year),
-          getAnnualGoal('org', year, userProfile!.organizationId),
+          myDivision ? getAnnualGoal('org', year, myDivision.id) : Promise.resolve(null),
           getAnnouncements(),
         ]);
 
@@ -194,29 +206,55 @@ function MemberDashboard() {
           <PolicyGuideButton />
         </div>
 
-        {/* 공지사항 위젯 */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+        {/* ① 연간 목표 배너 — 항상 최상단 (회사 경영목표 + 조직 목표) */}
+        {(companyGoal || (orgGoal && myDivisionName)) && (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {companyGoal && (
+              <div className="rounded-xl border-l-4 border-l-blue-500 bg-blue-50 px-5 py-4 space-y-2">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-blue-600 uppercase tracking-wide">
+                  <Building2 className="h-4 w-4" />
+                  {year}년 회사 경영목표
+                </div>
+                <AnnualGoalBody goal={companyGoal} />
+              </div>
+            )}
+            {orgGoal && myDivisionName && (
+              <div className="rounded-xl border-l-4 border-l-green-500 bg-green-50 px-5 py-4 space-y-2">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-green-600 uppercase tracking-wide">
+                  <LayoutList className="h-4 w-4" />
+                  {year}년 {myDivisionName} 목표
+                </div>
+                <AnnualGoalBody goal={orgGoal} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ② 공지사항 위젯 — 통일된 양식 */}
+        <div className="rounded-xl border bg-white overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b">
+            <div className="flex items-center gap-2">
               <Bell className="h-4 w-4 text-gray-500" />
-              공지사항
-            </h4>
+              <span className="text-sm font-semibold text-gray-700">공지사항</span>
+            </div>
             <Link href="/announcements" className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
-              전체 보기 <ArrowRight className="h-3 w-3" />
+              전체보기 <ChevronRight className="h-3 w-3" />
             </Link>
           </div>
           {loading ? (
-            <div className="h-12 animate-pulse rounded-xl bg-gray-100" />
+            <div className="px-5 py-4 space-y-2">
+              {[1, 2].map(i => <div key={i} className="h-8 animate-pulse rounded bg-gray-100" />)}
+            </div>
           ) : recentAnnouncements.length === 0 ? (
-            <div className="rounded-xl border border-dashed bg-gray-50 p-4 text-center">
+            <div className="px-5 py-6 text-center">
               <p className="text-sm text-gray-400">등록된 공지사항이 없습니다.</p>
             </div>
           ) : (
-            <div className="rounded-xl border bg-white divide-y divide-gray-100">
+            <div className="divide-y">
               {recentAnnouncements.slice(0, 3).map(a => (
                 <div key={a.id}>
                   <button
-                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                    className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors text-left"
                     onClick={() => setExpandedAnnouncementId(prev => prev === a.id ? null : a.id)}
                   >
                     <div className="flex items-center gap-2 min-w-0">
@@ -228,7 +266,7 @@ function MemberDashboard() {
                     </span>
                   </button>
                   {expandedAnnouncementId === a.id && (
-                    <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
+                    <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
                       <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{a.content}</p>
                     </div>
                   )}
@@ -237,30 +275,6 @@ function MemberDashboard() {
             </div>
           )}
         </div>
-
-        {/* 연간 목표 배너 */}
-        {(companyGoal || orgGoal) && (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {companyGoal && (
-              <div className="rounded-xl border-l-4 border-l-blue-500 bg-blue-50 px-5 py-4 space-y-1">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 uppercase tracking-wide">
-                  <Building2 className="h-3.5 w-3.5" />
-                  {year}년 회사 목표
-                </div>
-                <p className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">{companyGoal.content}</p>
-              </div>
-            )}
-            {orgGoal && (
-              <div className="rounded-xl border-l-4 border-l-green-500 bg-green-50 px-5 py-4 space-y-1">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-green-600 uppercase tracking-wide">
-                  <LayoutList className="h-3.5 w-3.5" />
-                  {year}년 우리 조직 목표
-                </div>
-                <p className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">{orgGoal.content}</p>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* 마일리지 카드 — 회사 목표 바로 다음 (v0.75) */}
         <MileageCard points={myMileage?.points ?? 0} />
@@ -379,6 +393,8 @@ function ExecDashboard() {
   const [orgSummaries, setOrgSummaries] = useState<OrgSummary[]>([]);
   const [myOrgName, setMyOrgName] = useState<string>('');
   const [orgGoalMap, setOrgGoalMap] = useState<Record<string, AnnualGoal>>({});
+  const [myDivisionName, setMyDivisionName] = useState<string>('');
+  const [myDivisionId, setMyDivisionId] = useState<string>('');
   const [recentAnnouncements, setRecentAnnouncements] = useState<Announcement[]>([]);
   const [expandedAnnouncementId, setExpandedAnnouncementId] = useState<string | null>(null);
   const [execPendingCount, setExecPendingCount] = useState(0);
@@ -404,6 +420,15 @@ function ExecDashboard() {
           setAllOrgsCache(allOrgs);
           const myOrg = allOrgs.find(o => o.id === userProfile!.organizationId);
           if (myOrg?.name) setMyOrgName(myOrg.name);
+          // 부문/공장(DIVISION) 조상 찾기 — 조직 트리를 거슬러 올라감
+          let curForDiv = myOrg;
+          while (curForDiv && curForDiv.type !== 'DIVISION') {
+            curForDiv = curForDiv.parentId ? allOrgs.find(o => o.id === curForDiv!.parentId) : undefined;
+          }
+          if (curForDiv?.type === 'DIVISION') {
+            setMyDivisionId(curForDiv.id);
+            setMyDivisionName(curForDiv.name);
+          }
 
           const goMap: Record<string, AnnualGoal> = {};
           orgGoals.forEach(og => { if (og.organizationId) goMap[og.organizationId] = og; });
@@ -486,15 +511,31 @@ function ExecDashboard() {
           <PolicyGuideButton />
         </div>
 
-        {/* 회사 경영목표 */}
-        {companyGoal && (
-          <div className="rounded-xl border-l-4 border-l-blue-500 bg-blue-50 px-5 py-4 space-y-1">
-            <div className="flex items-center gap-1.5 text-sm font-semibold text-blue-600 uppercase tracking-wide">
-              <Building2 className="h-3.5 w-3.5" /> {year}년 회사 경영목표
+        {/* ① 연간 목표 배너 — 회사 경영목표 + (있다면) 본인 부문/공장 목표 */}
+        {(() => {
+          const myDivGoal = myDivisionId ? orgGoalMap[myDivisionId] : null;
+          if (!companyGoal && !(myDivGoal && myDivisionName)) return null;
+          return (
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {companyGoal && (
+                <div className="rounded-xl border-l-4 border-l-blue-500 bg-blue-50 px-5 py-4 space-y-2">
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-blue-600 uppercase tracking-wide">
+                    <Building2 className="h-4 w-4" /> {year}년 회사 경영목표
+                  </div>
+                  <AnnualGoalBody goal={companyGoal} />
+                </div>
+              )}
+              {myDivGoal && myDivisionName && (
+                <div className="rounded-xl border-l-4 border-l-green-500 bg-green-50 px-5 py-4 space-y-2">
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-green-600 uppercase tracking-wide">
+                    <LayoutList className="h-4 w-4" /> {year}년 {myDivisionName} 목표
+                  </div>
+                  <AnnualGoalBody goal={myDivGoal} />
+                </div>
+              )}
             </div>
-            <p className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">{companyGoal.content}</p>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 공지사항 위젯 */}
         <div className="rounded-xl border bg-white overflow-hidden">
@@ -586,12 +627,12 @@ function ExecDashboard() {
         {/* 조직 상세 — CEO 는 전사 업무추진현황 임베드, 임원은 조직 트리 */}
         {userProfile?.role === 'CEO' ? (
           <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-3">전사 업무추진현황</h4>
+            <h2 className="text-xl font-bold text-gray-900 mb-3">전사 업무추진현황</h2>
             <CompanyProgressBody embedded />
           </div>
         ) : (
           <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-3">담당 조직 상세 현황</h4>
+            <h2 className="text-xl font-bold text-gray-900 mb-3">담당 조직 상세 현황</h2>
             {loading ? (
               <div className="space-y-3">
                 {[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100" />)}
@@ -629,6 +670,37 @@ function SummaryCard({ title, value, sub, icon, color, href }: {
   );
   if (href) return <Link href={href}>{card}</Link>;
   return card;
+}
+
+/**
+ * 연간 목표 표시 — items 가 있으면 항목별 subject(굵게)/detail(작게, 줄바꿈 보존) 렌더링.
+ * items 가 없으면 legacy content 를 굵은 한 줄로 표시.
+ */
+function AnnualGoalBody({ goal }: { goal: AnnualGoal }) {
+  const items = goal.items ?? [];
+  if (items.length === 0) {
+    return <p className="text-lg font-bold text-gray-900 leading-relaxed whitespace-pre-wrap">{goal.content}</p>;
+  }
+  return (
+    <ol className="space-y-2 list-none">
+      {items.map((it, idx) => {
+        const subject = it.subject ?? it.content ?? '';
+        const detail = it.detail ?? '';
+        if (!subject && !detail) return null;
+        return (
+          <li key={it.id} className="flex items-start gap-2">
+            {items.length > 1 && (
+              <span className="text-xs font-bold text-gray-400 mt-1 shrink-0 w-5">#{idx + 1}</span>
+            )}
+            <div className="flex-1 space-y-0.5">
+              {subject && <p className="text-base font-bold text-gray-900 leading-snug">{subject}</p>}
+              {detail && <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{detail}</p>}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
 }
 
 function OrgProgressRow({ label, goals, count }: { label: string; goals: Goal[]; count: number }) {

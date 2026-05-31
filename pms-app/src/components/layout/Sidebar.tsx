@@ -326,7 +326,6 @@ const navItems: NavItem[] = [
     label: '감사 로그',
     href: '/admin/audit-log',
     icon: <ShieldAlert className="h-5 w-5" />,
-    roles: ['CEO'],
     requireHrMaster: true,
     group: '시스템 설정',
   },
