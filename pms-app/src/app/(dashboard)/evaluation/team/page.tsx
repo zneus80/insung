@@ -17,8 +17,9 @@ import {
   getOrganizations,
   getWeeklyTasksByUsersAndYear,
   listInnovationActivities,
+  getOrgEvaluations,
 } from '@/lib/firestore';
-import type { Organization } from '@/types';
+import type { Organization, OrganizationEvaluation } from '@/types';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
@@ -115,6 +116,9 @@ function TeamLeadEvalView() {
   const [allOrgsCache, setAllOrgsCache] = useState<Organization[]>([]);
   const [activeOrgTab, setActiveOrgTab] = useState<string>(''); // 팀별 탭 활성 orgId
   const [allUsersCache, setAllUsersCache] = useState<User[]>([]);
+  // 본인 소속 부문/공장의 조직평가 등급
+  const [myDivision, setMyDivision] = useState<Organization | null>(null);
+  const [myDivisionGrade, setMyDivisionGrade] = useState<EvaluationGrade | null>(null);
 
   function getDescendantIds(orgId: string, allOrgs: Organization[]): string[] {
     const ids: string[] = [orgId];
@@ -143,6 +147,31 @@ function TeamLeadEvalView() {
       const hqOrgs = [...myLedHQ, ...fallbackHQ];
       const detectedHQHead = hqOrgs.length > 0;
       setIsHQHead(detectedHQHead);
+
+      // 본인 소속 부문/공장(DIVISION) 찾기 — 조직 트리 거슬러 올라감
+      // (§6-1 가시성 규칙: 팀장은 본인 소속 부문/공장 조직평가 등급만 볼 수 있음)
+      let curForDiv: Organization | undefined = myOrg;
+      while (curForDiv && curForDiv.type !== 'DIVISION') {
+        curForDiv = curForDiv.parentId ? allOrgs.find(o => o.id === curForDiv!.parentId) : undefined;
+      }
+      const myDiv = curForDiv?.type === 'DIVISION' ? curForDiv : null;
+      setMyDivision(myDiv);
+      if (myDiv) {
+        try {
+          const orgEvals = await getOrgEvaluations(year);
+          const myDivEval = orgEvals.find(e =>
+            e.organizationId === myDiv.id && (e.cycleYear === undefined || e.cycleYear === year)
+          );
+          // 조직평가 등급은 APPROVED 상태면 노출 가능 (§6-1)
+          if (myDivEval?.grade && myDivEval.status === 'APPROVED') {
+            setMyDivisionGrade(myDivEval.grade);
+          } else {
+            setMyDivisionGrade(null);
+          }
+        } catch {
+          setMyDivisionGrade(null);
+        }
+      }
 
       // scope orgIds 결정 — 본부장이면 HQ descendants, 일반 팀장이면 home + 본인이 leader 인 모든 팀
       let scopeOrgIds: string[];
@@ -402,6 +431,20 @@ function TeamLeadEvalView() {
             ? '본부 산하 팀원의 자기평가와 팀장 의견을 검토한 후 본부장 2차 의견을 작성하세요. (팀장 의견 제출 후에만 입력 가능)'
             : '팀원의 업무 성과와 자기평가를 검토한 후 등급 의견과 이유를 작성하고 제출하세요.'}
         </p>
+
+        {/* 본인 소속 부문/공장의 조직평가 등급 — 확정된 경우만 (§6-1 가시성 규칙) */}
+        {myDivision && myDivisionGrade && (
+          <div className="rounded-xl border bg-white px-5 py-3 flex items-center gap-4">
+            <span className="text-sm font-semibold text-gray-700">{myDivision.name} 조직평가</span>
+            <span className={cn(
+              'inline-block rounded-full px-3 py-0.5 text-sm font-bold',
+              GRADE_COLOR[myDivisionGrade]
+            )}>
+              {myDivisionGrade}
+            </span>
+            <span className="text-xs text-gray-400 ml-auto">{year}년 확정</span>
+          </div>
+        )}
 
         {loading ? <LoadingSpinner /> : members.length === 0 ? (
           <div className="rounded-xl border border-dashed p-10 text-center text-gray-400">소속 팀원이 없습니다.</div>

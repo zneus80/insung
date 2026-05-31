@@ -200,7 +200,14 @@ function Content({ embedded = false }: { embedded?: boolean }) {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
               {divisions.map(div => {
                 const ag = annualGoalForOrg(div.id);
-                const items = ag?.items ?? (ag?.content ? [{ id: 'legacy', content: ag.content }] : []);
+                // 신규 스키마(subject/detail) 우선, 구버전 content 도 호환. 본 화면은 주제만 표시.
+                const subjects: string[] = (() => {
+                  if (!ag) return [];
+                  if (ag.items && ag.items.length > 0) {
+                    return ag.items.map(it => it.subject ?? it.content ?? '').filter(Boolean);
+                  }
+                  return ag.content ? [ag.content] : [];
+                })();
                 const divGoals = goalsForDivision(div.id);
                 const isOpen = expanded[div.id] ?? true;
                 return (
@@ -216,15 +223,12 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                     </button>
                     {isOpen && (
                       <div className="border-t">
-                        {/* 연간 목표 */}
-                        {items.length > 0 && (
-                          <div className="px-3 py-2 bg-blue-50/30 border-b space-y-0.5">
-                            <p className="text-[11px] font-semibold text-blue-700">연간 목표</p>
-                            <ul className="space-y-0.5">
-                              {items.map(item => (
-                                <li key={item.id} className="text-xs text-gray-700 leading-snug">· {item.content}</li>
-                              ))}
-                            </ul>
+                        {/* 부문/공장 연간 목표 — 주제만 표시, 타이틀 없이 배경색으로 구분 */}
+                        {subjects.length > 0 && (
+                          <div className="px-3 py-2.5 bg-blue-50 border-b space-y-1">
+                            {subjects.map((s, idx) => (
+                              <p key={idx} className="text-sm font-semibold text-blue-900 leading-snug">{s}</p>
+                            ))}
                           </div>
                         )}
                         {/* 핵심목표 리스트 */}

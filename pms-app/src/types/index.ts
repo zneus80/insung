@@ -348,7 +348,12 @@ export interface IndividualEvaluation {
 // ─────────────────────────────────────────────
 export interface AnnualGoalItem {
   id: string;
-  content: string;
+  /** @deprecated v0.9 이전 단일 텍스트. 신규는 subject + detail 사용 */
+  content?: string;
+  /** 주제 — 크고 볼드로 표시 */
+  subject?: string;
+  /** 세부전략 — 상대적으로 작고 일반 폰트, 줄바꿈 보존 (whitespace-pre-wrap) */
+  detail?: string;
 }
 
 export interface AnnualGoal {
