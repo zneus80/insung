@@ -110,7 +110,7 @@ function TeamLeadResultView() {
 
 // ── 팀원·팀장 결과 목록 (팀장·본부장 전용) ────────────────────────────
 function TeamMembersResultView({ year }: { year: number }) {
-  const { userProfile } = useAuth();
+  const { userProfile, effectiveEvalRole } = useAuth();
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<User[]>([]);
   const [indivEvals, setIndivEvals] = useState<Record<string, IndividualEvaluation>>({});
@@ -140,9 +140,17 @@ function TeamMembersResultView({ year }: { year: number }) {
       const detectedHQHead = hqOrgs.length > 0;
       setIsHQHead(detectedHQHead);
 
-      // scope orgIds 결정 — 본부장이면 HQ descendants, 일반 팀장이면 home + 본인이 leader 인 모든 팀
+      // scope orgIds 결정
+      //  - EXEC_SUB (차순위 임원): home DIVISION descendants 모두
+      //  - 본부장: HQ descendants
+      //  - 일반 팀장: home + 본인이 leader 인 모든 팀
       let scopeOrgIds: string[];
-      if (detectedHQHead) {
+      if (effectiveEvalRole === 'EXEC_SUB' && userProfile.organizationId) {
+        const ledOrgs = allOrgs.filter(o => o.leaderId === userProfile.id);
+        const ledIds = ledOrgs.flatMap(o => getDescendantIds(o.id, allOrgs));
+        const homeIds = getDescendantIds(userProfile.organizationId, allOrgs);
+        scopeOrgIds = Array.from(new Set([...homeIds, ...ledIds]));
+      } else if (detectedHQHead) {
         scopeOrgIds = [...new Set(hqOrgs.flatMap(o => getDescendantIds(o.id, allOrgs)))];
       } else {
         const ledTeams = allOrgs.filter(o => o.leaderId === userProfile.id);
