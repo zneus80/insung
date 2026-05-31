@@ -82,16 +82,13 @@ service cloud.firestore {
       allow write: if isHrAdmin() || isCeo();
     }
 
-    // 개인 평가 — 읽기 권한 강화 (v0.9.1, viewableBy 기반):
-    //  · viewableBy 배열에 본인 uid 가 포함된 경우만 read
-    //  · CEO·HR관리자/마스터는 viewableBy 와 무관하게 전체 read
-    //  · viewableBy 는 평가 저장 시 시스템이 자동 계산 (본인 + 조직 트리 상위 leader 들)
-    //  · 백필 미실행 문서(viewableBy 없음) 보호 — 본인은 항상 read 허용
+    // 개인 평가 — 읽기 권한 강화 (v0.9):
+    //  · 팀원(MEMBER)은 본인 평가만 조회 가능
+    //  · 팀장(TEAM_LEAD)·임원(EXECUTIVE)·CEO·HR관리자/마스터는 전체 조회 가능 (UI 에서 추가 scope 필터)
     match /individualEvaluations/{id} {
       allow read: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
-        (resource.data.viewableBy is list && request.auth.uid in resource.data.viewableBy) ||
-        isCeo() || isHrMaster()
+        isLead() || isExec() || isCeo() || isHrAdmin() || isHrMaster()
       );
       allow write: if isAuthenticated() && (
         (resource == null && request.resource.data.userId == request.auth.uid) ||
@@ -100,12 +97,11 @@ service cloud.firestore {
       );
     }
 
-    // 자기평가 (docId = userId_year 형태) — viewableBy 기반
+    // 자기평가 (docId = userId_year 형태)
     match /selfEvaluations/{docId} {
       allow read: if isAuthenticated() && (
         docId.matches('^' + request.auth.uid + '_.*') ||
-        (resource.data.viewableBy is list && request.auth.uid in resource.data.viewableBy) ||
-        isCeo() || isHrMaster()
+        isLead() || isExec() || isCeo() || isHrAdmin()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
@@ -193,12 +189,11 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
-    // 연말 평가 (docId = userId_year) — viewableBy 기반 (v0.9.1)
+    // 연말 평가 (docId = userId_year)
     match /yearEndEvals/{docId} {
       allow read: if isAuthenticated() && (
         docId.matches('^' + request.auth.uid + '_.*') ||
-        (resource.data.viewableBy is list && request.auth.uid in resource.data.viewableBy) ||
-        isCeo() || isHrMaster()
+        isLead() || isExec() || isCeo() || isHrAdmin()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
@@ -210,13 +205,11 @@ service cloud.firestore {
       allow write: if isHrAdmin() || isCeo();
     }
 
-    // 육성면담서 (docId = userId_year) — viewableBy 기반 (v0.9.1)
-    // 예외: HR관리자는 육성면담서에 한해 전체 read 허용 (수정 요청 처리·면담 운영 흐름)
+    // 육성면담서 (docId = userId_year)
     match /mentoringForms/{docId} {
       allow read: if isAuthenticated() && (
         docId.matches('^' + request.auth.uid + '_.*') ||
-        (resource.data.viewableBy is list && request.auth.uid in resource.data.viewableBy) ||
-        isCeo() || isHrAdmin() || isHrMaster()
+        isLead() || isExec() || isCeo() || isHrAdmin()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       // 본인 작성/수정 OR HR관리자가 수정 요청 승인/거절 처리

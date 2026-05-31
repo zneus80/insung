@@ -11,6 +11,7 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { onAuthChange } from '@/lib/auth';
 import { getUser, updateUser, getOrganizations } from '@/lib/firestore';
 import { getEffectiveEvalRole, type EffectiveEvalRole } from '@/lib/approval-filters';
+import { useIdleLogout } from '@/hooks/useIdleLogout';
 import type { User, UserRole, Organization } from '@/types';
 
 interface AuthContextValue {
@@ -113,6 +114,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const effectiveEvalRole: EffectiveEvalRole = userProfile
     ? getEffectiveEvalRole(userProfile.id, userProfile.role, userProfile.organizationId, allOrgs)
     : 'MEMBER';
+
+  // E-4: 세션 비활성 자동 로그아웃 (30분) — 로그인 상태에만 활성
+  useIdleLogout({ enabled: !IS_MOCK && !!firebaseUser });
 
   return (
     <AuthContext.Provider value={{ firebaseUser, userProfile, realProfile, loading, previewAs, previewKey, effectiveEvalRole }}>

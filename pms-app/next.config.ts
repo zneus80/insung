@@ -23,7 +23,11 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: blob: https: https://www.gstatic.com https://lh3.googleusercontent.com",
-      "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://firebaseinstallations.googleapis.com https://firestore.googleapis.com wss://*.firebaseio.com https://www.googleapis.com",
+      // App Check (reCAPTCHA Enterprise) 토큰 발급에 필요한 도메인 포함:
+      //   - https://www.google.com — reCAPTCHA verification API
+      //   - https://www.recaptcha.net — reCAPTCHA 클라이언트
+      //   - https://content-firebaseappcheck.googleapis.com — App Check exchange (*.googleapis.com 에 포함되지만 명시)
+      "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://firebaseinstallations.googleapis.com https://firestore.googleapis.com https://content-firebaseappcheck.googleapis.com wss://*.firebaseio.com https://www.googleapis.com https://www.google.com https://www.recaptcha.net",
       "frame-src 'self' https://insung-pms.firebaseapp.com https://www.google.com https://www.recaptcha.net",
       "object-src 'none'",
       "base-uri 'self'",
