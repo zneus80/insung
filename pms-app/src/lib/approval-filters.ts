@@ -283,6 +283,26 @@ export function getEffectiveEvalRole(
 }
 
 /** 단계 라벨 (UI용) */
+/**
+ * 승인자의 표시 라벨 — 본인 직책(position) 우선, 없으면 fallback.
+ *
+ * 예) 사용자 position = "기획본부장" → "기획본부장 1차 승인"
+ *     position 없음 + role=HQ_HEAD → "본부장 1차 승인" (fallback)
+ *     position = "부공장장" → "부공장장 의견"
+ */
+export function approverTitle(
+  userId: string | null | undefined,
+  allUsers: User[] | undefined,
+  fallback: string,
+): string {
+  if (userId && allUsers) {
+    const u = allUsers.find(x => x.id === userId);
+    if (u?.position) return u.position;
+  }
+  return fallback;
+}
+
+/** stage role 의 기본 라벨 — 직책 모르는 경우 fallback. */
 export function stageLabel(role: ApprovalRole): string {
   return role === 'TEAM_LEAD' ? '팀장' : role === 'HQ_HEAD' ? '본부장' : '임원';
 }

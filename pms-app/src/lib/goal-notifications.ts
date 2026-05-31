@@ -15,6 +15,7 @@ import {
   buildApprovalChain,
   currentPendingStageIdx,
   stageLabel,
+  approverTitle,
 } from './approval-filters';
 import { createNotification } from './firestore';
 
@@ -114,7 +115,8 @@ export async function notifyNextApprover(
       return { notified: false, targetUserId, reason: 'owner_is_target' };
     }
 
-    const stageLbl = stageLabel(stage.role);
+    // 직책(position) 우선, 없으면 stage role 기반 fallback
+    const stageLbl = approverTitle(stage.userId, allUsers, stageLabel(stage.role));
     let message = '';
     let type: 'GOAL_SUBMITTED' | 'COMPLETION_REQUESTED' | 'ABANDON_REQUESTED' = 'GOAL_SUBMITTED';
 

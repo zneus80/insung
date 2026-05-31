@@ -84,21 +84,50 @@ function calcAutoQuotas(
   const pctSum = pcts.reduce((s, p) => s + p, 0);
   if (pctSum === 0) return { A: 0, B: 0, C: totalMembers, D: 0, E: 0 };
 
-  const rounded = pcts.map(p => roundQuota((p / 100) * totalMembers));
+  const raws = pcts.map(p => (p / 100) * totalMembers);
+  const rounded = raws.map(r => roundQuota(r));
+  // 반올림 후 "남은 소수점" = raw - 반올림 결과
+  //  · 0.9 → 1로 올렸으므로 남은 = -0.1 (보충 대상 아님)
+  //  · 1.35 → 1로 내렸으므로 남은 = 0.35 (보충 대상 후보, 단 0.7 미만이라 제외)
+  //  · 1.7 → 1로 내렸으므로 남은 = 0.7 (보충 대상)
+  const fracs = raws.map((r, i) => r - rounded[i]);
   let diff = rounded.reduce((s, n) => s + n, 0) - totalMembers;
 
   if (diff > 0) {
-    // 초과: 낮은 등급(E=4 → A=0) 순으로 감소
+    // 초과: 낮은 등급(E=4 → A=0) 순으로 -1
+    //  · 비율 0% 등급은 이미 0이라 자동 제외
+    //  · 소수점 0.3 초과 등급 제외 (미달 보충 0.7 이상의 대칭 — 반올림에서 살짝 밀린 정도라 깎으면 의도 어긋남)
+    //  · 모두 제외되어 diff 가 남으면 → C 등급에서 일괄 감소 (최하 fallback)
     for (let i = GRADES.length - 1; i >= 0 && diff > 0; i--) {
+      if (pcts[i] === 0) continue;
+      if (fracs[i] > 0.3) continue;
       const cut = Math.min(rounded[i], diff);
       rounded[i] -= cut;
       diff -= cut;
     }
+    // 그래도 초과면 C 등급에서 감소
+    if (diff > 0) {
+      const cIdx = GRADES.indexOf('C');
+      const cut = Math.min(rounded[cIdx], diff);
+      rounded[cIdx] -= cut;
+      diff -= cut;
+    }
   } else if (diff < 0) {
-    // 미달: 높은 등급(A=0 → E=4) 순으로 증가
+    // 미달: 높은 등급(A=0 → E=4) 순으로 +1
+    //  · 비율 0% 등급 제외 (정책상 보장된 0% 깨지지 않음)
+    //  · 소수점 0.7 미만 등급도 제외 (0.7 자체는 포함 — 반올림 임계 0.8 보다 살짝 완화)
+    //  · 모두 제외되어 diff 가 남으면 → C 등급에 일괄 보충 (최하 fallback)
     for (let i = 0; i < GRADES.length && diff < 0; i++) {
+      if (pcts[i] === 0) continue;
+      if (fracs[i] < 0.7) continue;
       rounded[i]++;
       diff++;
+    }
+    // 그래도 미달이면 C 등급에 잔여 추가
+    if (diff < 0) {
+      const cIdx = GRADES.indexOf('C');
+      rounded[cIdx] += -diff;
+      diff = 0;
     }
   }
 
@@ -121,8 +150,11 @@ function OrgEvaluationContent() {
   const isCeo = userProfile?.role === 'CEO';
   const isHrMaster = !!userProfile?.isHrMaster;
   const isHrAdmin = !!userProfile?.isHrAdmin;
-  // 조직평가관리(등급 지정) — CEO 또는 HR 마스터
-  const canSeeGradeSection = isCeo || isHrMaster;
+  const isCeoViewer = !!userProfile?.isCeoViewer;
+  // 조직평가관리(등급 지정) — CEO / HR 마스터 / CEO Viewer (모두 조회 가능)
+  const canSeeGradeSection = isCeo || isHrMaster || isCeoViewer;
+  // 실제 등급 변경 권한 — CEO 본인 (isCeoViewer 가 부여되면 같은 CEO 라도 권한 박탈 = 각자대표 중 viewer 케이스)
+  const canModifyGrade = isCeo && !isCeoViewer;
   // mode 쿼리에 따라 표시할 섹션 결정. mode 없으면 권한대로 모두 표시
   const showGradeSection = canSeeGradeSection && mode !== 'quota';
   const showQuotaSection = isHrAdmin && mode !== 'grade';
@@ -274,6 +306,10 @@ function OrgEvaluationContent() {
   // ── CEO: 등급 지정 ──────────────────────────
   async function handleGradeAssign(org: Organization, grade: EvaluationGrade) {
     if (!userProfile) return;
+    if (!canModifyGrade) {
+      toast.error('등급 확정 권한이 없습니다 (최고관리자 전용).');
+      return;
+    }
     const current = getEval(org.id);
     if (current?.grade === grade) return; // 동일 등급 재지정 스킵
 
@@ -477,7 +513,10 @@ function OrgEvaluationContent() {
               <p className="text-xs text-gray-500 mt-0.5">
                 부문/공장 단위 조직의 등급을 지정합니다. 상위 부문 없이 단독으로 운영되는 팀도 여기서 등급을 지정합니다.
                 등급 변경 시 이력이 자동으로 기록되며, 쿼터 확정 후 등급 변경 시 재확정이 필요합니다.
-                {!isActiveGradeYear && (
+                {!canModifyGrade && (
+                  <span className="ml-1 text-blue-600">· 조회 전용입니다 (등급 확정은 최고관리자 권한).</span>
+                )}
+                {canModifyGrade && !isActiveGradeYear && (
                   <span className="ml-1 text-orange-600">· 활성 연도가 아니므로 등급 변경이 불가합니다 (조회 전용).</span>
                 )}
               </p>
@@ -607,6 +646,7 @@ function OrgEvaluationContent() {
                       <th className="px-4 py-3 text-left">유형</th>
                       <th className="px-4 py-3 text-right">산하 인원</th>
                       <th className="px-4 py-3 text-center">현재 등급</th>
+                      <th className="px-4 py-3 text-center">권고 인원 (A/B/C/D/E)</th>
                       <th className="px-4 py-3 text-center">등급 변경</th>
                       <th className="px-4 py-3 text-center">쿼터 상태</th>
                       <th className="px-4 py-3 text-center">이력</th>
@@ -617,6 +657,10 @@ function OrgEvaluationContent() {
                       const ev = getGradeYearEval(org.id);
                       const quota = divQuotas.find(q => q.organizationId === org.id);
                       const memberCount = getMemberCount(org.id);
+                      // 등급 확정 후 권고 인원 자동 계산 (조직평가인원관리의 권고 인원과 동일)
+                      const autoQuota = ev?.grade && ev.status === 'APPROVED' && memberCount > 0
+                        ? calcAutoQuotas(ev.grade, memberCount, globalQuotas)
+                        : null;
                       return (
                         <tr key={org.id}>
                           <td className="px-4 py-3 font-medium text-gray-900">{org.name}</td>
@@ -636,13 +680,32 @@ function OrgEvaluationContent() {
                             )}
                           </td>
                           <td className="px-4 py-3 text-center">
+                            {autoQuota ? (
+                              <div className="inline-flex rounded-lg border overflow-hidden divide-x">
+                                {GRADES.map(g => (
+                                  <div key={g} className="flex flex-col items-center min-w-[44px]">
+                                    <div className={`w-full px-2 py-0.5 text-[10px] font-bold text-center ${GRADE_COLOR[g]}`}>{g}</div>
+                                    <div className={`w-full px-2 py-1 text-sm font-bold text-gray-800 ${autoQuota[g] === 0 ? 'text-gray-300' : ''}`}>
+                                      {autoQuota[g]}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-300">등급 확정 후 자동 계산</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center">
                             <Select
                               value={ev?.grade ?? ''}
                               onValueChange={g => handleGradeAssign(org, g as EvaluationGrade)}
-                              disabled={savingGrade === org.id || !isActiveGradeYear}
+                              disabled={savingGrade === org.id || !isActiveGradeYear || !canModifyGrade}
                             >
                               <SelectTrigger className="w-28 mx-auto">
-                                <SelectValue placeholder={isActiveGradeYear ? '등급 선택' : '조회 전용'} />
+                                <SelectValue placeholder={
+                                  !canModifyGrade ? '조회 전용'
+                                    : isActiveGradeYear ? '등급 선택' : '조회 전용'
+                                } />
                               </SelectTrigger>
                               <SelectContent>
                                 {GRADES.map(g => (

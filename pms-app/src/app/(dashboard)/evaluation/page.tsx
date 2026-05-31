@@ -21,6 +21,7 @@ import {
   listInnovationActivities,
 } from '@/lib/firestore';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
+import { approverTitle } from '@/lib/approval-filters';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
@@ -910,10 +911,10 @@ function ExecutiveEvalView() {
                           </div>
                         )}
 
-                        {/* 팀장 의견 */}
+                        {/* 팀장 의견 — 작성자 직책으로 라벨 */}
                         {ie?.leadGrade && (
                           <div className="rounded-lg bg-gray-50 px-4 py-3">
-                            <p className="text-sm font-bold text-gray-800 mb-1.5">팀장 의견 (1차)</p>
+                            <p className="text-sm font-bold text-gray-800 mb-1.5">{approverTitle(ie.leadSubmittedBy, execUsersCache, '팀장')} 의견 (1차)</p>
                             <div className="flex items-start gap-2">
                               <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold shrink-0 ${GRADE_COLOR[ie.leadGrade]}`}>{ie.leadGrade}</span>
                               {ie.leadComment && <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">{ie.leadComment}</p>}
@@ -921,10 +922,10 @@ function ExecutiveEvalView() {
                           </div>
                         )}
 
-                        {/* 본부장 의견 (2차) */}
+                        {/* 본부장 의견 (2차) — 작성자 직책으로 라벨 */}
                         {ie?.hqGrade && (
                           <div className="rounded-lg bg-indigo-50/50 border border-indigo-100 px-4 py-3">
-                            <p className="text-sm font-bold text-indigo-700 mb-1.5">본부장 의견 (2차)</p>
+                            <p className="text-sm font-bold text-indigo-700 mb-1.5">{approverTitle(ie.hqReviewedBy, execUsersCache, '본부장')} 의견 (2차)</p>
                             <div className="flex items-start gap-2">
                               <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold shrink-0 ${GRADE_COLOR[ie.hqGrade]}`}>{ie.hqGrade}</span>
                               {ie.hqComment && <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{ie.hqComment}</p>}
@@ -932,9 +933,9 @@ function ExecutiveEvalView() {
                           </div>
                         )}
 
-                        {/* 등급 확정 입력 */}
+                        {/* 등급 확정 입력 — 본인 직책 표시 */}
                         <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-3">
-                          <p className="text-sm font-bold text-indigo-700">임원 등급 확정</p>
+                          <p className="text-sm font-bold text-indigo-700">{userProfile?.position || '임원'} 등급 확정</p>
                           <div>
                             <p className="text-xs text-gray-500 mb-2">등급 선택</p>
                             <div className="flex gap-2">

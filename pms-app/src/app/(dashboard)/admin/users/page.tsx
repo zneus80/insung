@@ -59,7 +59,7 @@ function UsersContent() {
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isActingLead: false });
+  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isCeoViewer: false, isActingLead: false });
   const [orgSearch, setOrgSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
@@ -238,14 +238,14 @@ function UsersContent() {
   // ── 단건 저장 ─────────────────────────────────
   function openNew() {
     setEditing(null);
-    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isActingLead: false });
+    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isCeoViewer: false, isActingLead: false });
     setOrgSearch('');
     setShowDialog(true);
   }
 
   function openEdit(user: User) {
     setEditing(user);
-    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', hireDate: user.hireDate ?? '', isHrAdmin: !!user.isHrAdmin, isHrMaster: !!user.isHrMaster, isActingLead: !!user.isActingLead });
+    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', hireDate: user.hireDate ?? '', isHrAdmin: !!user.isHrAdmin, isHrMaster: !!user.isHrMaster, isCeoViewer: !!user.isCeoViewer, isActingLead: !!user.isActingLead });
     setOrgSearch('');
     setShowDialog(true);
   }
@@ -308,6 +308,7 @@ function UsersContent() {
           hireDate: form.hireDate || '',
           isHrAdmin: effectiveIsHrAdmin,
           isHrMaster: form.isHrMaster,
+          isCeoViewer: form.isCeoViewer,
           // 팀장 역할일 때만 의미 있음 — 다른 역할은 false 로 저장
           isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
         });
@@ -342,6 +343,7 @@ function UsersContent() {
           hireDate: form.hireDate || '',
           isHrAdmin: effectiveIsHrAdmin,
           isHrMaster: form.isHrMaster,
+          isCeoViewer: form.isCeoViewer,
           isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
           isActive: false,
         });
@@ -442,15 +444,66 @@ function UsersContent() {
     setReauthOpen(true);
   }
 
+  // 활성 목표 이관 target 미리 계산 — API 의 resolveTransferTarget 와 동일 로직 (클라이언트 캐시 활용)
+  function previewTransferTarget(targetUserId: string, targetUserOrgId: string): { id: string; name: string; role: string } | null {
+    const orgsById = new Map(orgs.map(o => [o.id, o]));
+    function findLeader(orgId: string) {
+      return users.find(u =>
+        u.id !== targetUserId &&
+        u.organizationId === orgId &&
+        u.isActive !== false &&
+        (u.role === 'TEAM_LEAD' || u.role === 'EXECUTIVE'),
+      );
+    }
+    let cur = orgsById.get(targetUserOrgId);
+    while (cur) {
+      if (cur.leaderId && cur.leaderId !== targetUserId) {
+        const leader = users.find(u => u.id === cur!.leaderId);
+        if (leader) return { id: leader.id, name: leader.name, role: leader.role };
+      }
+      const fb = findLeader(cur.id);
+      if (fb) return { id: fb.id, name: fb.name, role: fb.role };
+      if (!cur.parentId) break;
+      cur = orgsById.get(cur.parentId);
+    }
+    return null;
+  }
+
   async function handleDelete() {
     if (!deleteTarget || !userProfile) return;
+
+    // 활성 목표 갯수 + 이관 target 미리 파악
+    const activeGoalCount = (() => {
+      // 클라이언트에 모든 목표가 없으므로 정확한 수치 미리 못 줌 — API 가 처리
+      return null as number | null;
+    })();
+    const target = previewTransferTarget(deleteTarget.id, deleteTarget.organizationId);
+    const targetIsCeo = target?.role === 'CEO';
+    const noProperLeader = !target || targetIsCeo;
+
     // 한번 더 확인 — 데이터 이관 안내
-    if (!confirm(
-      `${deleteTarget.name}님을 삭제합니다.\n\n` +
-      `이 사용자가 입력한 모든 데이터(목표·주간업무·자기평가·육성면담서·1on1·마일리지·포상 등)는\n` +
-      `userDataBackups 컬렉션으로 이관된 후 원본은 삭제됩니다.\n\n` +
-      `삭제 후에는 원본 데이터를 직접 조회할 수 없습니다. 계속하시겠습니까?`
-    )) return;
+    let confirmMsg: string;
+    let forceDeleteGoals = false;
+    if (noProperLeader) {
+      // 이관 대상이 없거나 CEO 까지 거슬러 올라가는 경우 → 활성 목표 함께 완전 삭제 경고
+      confirmMsg =
+        `⚠️ ${deleteTarget.name}님 삭제 — 활성 목표 처리 경고\n\n` +
+        `이 사용자의 활성 핵심목표를 이관할 적절한 책임자(팀장·임원)가 ` +
+        (target ? `없습니다.\n부모 체인을 거슬러 올라가도 최종 도달자가 최고관리자(${target.name}) 뿐입니다.\n\n` : '없습니다.\n\n') +
+        `[확인] 활성 목표도 함께 백업 후 완전 삭제됩니다 (CEO 에게 이관하지 않음).\n` +
+        `[취소] 삭제를 중단합니다.\n\n` +
+        `진행하시겠습니까?`;
+      forceDeleteGoals = true;
+    } else {
+      confirmMsg =
+        `${deleteTarget.name}님을 삭제합니다.\n\n` +
+        `이 사용자의 활성 목표는 [${target.name} (${target.role === 'EXECUTIVE' ? '임원' : '팀장'})] 에게 자동 이관됩니다.\n` +
+        `(이관 후 새 책임자가 수행자 재지정 필요)\n\n` +
+        `종료된 목표·기타 데이터(주간업무·자기평가 등)는 userDataBackups 로 백업됩니다.\n\n` +
+        `계속하시겠습니까?`;
+    }
+    if (!confirm(confirmMsg)) return;
+
     setDeleting(true);
     try {
       const res = await fetch('/api/admin/delete-user', {
@@ -460,6 +513,7 @@ function UsersContent() {
           uid: deleteTarget.id,
           email: deleteTarget.email,
           deletedBy: userProfile.id,
+          ...(forceDeleteGoals ? { forceDeleteGoals: true } : {}),
         }),
       });
       if (!res.ok) {
@@ -694,6 +748,11 @@ function UsersContent() {
                           HR관리자
                         </span>
                       ) : null}
+                      {user.isCeoViewer && (
+                        <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+                          CEO조회
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-500">{orgs.find(o => o.id === user.organizationId)?.name ?? '-'}</td>
@@ -929,6 +988,22 @@ function UsersContent() {
                         HR 마스터 권한
                         <span className="ml-1.5 text-xs text-amber-600 font-normal">
                           (평가이력·등급설정·권한부여·백업·비밀번호 초기화 가능 — 자동으로 관리자 권한 포함)
+                        </span>
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="isCeoViewer"
+                        type="checkbox"
+                        checked={form.isCeoViewer}
+                        disabled={!canManageHrRoles}
+                        onChange={e => setForm(f => ({ ...f, isCeoViewer: e.target.checked }))}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <Label htmlFor="isCeoViewer" className="cursor-pointer">
+                        최고관리자 조회 권한
+                        <span className="ml-1.5 text-xs text-blue-600 font-normal">
+                          (CEO 와 동일 화면 조회 가능 — 등급 확정·수정 권한 없음, 모니터링 전용)
                         </span>
                       </Label>
                     </div>

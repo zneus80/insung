@@ -140,7 +140,7 @@ async function deleteUserDocuments(db: Firestore, userId: string, snapshot: Reco
 
 export async function POST(req: NextRequest) {
   try {
-    const { uid, email, deletedBy } = await req.json();
+    const { uid, email, deletedBy, forceDeleteGoals } = await req.json();
     if (!uid) return NextResponse.json({ error: 'uid 필요' }, { status: 400 });
 
     const db = adminDb();
@@ -157,7 +157,8 @@ export async function POST(req: NextRequest) {
     let transferredGoalIds: string[] = [];
     let archivedGoals: any[] = [];
     let notifSentCount = 0;
-    if (userOrgId) {
+    if (userOrgId && !forceDeleteGoals) {
+      // forceDeleteGoals=true 면 이관 시도 안 함 → 활성 목표도 백업 후 삭제
       transferTarget = await resolveTransferTarget(db, uid, userOrgId);
     }
     {

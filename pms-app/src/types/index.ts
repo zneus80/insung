@@ -44,6 +44,13 @@ export interface User {
   wasActivated?: boolean;
   isHrAdmin?: boolean;      // HR 관리자 권한 (역할과 독립적으로 부여)
   isHrMaster?: boolean;     // HR 마스터 권한 (마스터 전용 기능: 평가이력관리·등급설정·권한부여·백업·비밀번호초기화). 마스터=true 면 isHrAdmin 도 자동 true.
+  /**
+   * CEO Viewer 권한 — CEO 가 보는 모든 화면 read 가능, 모든 write·확정 차단.
+   *  - 각자대표 보좌·내부감사·회장 모니터링 등 read-only 모니터링 용도.
+   *  - role 과 독립적으로 부여 (예: 팀원 + isCeoViewer).
+   *  - 평가 등급 확정·조직 등급 변경 등 권한 없음.
+   */
+  isCeoViewer?: boolean;
   isActingLead?: boolean;   // 팀장대행 — role === TEAM_LEAD 인 경우에만 유효, 정식 팀장은 false/undefined
   // 비밀번호 최종 변경 시각 — 90일 경과 시 변경 권장 배너 노출 (강제 X).
   // 값이 없으면 createdAt 으로 대체.
