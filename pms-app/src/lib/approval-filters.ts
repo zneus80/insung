@@ -97,10 +97,65 @@ export interface ApprovalStage {
  *  - 팀장 목표: [(본부장), 임원]  ← 팀 = 본인 책임이라 팀장 단계 스킵
  *  - 본부장(HQ 직속) 목표: [임원]   ← HQ 단계 스킵
  */
+/**
+ * 같은 조직(HQ 또는 DIVISION)에 임원(EXECUTIVE)이 복수일 때 승인 순서대로 userId 배열 반환.
+ *  - execApprovalOrder 가 설정되어 있으면 그대로 사용 (마지막 = 정식 임원)
+ *  - 없으면 자동 정렬: leaderId 마지막 + 나머지는 hireDate 오름차순(미설정 시 이름)
+ *  - 임원 0~1명이면 leaderId 또는 단일 임원의 단일 stage 만 반환
+ */
+function getOrderedExecUserIds(
+  org: Organization,
+  allUsers: User[],
+): string[] {
+  const execs = allUsers.filter(u =>
+    u.isActive !== false && u.role === 'EXECUTIVE' && u.organizationId === org.id
+  );
+  // 0~1명: leaderId 우선, 없으면 유일 임원
+  if (execs.length === 0) return org.leaderId ? [org.leaderId] : [];
+  if (execs.length === 1) return [execs[0].id];
+
+  // 복수: execApprovalOrder 설정되어 있으면 그대로
+  if (Array.isArray(org.execApprovalOrder) && org.execApprovalOrder.length > 0) {
+    // doc 에 명시된 순서 + 누락된 활성 임원은 leader 앞에 자동 추가
+    const explicit = org.execApprovalOrder.filter(uid => execs.some(e => e.id === uid));
+    const missing = execs
+      .filter(e => !explicit.includes(e.id))
+      .map(e => e.id);
+    if (missing.length === 0) return explicit;
+    // leader 가 explicit 안에 있다면 leader 앞에 missing 삽입, 아니면 끝에 붙이고 leader 를 맨 뒤로
+    const leaderIdx = org.leaderId ? explicit.indexOf(org.leaderId) : -1;
+    if (leaderIdx >= 0) {
+      return [...explicit.slice(0, leaderIdx), ...missing, ...explicit.slice(leaderIdx)];
+    }
+    // leader 가 explicit 에 없으면 끝에 추가
+    return [...explicit, ...missing, ...(org.leaderId ? [org.leaderId] : [])].filter((v, i, a) => a.indexOf(v) === i);
+  }
+
+  // 명시 순서 없음 — 자동: leaderId 마지막, 나머지 hireDate 오름차순
+  const leader = org.leaderId && execs.find(e => e.id === org.leaderId);
+  const others = execs.filter(e => e.id !== org.leaderId);
+  others.sort((a, b) => {
+    const aH = a.hireDate ?? '';
+    const bH = b.hireDate ?? '';
+    if (aH && bH) return aH.localeCompare(bH);
+    if (aH) return -1;
+    if (bH) return 1;
+    return a.name.localeCompare(b.name, 'ko');
+  });
+  return [...others.map(e => e.id), ...(leader ? [leader.id] : [])];
+}
+
+/**
+ * 목표 승인 체인 빌드.
+ *
+ * @param allUsers 선택. 제공 시 같은 조직 임원(EXECUTIVE) 복수일 때 multi-stage 로 확장.
+ *                미제공 시 기존 단일 stage 동작 (leaderId 만).
+ */
 export function buildApprovalChain(
   goal: Goal,
   allOrgs: Organization[],
   ownerRole: string | undefined,
+  allUsers?: User[],
 ): ApprovalStage[] {
   const chain = getOrgChain(goal.organizationId, allOrgs);
   const teamOrg = chain.find(o => o.type === 'TEAM');
@@ -119,29 +174,74 @@ export function buildApprovalChain(
   }
   // ② 본부장 단계 — HQ + DIV 모두 있고, 오너가 본부장 본인(HQ 직속)이 아닐 때
   if (hqOrg && divOrg && !ownerIsHQDirect) {
-    stages.push({ role: 'HQ_HEAD', orgId: hqOrg.id, orgName: hqOrg.name, userId: hqOrg.leaderId ?? undefined });
+    // 다중 임원: allUsers 제공 시 임원 복수면 순차 stage, 단일이면 leaderId 단일 stage
+    const hqExecIds = allUsers ? getOrderedExecUserIds(hqOrg, allUsers) : (hqOrg.leaderId ? [hqOrg.leaderId] : []);
+    if (hqExecIds.length === 0) {
+      // fallback: leaderId 미지정 단계 (기존 동작)
+      stages.push({ role: 'HQ_HEAD', orgId: hqOrg.id, orgName: hqOrg.name, userId: undefined });
+    } else {
+      for (const uid of hqExecIds) {
+        stages.push({ role: 'HQ_HEAD', orgId: hqOrg.id, orgName: hqOrg.name, userId: uid });
+      }
+    }
   }
   // ③ 임원 단계 — DIV 가 최종, 없으면 HQ 가 최종 (본부장 본인 목표 제외)
   if (divOrg) {
-    stages.push({ role: 'EXEC', orgId: divOrg.id, orgName: divOrg.name, userId: divOrg.leaderId ?? undefined });
+    const divExecIds = allUsers ? getOrderedExecUserIds(divOrg, allUsers) : (divOrg.leaderId ? [divOrg.leaderId] : []);
+    if (divExecIds.length === 0) {
+      stages.push({ role: 'EXEC', orgId: divOrg.id, orgName: divOrg.name, userId: undefined });
+    } else {
+      for (const uid of divExecIds) {
+        stages.push({ role: 'EXEC', orgId: divOrg.id, orgName: divOrg.name, userId: uid });
+      }
+    }
   } else if (hqOrg && !ownerIsHQDirect) {
-    stages.push({ role: 'EXEC', orgId: hqOrg.id, orgName: hqOrg.name, userId: hqOrg.leaderId ?? undefined });
+    const hqExecIds = allUsers ? getOrderedExecUserIds(hqOrg, allUsers) : (hqOrg.leaderId ? [hqOrg.leaderId] : []);
+    if (hqExecIds.length === 0) {
+      stages.push({ role: 'EXEC', orgId: hqOrg.id, orgName: hqOrg.name, userId: undefined });
+    } else {
+      for (const uid of hqExecIds) {
+        stages.push({ role: 'EXEC', orgId: hqOrg.id, orgName: hqOrg.name, userId: uid });
+      }
+    }
   }
   return stages;
 }
 
-/** 현재 처리 대기 중인 stage index (없으면 -1) */
+/**
+ * 현재 처리 대기 중인 stage index (없으면 -1).
+ *
+ * 다중 임원 chain (HQ 또는 DIVISION 에 EXECUTIVE 복수) 지원:
+ *   chain 의 각 stage 마다 stage.userId 가 명시되어 있으면, 그 userId 가 이미
+ *   승인 로그(leadApprovedBy / hqSubApprovals / hqApprovedBy / execSubApprovals / approvedBy)
+ *   에 있는지로 미승인 첫 stage 를 찾는다.
+ *
+ *   stage.userId 가 없는 경우 (leaderId 미지정 + allUsers 미제공으로 chain build 시 비워둠)
+ *   는 기존 status 기반 fallback 사용.
+ */
 export function currentPendingStageIdx(goal: Goal, chain: ApprovalStage[]): number {
   if (chain.length === 0) return -1;
-  if (goal.status === 'PENDING_APPROVAL') {
-    // 첫 단계
-    return 0;
-  }
-  if (goal.status === 'LEAD_APPROVED') {
-    const hqIdx = chain.findIndex(s => s.role === 'HQ_HEAD');
-    if (hqIdx >= 0 && !goal.hqApprovedBy) return hqIdx;
-    const execIdx = chain.findIndex(s => s.role === 'EXEC');
-    if (execIdx >= 0) return execIdx;
+
+  // 초기 승인 흐름 (PENDING_APPROVAL → LEAD_APPROVED → APPROVED)
+  if (goal.status === 'PENDING_APPROVAL' || goal.status === 'LEAD_APPROVED') {
+    const approvedIds = new Set<string>();
+    if (goal.leadApprovedBy) approvedIds.add(goal.leadApprovedBy);
+    goal.hqSubApprovals?.forEach(a => approvedIds.add(a.userId));
+    if (goal.hqApprovedBy) approvedIds.add(goal.hqApprovedBy);
+    goal.execSubApprovals?.forEach(a => approvedIds.add(a.userId));
+    if (goal.approvedBy) approvedIds.add(goal.approvedBy);
+
+    for (let i = 0; i < chain.length; i++) {
+      const st = chain[i];
+      if (st.userId) {
+        if (!approvedIds.has(st.userId)) return i;
+      } else {
+        // leaderId 미지정 fallback (기존 동작)
+        if (st.role === 'TEAM_LEAD' && !goal.leadApprovedBy) return i;
+        if (st.role === 'HQ_HEAD' && !goal.hqApprovedBy) return i;
+        if (st.role === 'EXEC' && !goal.approvedBy) return i;
+      }
+    }
     return -1;
   }
   if (goal.status === 'COMPLETED') {
@@ -164,14 +264,8 @@ export function currentPendingStageIdx(goal: Goal, chain: ApprovalStage[]): numb
   return -1;
 }
 
-/** 내가 체인에서 어느 stage 에 해당하는지 (-1: 미해당)
- *
- * 매칭 규칙:
- *  ① stage 의 leaderId === 본인 → 정식 책임자 (확정 권한)
- *  ② leaderId 미지정 + 같은 조직 소속 + role 매치 → fallback (leaderId 운영 미정 환경)
- *  ③ leaderId 명시되어 있지만 본인이 같은 조직 EXECUTIVE → 차순위 임원 (목표 승인 권한)
- *     CLAUDE.md §2 케이스 B "동일 조직 임원 복수 배치" 의 부공장장·부부문장·부본부장.
- *     주의: 목표 승인은 가능하나 평가 등급 확정은 별도 UI 로직에서 EXEC_TOP 만 허용해야 함.
+/** 내가 체인에서 어느 stage 에 해당하는지 (-1: 미해당).
+ *  chain 이 다중 임원 stage 로 확장되어 있으면 각 stage 의 userId 와 정확히 매칭.
  */
 export function myStageIdxIn(
   chain: ApprovalStage[],
@@ -181,18 +275,13 @@ export function myStageIdxIn(
 ): number {
   for (let i = 0; i < chain.length; i++) {
     const st = chain[i];
-    // ① 정식 책임자
+    // ① 명시된 책임자 (다중 임원 chain 에서도 각자의 stage 와 일치)
     if (st.userId === myUserId) return i;
-    // ② leaderId 미지정 fallback
+    // ② leaderId 미지정 fallback (chain 생성 시 allUsers 미제공 + leaderId 도 비어있는 환경)
     if (!st.userId && myOrgId) {
       if (st.role === 'TEAM_LEAD' && myRole === 'TEAM_LEAD' && st.orgId === myOrgId) return i;
       if (st.role === 'HQ_HEAD' && (myRole === 'TEAM_LEAD' || myRole === 'EXECUTIVE') && st.orgId === myOrgId) return i;
       if (st.role === 'EXEC' && myRole === 'EXECUTIVE') return i;
-    }
-    // ③ 차순위 책임자 — 같은 조직 EXECUTIVE 면 목표 승인 인정
-    //    (정식 leader 가 다른 사람이지만 같은 조직 소속 EXEC = 부공장장·부부문장·부본부장)
-    if (st.userId && st.userId !== myUserId && st.orgId === myOrgId && myRole === 'EXECUTIVE') {
-      if (st.role === 'EXEC' || st.role === 'HQ_HEAD') return i;
     }
   }
   return -1;
@@ -402,10 +491,11 @@ export function filterMyActionableGoals(
   currentUserRole: string,
 ): Goal[] {
   const myOrgId = usersMap[currentUserId]?.organizationId;
+  const allUsers = Object.values(usersMap);
   return goals.filter(g => {
     if (g.userId === currentUserId) return false;
     const ownerRole = usersMap[g.userId]?.role;
-    const chain = buildApprovalChain(g, allOrgs, ownerRole);
+    const chain = buildApprovalChain(g, allOrgs, ownerRole, allUsers);
     const currentIdx = currentPendingStageIdx(g, chain);
     if (currentIdx < 0) return false;  // 처리할 단계 없음
     const myIdx = myStageIdxIn(chain, currentUserId, currentUserRole, myOrgId);
@@ -430,7 +520,7 @@ export function getApprovalRowState(
 } {
   if (goal.userId === currentUserId) return { state: 'NONE' };
   const ownerRole = usersMap[goal.userId]?.role;
-  const chain = buildApprovalChain(goal, allOrgs, ownerRole);
+  const chain = buildApprovalChain(goal, allOrgs, ownerRole, Object.values(usersMap));
   const currentIdx = currentPendingStageIdx(goal, chain);
   if (currentIdx < 0) return { state: 'NONE' };
   const myOrgId = usersMap[currentUserId]?.organizationId;

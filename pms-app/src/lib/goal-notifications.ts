@@ -79,7 +79,7 @@ export async function notifyNextApprover(
     const owner = allUsers.find(u => u.id === goal.userId);
     const ownerRole = owner?.role;
     const ownerName = ownerNameOverride ?? owner?.name ?? fromUserName;
-    const chain = buildApprovalChain(goal, allOrgs, ownerRole);
+    const chain = buildApprovalChain(goal, allOrgs, ownerRole, allUsers);
     const pendingIdx = currentPendingStageIdx(goal, chain);
 
     if (pendingIdx < 0 || pendingIdx >= chain.length) {
@@ -213,7 +213,7 @@ export async function notifyAllChainParties(params: NotifyAllChainParams): Promi
     const ownerName = ownerNameOverride ?? owner?.name ?? fromUserName;
 
     // 체인 단계 담당자 수집 — TEAM_LEAD/HQ_HEAD/EXEC
-    const chain = buildApprovalChain(goal, allOrgs, ownerRole);
+    const chain = buildApprovalChain(goal, allOrgs, ownerRole, allUsers);
     const chainUserIds: string[] = [];
     for (const stage of chain) {
       if (stage.userId) {

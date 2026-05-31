@@ -506,18 +506,38 @@ export default function GoalDetailPage() {
           successMsg = '포기 1차 승인. 임원의 최종 승인을 기다립니다.';
         }
       } else if (iAmHQHead) {
-        // 본부장 2차 승인: 상태 변경 없이 hqApprovedBy만 기록
+        // 본부장 단계 — 본인이 정식 본부장(HQ leaderId)인지 차순위(부본부장)인지 분기
+        // 정식: hqApprovedBy 세팅 (기존 동작)
+        // 차순위: hqSubApprovals 에 append (status 만 LEAD_APPROVED 로 전환)
+        const isOfficialHQHead = hqOrg?.leaderId === userProfile.id;
         if (goal.status === 'LEAD_APPROVED' && !goal.hqApprovedBy) {
-          updateData = { hqApprovedBy: userProfile.id, hqApprovedAt: new Date() };
-          successMsg = '본부 2차 승인 완료. 임원의 최종 승인을 기다립니다.';
+          if (isOfficialHQHead) {
+            updateData = { hqApprovedBy: userProfile.id, hqApprovedAt: new Date() };
+            successMsg = '본부 2차 승인 완료. 임원의 최종 승인을 기다립니다.';
+          } else {
+            // 차순위 본부장 (부본부장) — sub array 에 append
+            const newSubs = [...(goal.hqSubApprovals ?? []), { userId: userProfile.id, at: new Date() }];
+            updateData = { hqSubApprovals: newSubs };
+            successMsg = '차순위 본부장 승인 완료. 다음 단계로 진행합니다.';
+          }
         } else if (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') {
-          // 팀장 신규 목표 — 본부장이 1차 승인 (LEAD_APPROVED + hqApprovedBy 동시 기록)
+          // 팀장 신규 목표 — 본부장이 1차 승인
           newStatus = 'LEAD_APPROVED';
-          updateData = {
-            status: 'LEAD_APPROVED',
-            hqApprovedBy: userProfile.id, hqApprovedAt: new Date(),
-          };
-          successMsg = '본부 1차 승인 완료. 임원의 최종 승인을 기다립니다.';
+          if (isOfficialHQHead) {
+            updateData = {
+              status: 'LEAD_APPROVED',
+              hqApprovedBy: userProfile.id, hqApprovedAt: new Date(),
+            };
+            successMsg = '본부 1차 승인 완료. 임원의 최종 승인을 기다립니다.';
+          } else {
+            // 차순위 본부장 — status 전환 + sub array append
+            const newSubs = [...(goal.hqSubApprovals ?? []), { userId: userProfile.id, at: new Date() }];
+            updateData = {
+              status: 'LEAD_APPROVED',
+              hqSubApprovals: newSubs,
+            };
+            successMsg = '차순위 본부장 1차 승인. 다음 단계로 진행합니다.';
+          }
         } else if (goal.status === 'COMPLETED' && ownerIsMemberLike && !!goal.completionLeadApprovedBy && !goal.completionHqApprovedBy) {
           // 팀원 목표: 팀장 1차 → 본부장 2차
           updateData = { completionHqApprovedBy: userProfile.id, completionHqApprovedAt: new Date() };
@@ -544,14 +564,35 @@ export default function GoalDetailPage() {
           successMsg = '팀장 부재로 본부장이 포기 1차 승인을 대행했습니다. 임원의 최종 승인을 기다립니다.';
         }
       } else if (iAmExec) {
+        // 임원 단계 — 본인이 정식 임원(DIV/HQ leaderId)인지 차순위(부공장장·부부문장)인지 분기
+        // 정식: status=APPROVED 로 전환 + approvedBy 세팅 (기존 동작)
+        // 차순위: execSubApprovals 에 append (status 그대로 LEAD_APPROVED)
+        const isOfficialExec =
+          divOrg?.leaderId === userProfile.id ||
+          (!divOrg && hqOrg?.leaderId === userProfile.id);
         if (goal.status === 'LEAD_APPROVED') {
-          newStatus = 'APPROVED';
-          updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '최종 승인 완료.';
+          if (isOfficialExec) {
+            newStatus = 'APPROVED';
+            updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
+            successMsg = '최종 승인 완료.';
+          } else {
+            // 차순위 임원 — sub array 에 append, status 그대로
+            const newSubs = [...(goal.execSubApprovals ?? []), { userId: userProfile.id, at: new Date() }];
+            updateData = { execSubApprovals: newSubs };
+            successMsg = '차순위 임원 승인 완료. 정식 임원의 최종 승인을 기다립니다.';
+          }
         } else if (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') {
-          newStatus = 'APPROVED';
-          updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '승인 완료.';
+          if (isOfficialExec) {
+            newStatus = 'APPROVED';
+            updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
+            successMsg = '승인 완료.';
+          } else {
+            // 차순위 임원이 첫 stage (팀장 신규 목표) — status 전환 + sub array
+            newStatus = 'LEAD_APPROVED';
+            const newSubs = [...(goal.execSubApprovals ?? []), { userId: userProfile.id, at: new Date() }];
+            updateData = { status: 'LEAD_APPROVED', execSubApprovals: newSubs };
+            successMsg = '차순위 임원 1차 승인 완료. 다음 단계로 진행합니다.';
+          }
         } else if (goal.status === 'COMPLETED') {
           updateData = { completionExecApprovedBy: userProfile.id, completionExecApprovedAt: new Date() };
           successMsg = '완료 최종 확인.';

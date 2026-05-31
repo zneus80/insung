@@ -19,6 +19,13 @@ export interface Organization {
   leaderId: string | null;   // 팀장 또는 임원 userId
   /** 표시 순서 (작은 값이 먼저). 부문/공장(DIVISION)에 주로 사용. 미설정 시 0 또는 무한대로 취급. */
   displayOrder?: number;
+  /**
+   * 같은 조직에 임원(EXECUTIVE) 복수일 때 목표 승인 순서 (userId 배열).
+   * 첫 항목 = 1차 승인자(가장 차순위), 마지막 항목 = 정식 임원(최종 승인자, leaderId 와 동일).
+   * 임원 1명인 조직에서는 사용 안 함 (chain 이 자동으로 leaderId 기준 단일 stage).
+   * HR관리자가 /admin/organizations 에서 수동 지정.
+   */
+  execApprovalOrder?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -145,10 +152,14 @@ export interface Goal {
   // 승인 정보 (조직 계층별)
   leadApprovedBy?: string;    // 팀장 1차 승인
   leadApprovedAt?: Date;
-  hqApprovedBy?: string;      // 본부장 2차 승인 (본부 조직이 있는 경우)
+  hqApprovedBy?: string;      // 본부장 2차 승인 (정식 본부장 = HQ 의 leaderId, 마지막 HQ stage)
   hqApprovedAt?: Date;
-  approvedBy?: string;        // 임원 최종 승인
+  /** 본부 차순위 임원(부본부장) 들의 승인 로그. 같은 본부에 임원 복수일 때만 사용. (chain 순서 기준) */
+  hqSubApprovals?: { userId: string; at: Date }[];
+  approvedBy?: string;        // 임원 최종 승인 (정식 임원 = DIVISION leaderId, 마지막 EXEC stage)
   approvedAt?: Date;
+  /** 임원 차순위(부공장장·부부문장) 들의 승인 로그. 같은 조직에 임원 복수일 때만 사용. */
+  execSubApprovals?: { userId: string; at: Date }[];
   rejectedReason?: string;
 
   // 포기 승인 정보 (목표 승인 필드와 분리)

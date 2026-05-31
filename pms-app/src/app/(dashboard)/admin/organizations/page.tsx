@@ -36,6 +36,7 @@ const EMPTY_FORM = {
   parentId: null as string | null,
   leaderId: null as string | null,
   displayOrder: '' as string, // 입력 편의를 위해 string 으로 다루다 저장 시 number 변환
+  execApprovalOrder: [] as string[], // 다중 임원 승인 순서 (마지막 = 정식 임원)
 };
 
 // ── 트리 빌더 ────────────────────────────────────
@@ -135,6 +136,7 @@ function OrganizationsContent() {
     setForm({
       name: org.name, type: org.type, parentId: org.parentId, leaderId: org.leaderId,
       displayOrder: org.displayOrder != null ? String(org.displayOrder) : '',
+      execApprovalOrder: org.execApprovalOrder ?? [],
     });
     setLeaderSearch('');
     setShowDialog(true);
@@ -182,6 +184,7 @@ function OrganizationsContent() {
           parentId: form.parentId || null,
           leaderId: form.leaderId || null,
           ...(orderNum !== undefined && !Number.isNaN(orderNum) ? { displayOrder: orderNum } : {}),
+          ...(form.execApprovalOrder.length > 0 ? { execApprovalOrder: form.execApprovalOrder } : {}),
         });
         toast.success('조직 정보가 수정되었습니다.');
       } else {
@@ -191,6 +194,7 @@ function OrganizationsContent() {
           parentId: form.parentId || null,
           leaderId: form.leaderId || null,
           ...(orderNum !== undefined && !Number.isNaN(orderNum) ? { displayOrder: orderNum } : {}),
+          ...(form.execApprovalOrder.length > 0 ? { execApprovalOrder: form.execApprovalOrder } : {}),
         });
         toast.success('조직이 추가되었습니다.');
       }
@@ -507,6 +511,71 @@ function OrganizationsContent() {
                   );
                 })()}
               </div>
+              {/* 다중 임원 승인 순서 — DIVISION/HEADQUARTERS + 해당 조직에 EXECUTIVE 가 2명 이상일 때만 */}
+              {editing && (form.type === 'DIVISION' || form.type === 'HEADQUARTERS') && (() => {
+                const orgExecs = users.filter(u => u.isActive && u.role === 'EXECUTIVE' && u.organizationId === editing.id);
+                if (orgExecs.length < 2) return null;
+                // 현재 순서 (저장 또는 자동 — 마지막=정식 leader)
+                const current = form.execApprovalOrder.length > 0
+                  ? form.execApprovalOrder.filter(uid => orgExecs.some(e => e.id === uid))
+                    .concat(orgExecs.filter(e => !form.execApprovalOrder.includes(e.id)).map(e => e.id))
+                  : (() => {
+                      const others = orgExecs.filter(e => e.id !== form.leaderId);
+                      others.sort((a, b) => (a.hireDate ?? '').localeCompare(b.hireDate ?? ''));
+                      return [...others.map(e => e.id), ...(form.leaderId && orgExecs.some(e => e.id === form.leaderId) ? [form.leaderId] : [])];
+                    })();
+                function move(idx: number, dir: -1 | 1) {
+                  const next = [...current];
+                  const j = idx + dir;
+                  if (j < 0 || j >= next.length) return;
+                  [next[idx], next[j]] = [next[j], next[idx]];
+                  setForm(f => ({ ...f, execApprovalOrder: next }));
+                }
+                return (
+                  <div className="space-y-1.5">
+                    <Label>
+                      다중 임원 승인 순서
+                      <span className="text-gray-400 text-xs font-normal ml-1">
+                        (위가 1차, 마지막이 정식 임원=최종 승인자)
+                      </span>
+                    </Label>
+                    <div className="rounded-lg border bg-gray-50 divide-y">
+                      {current.map((uid, idx) => {
+                        const u = orgExecs.find(e => e.id === uid);
+                        if (!u) return null;
+                        const isLast = idx === current.length - 1;
+                        return (
+                          <div key={uid} className="flex items-center gap-2 px-3 py-2 text-sm">
+                            <span className="text-xs text-gray-400 w-12">
+                              {isLast ? '최종' : `${idx + 1}차`}
+                            </span>
+                            <span className="font-medium">{u.name}</span>
+                            {u.position && <span className="text-xs text-gray-500">({u.position})</span>}
+                            {u.id === form.leaderId && <span className="text-xs text-amber-600 ml-1">·책임자</span>}
+                            <div className="ml-auto flex gap-1">
+                              <button
+                                type="button"
+                                onClick={() => move(idx, -1)}
+                                disabled={idx === 0}
+                                className="px-2 py-0.5 text-xs border rounded hover:bg-white disabled:opacity-30"
+                              >▲</button>
+                              <button
+                                type="button"
+                                onClick={() => move(idx, 1)}
+                                disabled={isLast}
+                                className="px-2 py-0.5 text-xs border rounded hover:bg-white disabled:opacity-30"
+                              >▼</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      ※ 책임자(정식 임원)는 자동으로 최종 단계에 위치해야 합니다.
+                    </p>
+                  </div>
+                );
+              })()}
               {/* 부문/공장 표시 순서 — DIVISION 타입에만 노출 */}
               {form.type === 'DIVISION' && (
                 <div className="space-y-1.5">
