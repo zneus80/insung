@@ -83,10 +83,25 @@ export async function createUser(uid: string, data: Omit<User, 'id' | 'createdAt
 }
 
 export async function updateUser(uid: string, data: Partial<User>) {
+  // v0.9.1: organizationId 변경 감지 → 본인 평가 4종 viewableBy 재계산
+  let needAclRecompute = false;
+  if (data.organizationId !== undefined) {
+    const prevSnap = await getDoc(doc(db, COLLECTIONS.USERS, uid));
+    if (prevSnap.exists()) {
+      const prev = prevSnap.data();
+      if (data.organizationId !== prev.organizationId) needAclRecompute = true;
+    }
+  }
   await updateDoc(doc(db, COLLECTIONS.USERS, uid), {
     ...data,
     updatedAt: serverTimestamp(),
   });
+  if (needAclRecompute) {
+    // user 도큐가 갱신된 후 호출해야 새 organizationId 가 반영됨
+    recomputeViewableByForUser(uid).catch(err => {
+      console.warn('[updateUser] viewableBy 재계산 실패:', err);
+    });
+  }
 }
 
 export async function updateUserProfile(userId: string, data: { position?: string; hireDate?: string; rank?: string }) {
@@ -146,10 +161,27 @@ export async function createOrganization(data: Omit<Organization, 'id' | 'create
 }
 
 export async function updateOrganization(id: string, data: Partial<Organization>) {
+  // v0.9.1: leader/parent 변경 감지 → 영향받는 평가 viewableBy 재계산
+  let needAclRecompute = false;
+  if (data.leaderId !== undefined || data.parentId !== undefined) {
+    const prevSnap = await getDoc(doc(db, COLLECTIONS.ORGANIZATIONS, id));
+    if (prevSnap.exists()) {
+      const prev = prevSnap.data();
+      if (data.leaderId !== undefined && data.leaderId !== (prev.leaderId ?? null)) needAclRecompute = true;
+      if (data.parentId !== undefined && data.parentId !== (prev.parentId ?? null)) needAclRecompute = true;
+    }
+  }
   await updateDoc(doc(db, COLLECTIONS.ORGANIZATIONS, id), {
     ...data,
     updatedAt: serverTimestamp(),
   });
+  if (needAclRecompute) {
+    // 영향 범위: 해당 조직 + 산하 모든 조직 사용자들의 모든 평가
+    // 비동기 백그라운드로 실행 (UI 블로킹 방지). 에러는 콘솔 경고만.
+    recomputeViewableByForOrgTree(id).catch(err => {
+      console.warn('[updateOrganization] viewableBy 재계산 실패:', err);
+    });
+  }
 }
 
 export async function deleteOrganization(id: string) {
@@ -630,10 +662,26 @@ export async function upsertSelfEvaluation(
 ) {
   const id = selfEvalDocId(userId, year);
   const existing = await getDoc(doc(db, COLLECTIONS.SELF_EVALUATIONS, id));
+  // viewableBy 산출 — 우선순위:
+  //  1) data.organizationId (호출 측이 명시) → 시즌 정확도 보장
+  //  2) 기존 doc 의 organizationId (다년도 — 작성 시점 조직 보존)
+  //  3) 본인 현재 조직 (최초 신규 작성)
+  const existingData = existing.exists() ? existing.data() : null;
+  const orgIdForAcl =
+    data.organizationId ??
+    (existingData?.organizationId as string | undefined) ??
+    (await getUser(userId))?.organizationId ??
+    '';
+  const viewableBy = orgIdForAcl
+    ? await computeViewableBy(userId, orgIdForAcl)
+    : [userId];
+
   if (existing.exists()) {
     await updateDoc(doc(db, COLLECTIONS.SELF_EVALUATIONS, id), {
       ...data,
+      ...(orgIdForAcl && !existingData?.organizationId ? { organizationId: orgIdForAcl } : {}),
       ...(data.submittedAt ? { submittedAt: Timestamp.fromDate(data.submittedAt) } : {}),
+      viewableBy,
       updatedAt: serverTimestamp(),
     });
   } else {
@@ -642,8 +690,10 @@ export async function upsertSelfEvaluation(
       cycleYear: year,
       goalEvals: [],
       status: 'DRAFT',
+      ...(orgIdForAcl ? { organizationId: orgIdForAcl } : {}),
       ...data,
       ...(data.submittedAt ? { submittedAt: Timestamp.fromDate(data.submittedAt) } : {}),
+      viewableBy,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -656,6 +706,162 @@ export async function getSelfEvaluationsByUsers(userIds: string[], year: number)
     userIds.map(uid => getSelfEvaluation(uid, year))
   );
   return results.filter((s): s is SelfEvaluation => s !== null);
+}
+
+// ─── 가시성 ACL (viewableBy) ───────────────────
+// v0.9.1: 평가 데이터의 read 권한을 Firestore 규칙 레벨에서 차단하기 위한 ACL 헬퍼.
+// individualEvaluations / selfEvaluations / yearEndEvals / mentoringForms 의
+// 저장 함수에서 자동으로 본인 + 조직 트리 상위 리더들의 userId 를 viewableBy 배열에 저장.
+//
+// CEO·HR관리자/마스터는 어차피 규칙에서 무조건 허용하므로 배열에 포함하지 않는다.
+// HR 권한 부여/회수 시점에는 viewableBy 갱신 불필요.
+
+/** 조직 트리 캐시 — leader/parent 만 추출한 가벼운 맵 */
+export type OrgTreeCache = Map<string, { id: string; parentId: string | null; leaderId: string | null }>;
+
+/** 전체 조직을 한 번에 로드해 캐시 맵을 반환 — caller 가 여러 computeViewableBy 호출에 재사용 */
+export async function loadOrgTreeCache(): Promise<OrgTreeCache> {
+  const snap = await getDocs(collection(db, COLLECTIONS.ORGANIZATIONS));
+  const map: OrgTreeCache = new Map();
+  snap.docs.forEach(d => {
+    const data = d.data() as { parentId?: string | null; leaderId?: string | null };
+    map.set(d.id, { id: d.id, parentId: data.parentId ?? null, leaderId: data.leaderId ?? null });
+  });
+  return map;
+}
+
+/**
+ * 평가 대상자 본인과 조직 트리 상위 leader 들의 userId 를 모은다.
+ * 조직 트리: 대상자 소속 조직 → parentId → parentId ... 루트까지 거슬러 올라가며 각 조직의 leaderId 수집.
+ *
+ * @param orgsCache 선택 — 미리 로드한 OrgTreeCache. 대량 재계산 시 N×Orgs read 방지용으로 주입.
+ */
+export async function computeViewableBy(
+  userId: string,
+  organizationId: string,
+  orgsCache?: OrgTreeCache,
+): Promise<string[]> {
+  const viewers = new Set<string>();
+  viewers.add(userId);
+  if (!organizationId) return Array.from(viewers);
+
+  const orgsById = orgsCache ?? await loadOrgTreeCache();
+  const visited = new Set<string>();
+  let cur: string | null = organizationId;
+  while (cur && !visited.has(cur)) {
+    visited.add(cur);
+    const org = orgsById.get(cur);
+    if (!org) break;
+    if (org.leaderId) viewers.add(org.leaderId);
+    cur = org.parentId;
+  }
+  return Array.from(viewers);
+}
+
+/**
+ * 한 사용자의 모든 평가(4종) viewableBy 를 재계산. 사용자 조직 이동 시 호출.
+ * 호출 전 user.organizationId 가 새 조직으로 갱신된 상태여야 한다.
+ *
+ * @param orgsCache 선택 — 대량 호출 시 호출자가 주입.
+ */
+export async function recomputeViewableByForUser(
+  userId: string,
+  orgsCache?: OrgTreeCache,
+): Promise<{ updated: number }> {
+  const user = await getUser(userId);
+  if (!user) return { updated: 0 };
+  const cache = orgsCache ?? await loadOrgTreeCache();
+  let updated = 0;
+
+  // individualEvaluations
+  const ieSnap = await getDocs(query(
+    collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS),
+    where('userId', '==', userId),
+  ));
+  for (const d of ieSnap.docs) {
+    const data = d.data();
+    const orgId = data.organizationId ?? user.organizationId;
+    const viewableBy = await computeViewableBy(userId, orgId, cache);
+    await updateDoc(d.ref, { viewableBy, updatedAt: serverTimestamp() });
+    updated++;
+  }
+
+  // selfEvaluations — doc 의 organizationId 우선 (다년도 보존)
+  const seSnap = await getDocs(query(
+    collection(db, COLLECTIONS.SELF_EVALUATIONS),
+    where('userId', '==', userId),
+  ));
+  for (const d of seSnap.docs) {
+    const data = d.data();
+    const orgId = (data.organizationId as string | undefined) ?? user.organizationId;
+    const viewableBy = await computeViewableBy(userId, orgId, cache);
+    await updateDoc(d.ref, { viewableBy, updatedAt: serverTimestamp() });
+    updated++;
+  }
+
+  // yearEndEvals
+  const yeSnap = await getDocs(query(
+    collection(db, COLLECTIONS.YEAR_END_EVALS),
+    where('userId', '==', userId),
+  ));
+  for (const d of yeSnap.docs) {
+    const data = d.data();
+    const orgId = data.organizationId ?? user.organizationId;
+    const viewableBy = await computeViewableBy(userId, orgId, cache);
+    await updateDoc(d.ref, { viewableBy, updatedAt: serverTimestamp() });
+    updated++;
+  }
+
+  // mentoringForms
+  const mfSnap = await getDocs(query(
+    collection(db, COLLECTIONS.MENTORING_FORMS),
+    where('userId', '==', userId),
+  ));
+  for (const d of mfSnap.docs) {
+    const data = d.data();
+    const orgId = data.organizationId ?? user.organizationId;
+    const viewableBy = await computeViewableBy(userId, orgId, cache);
+    await updateDoc(d.ref, { viewableBy, updatedAt: serverTimestamp() });
+    updated++;
+  }
+  return { updated };
+}
+
+/**
+ * 한 조직과 그 산하 모든 조직의 모든 평가 viewableBy 를 재계산. 조직 leader 변경 시 호출.
+ * 한 번의 조직 fetch 를 재사용하여 N×Orgs read 를 1×Orgs 로 줄임.
+ */
+export async function recomputeViewableByForOrgTree(rootOrgId: string): Promise<{ users: number; docs: number }> {
+  const cache = await loadOrgTreeCache();
+
+  // rootOrgId 의 산하 조직 ID 집합 (BFS)
+  const descendantIds = new Set<string>([rootOrgId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    cache.forEach((org, id) => {
+      if (!descendantIds.has(id) && org.parentId && descendantIds.has(org.parentId)) {
+        descendantIds.add(id);
+        changed = true;
+      }
+    });
+  }
+
+  // 영향받는 사용자 — organizationId 가 산하 조직 집합에 속한 모두
+  const usersSnap = await getDocs(collection(db, COLLECTIONS.USERS));
+  const affectedUserIds = usersSnap.docs
+    .filter(d => {
+      const data = d.data();
+      return data.organizationId && descendantIds.has(data.organizationId);
+    })
+    .map(d => d.id);
+
+  let totalDocs = 0;
+  for (const uid of affectedUserIds) {
+    const { updated } = await recomputeViewableByForUser(uid, cache);  // C-4: 캐시 재사용
+    totalDocs += updated;
+  }
+  return { users: affectedUserIds.length, docs: totalDocs };
 }
 
 // ─── 개인 평가 ────────────────────────────────
@@ -705,6 +911,33 @@ export async function upsertIndividualEvaluation(
     if (!existing.organizationId && safeData.organizationId) {
       patch.organizationId = safeData.organizationId;
     }
+    // viewableBy 자동 계산 — 최종 organizationId 기준 (patch 없으면 existing 기준)
+    const finalOrgId = patch.organizationId ?? existing.organizationId;
+    if (finalOrgId) {
+      patch.viewableBy = await computeViewableBy(userId, finalOrgId);
+    }
+    // D-3: 등급 변경 audit — leadGrade/hqGrade/execGrade 중 하나라도 값이 바뀌면 기록
+    const changes: string[] = [];
+    if (safeData.leadGrade !== undefined && safeData.leadGrade !== existing.leadGrade) {
+      changes.push(`leadGrade: ${existing.leadGrade ?? '∅'} → ${safeData.leadGrade ?? '∅'}`);
+    }
+    if (safeData.hqGrade !== undefined && safeData.hqGrade !== existing.hqGrade) {
+      changes.push(`hqGrade: ${existing.hqGrade ?? '∅'} → ${safeData.hqGrade ?? '∅'}`);
+    }
+    if (safeData.execGrade !== undefined && safeData.execGrade !== existing.execGrade) {
+      changes.push(`execGrade: ${existing.execGrade ?? '∅'} → ${safeData.execGrade ?? '∅'}`);
+    }
+    if (changes.length > 0) {
+      const actorId = safeData.execConfirmedBy ?? safeData.hqReviewedBy ?? safeData.leadSubmittedBy ?? 'unknown';
+      createAuditLog({
+        action: 'EVAL_GRADE_CHANGE',
+        actorId,
+        actorName: actorId, // 호출 측에서 name 모름 → 후처리로 lookup 가능 (audit 화면에서 조회)
+        targetId: userId,
+        targetName: '',
+        details: `${year}년 평가 / ${changes.join(', ')}`,
+      }).catch(err => console.warn('[D-3 audit] 실패:', err));
+    }
     await updateDoc(doc(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS, existing.id), patch);
   } else {
     if (!safeData.organizationId) {
@@ -712,11 +945,13 @@ export async function upsertIndividualEvaluation(
       // 데이터 무결성 보장을 위해 새 문서 생성을 거부.
       throw new Error('[upsertIndividualEvaluation] organizationId 가 필요합니다. (호출 위치에서 member.organizationId 전달 누락)');
     }
+    const viewableBy = await computeViewableBy(userId, safeData.organizationId);
     await addDoc(collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS), {
       userId,
       cycleYear: year,
       status: 'NOT_STARTED',
       ...safeData,
+      viewableBy,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -746,6 +981,17 @@ export async function withdrawLeadOpinion(ie: IndividualEvaluation) {
     leadSubmittedAt: del(),
     updatedAt: serverTimestamp(),
   });
+  // D-3: 등급 회수 audit (이전 등급이 있었을 때만)
+  if (ie.leadGrade) {
+    createAuditLog({
+      action: 'EVAL_GRADE_CHANGE',
+      actorId: ie.leadSubmittedBy ?? 'unknown',
+      actorName: ie.leadSubmittedBy ?? 'unknown',
+      targetId: ie.userId,
+      targetName: '',
+      details: `${ie.cycleYear}년 평가 / 팀장 의견 회수 (leadGrade: ${ie.leadGrade} → ∅)`,
+    }).catch(err => console.warn('[D-3 audit] withdrawLeadOpinion 실패:', err));
+  }
 }
 
 /**
@@ -764,6 +1010,16 @@ export async function withdrawHqOpinion(ie: IndividualEvaluation) {
     hqReviewedAt: del(),
     updatedAt: serverTimestamp(),
   });
+  if (ie.hqGrade) {
+    createAuditLog({
+      action: 'EVAL_GRADE_CHANGE',
+      actorId: ie.hqReviewedBy ?? 'unknown',
+      actorName: ie.hqReviewedBy ?? 'unknown',
+      targetId: ie.userId,
+      targetName: '',
+      details: `${ie.cycleYear}년 평가 / 본부장 의견 회수 (hqGrade: ${ie.hqGrade} → ∅)`,
+    }).catch(err => console.warn('[D-3 audit] withdrawHqOpinion 실패:', err));
+  }
 }
 
 /**
@@ -786,6 +1042,16 @@ export async function clearExecConfirmation(ie: IndividualEvaluation) {
     execConfirmedAt: del(),
     updatedAt: serverTimestamp(),
   });
+  if (ie.execGrade) {
+    createAuditLog({
+      action: 'EVAL_GRADE_CHANGE',
+      actorId: ie.execConfirmedBy ?? 'unknown',
+      actorName: ie.execConfirmedBy ?? 'unknown',
+      targetId: ie.userId,
+      targetName: '',
+      details: `${ie.cycleYear}년 평가 / 임원 확정 무효화 (execGrade: ${ie.execGrade} → ∅)`,
+    }).catch(err => console.warn('[D-3 audit] clearExecConfirmation 실패:', err));
+  }
 }
 
 // ─── 1on1 ─────────────────────────────────────
@@ -1261,10 +1527,18 @@ export async function upsertYearEndEval(
   const id = yearEndEvalDocId(userId, year);
   const ref = doc(db, COLLECTIONS.YEAR_END_EVALS, id);
   const existing = await getDoc(ref);
+  // viewableBy 자동 계산 — data.organizationId 우선, 없으면 본인 user.organizationId
+  let orgIdForAcl = data.organizationId;
+  if (!orgIdForAcl) {
+    const me = await getUser(userId);
+    orgIdForAcl = me?.organizationId ?? '';
+  }
+  const viewableBy = orgIdForAcl ? await computeViewableBy(userId, orgIdForAcl) : [userId];
+
   if (existing.exists()) {
-    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
+    await updateDoc(ref, { ...data, viewableBy, updatedAt: serverTimestamp() });
   } else {
-    await setDoc(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await setDoc(ref, { ...data, viewableBy, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   }
 }
 
@@ -1364,10 +1638,18 @@ export async function upsertMentoringForm(
   const id = mentoringDocId(userId, year);
   const ref = doc(db, COLLECTIONS.MENTORING_FORMS, id);
   const existing = await getDoc(ref);
+  // viewableBy 자동 계산
+  let orgIdForAcl = data.organizationId;
+  if (!orgIdForAcl) {
+    const me = await getUser(userId);
+    orgIdForAcl = me?.organizationId ?? '';
+  }
+  const viewableBy = orgIdForAcl ? await computeViewableBy(userId, orgIdForAcl) : [userId];
+
   if (existing.exists()) {
-    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
+    await updateDoc(ref, { ...data, viewableBy, updatedAt: serverTimestamp() });
   } else {
-    await setDoc(ref, { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await setDoc(ref, { ...data, viewableBy, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   }
 }
 

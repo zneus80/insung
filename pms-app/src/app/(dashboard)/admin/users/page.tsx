@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
+import ReauthModal from '@/components/auth/ReauthModal';
 import { Plus, Pencil, UserX, Download, Upload, AlertCircle, Trash2, Mail, Copy, Check, UserCheck, KeyRound, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { toast } from 'sonner';
 import type { User, Organization, UserRole } from '@/types';
@@ -63,6 +64,10 @@ function UsersContent() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // 본인 재인증 (D-2): 비밀번호 초기화
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [reauthReason, setReauthReason] = useState('');
+  const pendingReauthAction = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // ── 정렬·필터 ─────────────────────────────────
   type SortKey = 'name' | 'role' | 'org' | 'status';
@@ -408,28 +413,33 @@ function UsersContent() {
 
   async function handleResetPassword(user: User) {
     if (!confirm(`${user.name}님의 비밀번호를 초기화하시겠습니까?\n초기 비밀번호: 1q2w3e4r!`)) return;
-    setSaving(true);
-    try {
-      const res = await fetch('/api/admin/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.id }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
-      toast.success(`${user.name}님의 비밀번호가 초기화되었습니다. (1q2w3e4r!)`);
-      // 감사 로그
-      if (userProfile) {
-        createAuditLog({
-          action: 'PASSWORD_RESET',
-          actorId: userProfile.id, actorName: userProfile.name,
-          targetId: user.id, targetName: user.name,
-        }).catch(err => console.error('[감사로그] 실패:', err));
+    // 본인 재인증 후 실행 (D-2)
+    pendingReauthAction.current = async () => {
+      setSaving(true);
+      try {
+        const res = await fetch('/api/admin/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid: user.id }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error);
+        toast.success(`${user.name}님의 비밀번호가 초기화되었습니다. (1q2w3e4r!)`);
+        if (userProfile) {
+          createAuditLog({
+            action: 'PASSWORD_RESET',
+            actorId: userProfile.id, actorName: userProfile.name,
+            targetId: user.id, targetName: user.name,
+            details: '재인증 완료 후 처리',
+          }).catch(err => console.error('[감사로그] 실패:', err));
+        }
+      } catch (e: any) {
+        toast.error(`비밀번호 초기화 실패: ${e?.message}`);
+      } finally {
+        setSaving(false);
       }
-    } catch (e: any) {
-      toast.error(`비밀번호 초기화 실패: ${e?.message}`);
-    } finally {
-      setSaving(false);
-    }
+    };
+    setReauthReason(`${user.name}님 비밀번호 초기화`);
+    setReauthOpen(true);
   }
 
   async function handleDelete() {
@@ -509,8 +519,12 @@ function UsersContent() {
       const txt = search.toLowerCase();
       if (txt && !u.name.toLowerCase().includes(txt) && !u.email.toLowerCase().includes(txt)) return false;
       if (filterRole !== 'ALL') {
-        if (filterRole === 'HR_ADMIN') { if (!u.isHrAdmin) return false; }
-        else if (u.role !== filterRole) return false;
+        if (filterRole === 'HR_ADMIN') {
+          // HR관리자만 (마스터 제외)
+          if (!u.isHrAdmin || u.isHrMaster) return false;
+        } else if (filterRole === 'HR_MASTER') {
+          if (!u.isHrMaster) return false;
+        } else if (u.role !== filterRole) return false;
       }
       if (filterStatus !== 'ALL') {
         const st = u.isActive ? 'active' : u.wasActivated ? 'inactive' : 'pending';
@@ -565,6 +579,7 @@ function UsersContent() {
             <option value="EXECUTIVE">임원</option>
             <option value="CEO">최고관리자</option>
             <option value="HR_ADMIN">HR관리자</option>
+            <option value="HR_MASTER">HR마스터</option>
           </select>
           {/* 상태 필터 */}
           <select
@@ -670,11 +685,15 @@ function UsersContent() {
                       <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${ROLE_COLOR[user.role] ?? 'bg-gray-100 text-gray-700'}`}>
                         {ROLES.find(r => r.value === user.role)?.label ?? user.role}
                       </span>
-                      {user.isHrAdmin && (
+                      {user.isHrMaster ? (
+                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-700">
+                          HR마스터
+                        </span>
+                      ) : user.isHrAdmin ? (
                         <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-700">
                           HR관리자
                         </span>
-                      )}
+                      ) : null}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-500">{orgs.find(o => o.id === user.organizationId)?.name ?? '-'}</td>
@@ -939,6 +958,17 @@ function UsersContent() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <ReauthModal
+          open={reauthOpen}
+          onOpenChange={setReauthOpen}
+          reason={reauthReason}
+          onConfirmed={async () => {
+            const fn = pendingReauthAction.current;
+            pendingReauthAction.current = undefined;
+            if (fn) await fn();
+          }}
+        />
       </div>
     </div>
   );

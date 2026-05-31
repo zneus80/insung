@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAllUsers, updateUser, createAuditLog } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { SearchInput } from '@/components/ui/search-input';
+import ReauthModal from '@/components/auth/ReauthModal';
 import { toast } from 'sonner';
 import { ShieldCheck, AlertCircle } from 'lucide-react';
 import type { User } from '@/types';
@@ -37,34 +38,43 @@ function HrMasterContent() {
 
   useEffect(() => { load(); }, []);
 
+  // 재인증 모달 상태 (D-2)
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [reauthReason, setReauthReason] = useState('');
+  const pendingAction = useRef<(() => Promise<void>) | undefined>(undefined);
+
   async function handleToggleMaster(user: User) {
     if (!userProfile) return;
     const nextMaster = !user.isHrMaster;
     const action = nextMaster ? '부여' : '제거';
     if (!confirm(`${user.name}님에게 HR 마스터 권한을 ${action}하시겠습니까?\n${nextMaster ? '마스터 권한이 부여되면 자동으로 HR 관리자 권한도 함께 부여됩니다.' : '마스터 권한만 제거됩니다. HR 관리자 권한은 유지됩니다.'}`)) return;
 
-    setSaving(user.id);
-    try {
-      // 마스터=true 일 때 isHrAdmin 도 자동 true
-      await updateUser(user.id, nextMaster
-        ? { isHrMaster: true, isHrAdmin: true }
-        : { isHrMaster: false }
-      );
-      await createAuditLog({
-        action: nextMaster ? 'HR_ROLE_GRANT' : 'HR_ROLE_REVOKE',
-        actorId: userProfile.id,
-        actorName: userProfile.name,
-        targetId: user.id,
-        targetName: user.name,
-        details: `HR 마스터 ${action} (최고관리자 직접 처리)`,
-      });
-      toast.success(`${user.name}님의 HR 마스터 권한을 ${action}했습니다.`);
-      await load();
-    } catch (e: any) {
-      toast.error(`처리 실패: ${e?.message ?? '알 수 없는 오류'}`);
-    } finally {
-      setSaving(null);
-    }
+    // 본인 재인증 후 실행 — 민감 액션 (D-2)
+    pendingAction.current = async () => {
+      setSaving(user.id);
+      try {
+        await updateUser(user.id, nextMaster
+          ? { isHrMaster: true, isHrAdmin: true }
+          : { isHrMaster: false }
+        );
+        await createAuditLog({
+          action: nextMaster ? 'HR_ROLE_GRANT' : 'HR_ROLE_REVOKE',
+          actorId: userProfile.id,
+          actorName: userProfile.name,
+          targetId: user.id,
+          targetName: user.name,
+          details: `HR 마스터 ${action} (최고관리자 직접 처리, 재인증 완료)`,
+        });
+        toast.success(`${user.name}님의 HR 마스터 권한을 ${action}했습니다.`);
+        await load();
+      } catch (e: any) {
+        toast.error(`처리 실패: ${e?.message ?? '알 수 없는 오류'}`);
+      } finally {
+        setSaving(null);
+      }
+    };
+    setReauthReason(`${user.name}님 HR 마스터 권한 ${action}`);
+    setReauthOpen(true);
   }
 
   const filtered = users.filter(u => {
@@ -178,6 +188,17 @@ function HrMasterContent() {
         </div>
 
       </div>
+
+      <ReauthModal
+        open={reauthOpen}
+        onOpenChange={setReauthOpen}
+        reason={reauthReason}
+        onConfirmed={async () => {
+          const fn = pendingAction.current;
+          pendingAction.current = undefined;
+          if (fn) await fn();
+        }}
+      />
     </div>
   );
 }

@@ -144,6 +144,13 @@ export async function POST(req: NextRequest) {
       stats[name] = docs.length;
     }
 
+    // D-4: 백업 무결성 검증 — 핵심 컬렉션 (users / organizations) 이 0건이면 비정상으로 간주
+    if ((stats.users ?? 0) === 0 || (stats.organizations ?? 0) === 0) {
+      const reason = `백업 데이터 비정상 — users=${stats.users}, organizations=${stats.organizations}`;
+      await notifyBackupFailure(db, actorId, actorName, isSystem, reason);
+      return NextResponse.json({ error: reason }, { status: 500 });
+    }
+
     // 메타 정보
     const now = new Date();
     const year = now.getFullYear();
@@ -199,6 +206,11 @@ export async function POST(req: NextRequest) {
       createdAt: FieldValue.serverTimestamp(),
     });
 
+    // D-4: 파일 사이즈 검증 — 1KB 미만이면 비정상 (메타만 있고 데이터 없음)
+    if (Buffer.byteLength(json, 'utf8') < 1024) {
+      await notifyBackupFailure(db, actorId, actorName, isSystem, `백업 파일 크기 비정상 (${Buffer.byteLength(json, 'utf8')}바이트)`);
+    }
+
     return NextResponse.json({
       ok: true,
       backupId: docRef.id,
@@ -208,6 +220,61 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     console.error('[backup/snapshot] failed:', e?.message, e?.code, e?.stack);
+    // D-4: 예외 발생 시에도 HR마스터 알림
+    try {
+      const app = getAdminApp();
+      const db = getFirestore(app);
+      await notifyBackupFailure(db, 'system', '시스템', true, `백업 예외: ${e?.message ?? 'unknown'}`);
+    } catch { /* 알림 실패 시에도 무시 — 원래 에러 반환이 우선 */ }
     return NextResponse.json({ error: e?.message ?? 'failed', code: e?.code }, { status: 500 });
+  }
+}
+
+/**
+ * D-4: 백업 실패 시 모든 HR마스터에게 in-app 알림 + 감사 로그 기록.
+ */
+async function notifyBackupFailure(
+  db: Firestore,
+  actorId: string,
+  actorName: string,
+  isAuto: boolean,
+  reason: string,
+): Promise<void> {
+  try {
+    const mastersSnap = await db.collection('users')
+      .where('isHrMaster', '==', true)
+      .where('isActive', '==', true)
+      .get();
+
+    const now = FieldValue.serverTimestamp();
+    const writeBatch = db.batch();
+
+    // 알림 생성
+    for (const m of mastersSnap.docs) {
+      const notifRef = db.collection('notifications').doc();
+      writeBatch.set(notifRef, {
+        userId: m.id,
+        category: 'system',
+        title: '백업 실패 알림',
+        body: `${isAuto ? '[자동] ' : ''}백업 실패: ${reason}`,
+        link: '/admin/backup',
+        isRead: false,
+        createdAt: now,
+      });
+    }
+
+    // 감사 로그
+    const auditRef = db.collection('auditLogs').doc();
+    writeBatch.set(auditRef, {
+      action: 'BACKUP_FAILED',
+      actorId,
+      actorName,
+      details: `${isAuto ? '[자동] ' : ''}${reason}`,
+      createdAt: now,
+    });
+
+    await writeBatch.commit();
+  } catch (e: any) {
+    console.error('[backup/notifyBackupFailure] failed:', e?.message);
   }
 }

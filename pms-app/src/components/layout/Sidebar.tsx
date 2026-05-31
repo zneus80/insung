@@ -329,6 +329,13 @@ const navItems: NavItem[] = [
     requireHrMaster: true,
     group: '시스템 설정',
   },
+  {
+    label: '가시성 ACL 백필',
+    href: '/admin/security-acl',
+    icon: <ShieldCheck className="h-5 w-5" />,
+    requireHrMaster: true,
+    group: '시스템 설정',
+  },
 ];
 
 export default function Sidebar() {
