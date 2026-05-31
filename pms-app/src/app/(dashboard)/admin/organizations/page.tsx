@@ -106,6 +106,7 @@ function OrganizationsContent() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Organization | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [leaderSearch, setLeaderSearch] = useState('');
   const [expandedOrgs, setExpandedOrgs] = useState<Record<string, boolean>>({});
 
   async function load() {
@@ -125,6 +126,7 @@ function OrganizationsContent() {
   function openNew() {
     setEditing(null);
     setForm(EMPTY_FORM);
+    setLeaderSearch('');
     setShowDialog(true);
   }
 
@@ -134,6 +136,7 @@ function OrganizationsContent() {
       name: org.name, type: org.type, parentId: org.parentId, leaderId: org.leaderId,
       displayOrder: org.displayOrder != null ? String(org.displayOrder) : '',
     });
+    setLeaderSearch('');
     setShowDialog(true);
   }
 
@@ -447,7 +450,8 @@ function OrganizationsContent() {
               <div className="space-y-1.5">
                 <Label>구분 *</Label>
                 <Select value={form.type} onValueChange={v => setForm(f => ({ ...f, type: v as OrgType }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  {/* SelectValue 에 명시적 children 전달 — Radix 의 자동 textContent 추출 실패(편집 폼처럼 값 먼저 set 되는 케이스) 회피 */}
+                  <SelectTrigger><SelectValue>{TYPE_LABEL[form.type]}</SelectValue></SelectTrigger>
                   <SelectContent>
                     {(Object.keys(TYPE_LABEL) as OrgType[]).map(t => (
                       <SelectItem key={t} value={t}>{TYPE_LABEL[t]}</SelectItem>
@@ -461,37 +465,34 @@ function OrganizationsContent() {
                   value={form.parentId ?? ''}
                   onValueChange={v => setForm(f => ({ ...f, parentId: v || null }))}
                 >
-                  <SelectTrigger><SelectValue placeholder="없음 (최상위)" /></SelectTrigger>
+                  {/* 명시적 children — 편집 시 form.parentId 가 먼저 set 되어도 정상 표시 */}
+                  <SelectTrigger>
+                    <SelectValue placeholder="없음 (최상위)">
+                      {form.parentId
+                        ? (orgs.find(o => o.id === form.parentId)?.name ?? '없음 (최상위)')
+                        : '없음 (최상위)'}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">없음 (최상위)</SelectItem>
                     {treeNodes
                       .filter(n => !excludedFromParent.includes(n.org.id))
                       .map(({ org, prefix }) => (
                         <SelectItem key={org.id} value={org.id}>
-                          <span className="font-mono text-xs text-gray-400">{prefix}</span>
-                          {org.name}
+                          {prefix}{org.name}
                         </SelectItem>
                       ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>책임자 <span className="text-gray-400 text-xs font-normal">(나중에 지정 가능)</span></Label>
-                <Select
+                <LeaderPicker
+                  users={users}
                   value={form.leaderId ?? ''}
-                  onValueChange={v => setForm(f => ({ ...f, leaderId: v || null }))}
-                >
-                  <SelectTrigger><SelectValue placeholder="선택 안함" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">선택 안함</SelectItem>
-                    {users.map(u => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.name}{u.position ? ` (${u.position})` : ''}
-                        {!u.isActive ? ' ·초대대기' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  search={leaderSearch}
+                  onSearchChange={setLeaderSearch}
+                  onChange={(id) => setForm(f => ({ ...f, leaderId: id || null }))}
+                />
                 {/* 겸직 정보 — 선택된 leader 가 이미 다른 조직 책임자인 경우 안내 */}
                 {(() => {
                   if (!form.leaderId) return null;
@@ -528,5 +529,74 @@ function OrganizationsContent() {
         </Dialog>
       </div>
     </div>
+  );
+}
+
+// ─── 책임자 검색 픽커 (조직 등록·수정 폼) ──────────────────
+function LeaderPicker({
+  users, value, search, onSearchChange, onChange,
+}: {
+  users: User[];
+  value: string;
+  search: string;
+  onSearchChange: (s: string) => void;
+  onChange: (id: string) => void;
+}) {
+  const selected = users.find(u => u.id === value);
+  const filtered = (() => {
+    if (!search.trim()) return users.slice(0, 10);
+    const k = search.toLowerCase();
+    return users.filter(u =>
+      u.name.toLowerCase().includes(k)
+      || (u.email ?? '').toLowerCase().includes(k)
+      || (u.position ?? '').toLowerCase().includes(k)
+    ).slice(0, 15);
+  })();
+  function label(u: User): string {
+    const parts: string[] = [u.name];
+    if (u.position) parts.push(`(${u.position})`);
+    if (!u.isActive) parts.push('·초대대기');
+    return parts.join(' ');
+  }
+  return (
+    <>
+      <Label>책임자 <span className="text-gray-400 text-xs font-normal">(나중에 지정 가능 · 검색 가능)</span></Label>
+      {selected ? (
+        <div className="flex items-center gap-2 rounded-lg border px-3 py-2 bg-gray-50">
+          <span className="text-sm font-medium">{label(selected)}</span>
+          {selected.email && <span className="text-xs text-gray-400 truncate">{selected.email}</span>}
+          <button type="button" onClick={() => { onChange(''); onSearchChange(''); }} className="ml-auto text-gray-400 hover:text-red-500 text-xs">
+            해제 ✕
+          </button>
+        </div>
+      ) : (
+        <>
+          <Input
+            value={search}
+            onChange={e => onSearchChange(e.target.value)}
+            placeholder="이름·이메일·직책으로 검색"
+          />
+          {(search.trim() || filtered.length > 0) && (
+            <div className="rounded-lg border max-h-56 overflow-y-auto divide-y bg-white mt-1.5">
+              {filtered.length === 0 ? (
+                <p className="text-xs text-gray-400 px-3 py-2">검색 결과 없음</p>
+              ) : filtered.map(u => (
+                <button
+                  key={u.id}
+                  type="button"
+                  onClick={() => { onChange(u.id); onSearchChange(''); }}
+                  className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm flex items-center gap-2"
+                >
+                  <span className="font-medium">{u.name}</span>
+                  {u.position && <span className="text-xs text-gray-500">({u.position})</span>}
+                  {!u.isActive && <span className="text-xs text-amber-600">·초대대기</span>}
+                  {u.email && <span className="text-xs text-gray-400 ml-auto truncate">{u.email}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </>
   );
 }
