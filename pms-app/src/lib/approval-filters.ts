@@ -164,7 +164,15 @@ export function currentPendingStageIdx(goal: Goal, chain: ApprovalStage[]): numb
   return -1;
 }
 
-/** 내가 체인에서 어느 stage 에 해당하는지 (-1: 미해당) */
+/** 내가 체인에서 어느 stage 에 해당하는지 (-1: 미해당)
+ *
+ * 매칭 규칙:
+ *  ① stage 의 leaderId === 본인 → 정식 책임자 (확정 권한)
+ *  ② leaderId 미지정 + 같은 조직 소속 + role 매치 → fallback (leaderId 운영 미정 환경)
+ *  ③ leaderId 명시되어 있지만 본인이 같은 조직 EXECUTIVE → 차순위 임원 (목표 승인 권한)
+ *     CLAUDE.md §2 케이스 B "동일 조직 임원 복수 배치" 의 부공장장·부부문장·부본부장.
+ *     주의: 목표 승인은 가능하나 평가 등급 확정은 별도 UI 로직에서 EXEC_TOP 만 허용해야 함.
+ */
 export function myStageIdxIn(
   chain: ApprovalStage[],
   myUserId: string,
@@ -173,12 +181,18 @@ export function myStageIdxIn(
 ): number {
   for (let i = 0; i < chain.length; i++) {
     const st = chain[i];
+    // ① 정식 책임자
     if (st.userId === myUserId) return i;
-    // leaderId 미지정 fallback
+    // ② leaderId 미지정 fallback
     if (!st.userId && myOrgId) {
       if (st.role === 'TEAM_LEAD' && myRole === 'TEAM_LEAD' && st.orgId === myOrgId) return i;
       if (st.role === 'HQ_HEAD' && (myRole === 'TEAM_LEAD' || myRole === 'EXECUTIVE') && st.orgId === myOrgId) return i;
       if (st.role === 'EXEC' && myRole === 'EXECUTIVE') return i;
+    }
+    // ③ 차순위 책임자 — 같은 조직 EXECUTIVE 면 목표 승인 인정
+    //    (정식 leader 가 다른 사람이지만 같은 조직 소속 EXEC = 부공장장·부부문장·부본부장)
+    if (st.userId && st.userId !== myUserId && st.orgId === myOrgId && myRole === 'EXECUTIVE') {
+      if (st.role === 'EXEC' || st.role === 'HQ_HEAD') return i;
     }
   }
   return -1;
