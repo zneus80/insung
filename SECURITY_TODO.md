@@ -20,42 +20,66 @@
 
 ---
 
-## 🔴 0순위 — 가장 시급 (베타 운영 중에도 우선 검토)
+## 🔴 0순위 — 개인평가 read 서버 검증 (정식 운영 전 검토)
 
-### 0. 개인평가 Firestore 읽기 권한 서버 검증 강화
+### 0. 개인평가 Firestore 읽기 권한 — 콘솔 우회 차단
 
-**현재 상태 (v0.9):**
-- `individualEvaluations` 읽기 권한: 팀원은 본인 평가만, **팀장·임원·CEO·HR관리자·HR마스터는 전체 읽기 가능**
-- 실제 화면별 scope ("팀장은 본인 책임 조직만") 는 **UI 자바스크립트 코드에서만 필터**
-- 비정상 시나리오: 팀장이 브라우저 콘솔에서 `getDocs(collection(db, 'individualEvaluations'))` 직접 호출 → 본인 권한 밖 평가 데이터 조회 가능
+**현재 상태 (v0.9.x, 2026-06 기준):**
+- `individualEvaluations`·`selfEvaluations`·`yearEndEvals`·`mentoringForms` 읽기:
+  팀원은 본인만, **팀장·임원·CEO·HR 은 전체 read 가능** (느슨)
+- 실제 화면별 scope ("팀장은 본인 팀만", "본부장은 산하만") 는 **조직 체인(parentId) 으로 클라이언트 코드에서 계산** — 일상 보안은 정상 작동
+- 잔여 위협: 권한 있는 내부자(팀장+)가 브라우저 콘솔 또는 본인 토큰 + curl 로 직접 호출 시 권한 밖 평가 조회 가능
 
-**왜 지금까지 못 막았는가:**
-Firestore 보안 규칙은 조직 트리 재귀 탐색을 지원하지 않음. "본인이 leaderId 인 조직 + 산하 모든 조직 사용자만" 조건을 규칙으로 표현 불가.
+**왜 규칙으로 못 막나:**
+Firestore 보안 규칙은 조직 트리 재귀 탐색을 못 함 → "본인 책임 조직 + 산하" 를 규칙으로 표현 불가.
 
-**보강 옵션 (택일):**
+---
 
-#### 옵션 A. 평가 문서에 scope 메타 박아두기 (가장 가벼움)
-- 평가 작성 시 `viewableBy: [userId(본인), leaderId(팀장), leaderLeaderId(본부장), execId(임원)]` 배열 동봉
-- 규칙: `allow read: if request.auth.uid in resource.data.viewableBy || isCeo() || isHrMaster()`
-- 장점: 추가 인프라 0, 빠른 쿼리
-- 단점: 조직 변경·이관 시 모든 평가 doc 의 viewableBy 갱신 필요
+### ❌ 시도했다가 철회한 방법 — viewableBy (2026-06)
 
-#### 옵션 B. Cloud Function read 프록시
-- 클라이언트는 Function 만 호출, Function 이 권한 검증 후 데이터 반환
-- 장점: 권한 로직 중앙화, Firestore 규칙은 클라이언트 read 전부 차단
-- 단점: 콜드스타트 지연, Function 운영 비용
+평가 doc 마다 `viewableBy: [본인 + 조직 트리 상위 leader uid...]` 배열을 박고, 규칙을
+`allow read: if request.auth.uid in resource.data.viewableBy` 로 강화 시도.
 
-#### 옵션 C. 별도 비공개 컬렉션
-- 등급/의견 같은 민감 필드만 `individualEvaluationsPrivate/{id}` 로 분리
-- 규칙: private 컬렉션은 본인 + 직접 권한자만 read
-- 장점: 데이터 모델 단순, 강력한 격리
-- 단점: 마이그레이션·이중 쓰기
+**결과: 철회.** 이유:
+1. **쿼리 ↔ 규칙 미스매치** — 화면은 `where('organizationId','==',orgId)` 로 평가를 조회하는데,
+   규칙은 `viewableBy` 기반이라 Firestore 가 "쿼리 결과가 규칙 만족을 보장 못 함" 으로 **쿼리 전체를 거부**.
+   → 본부장·부공장장 화면에서 "소속 팀원 없음" 발생 (organizationId 쿼리 거부).
+   → 모든 평가 조회를 `array-contains viewableBy` 로 전면 리팩토링해야 하는데 화면마다 새 에러 유발.
+2. **동기화 부담** — 조직 개편·사용자 이동 시 평가 doc 들의 viewableBy 갱신 필요.
+3. **개념 중복** — 조직 체인(parentId)이 이미 "누가 누구 평가를 보나" 를 100% 결정하는데, 그걸 평면 배열로 캐시한 셈 → 부작용만 늘어남.
 
-**우선순위:** 정식 운영 직전 반드시 적용. 베타 동안은 App Check + 감사 로그 + UI 필터로 운영 → 신뢰 가정.
+**잔재:** viewableBy 데이터·`computeViewableBy()` 코드는 DB·코드에 남아있으나 규칙이 안 쓰므로 무해.
+완전 제거하려면 별도 정리 작업 (지금은 둬도 영향 0).
+
+---
+
+### ✅ 권장 방법 — 옵션 E: API Route 프록시 (정식 운영 시)
+
+**개념:** 클라이언트가 Firestore 에 직접 접근하지 않고, 우리 서버 API(`/api/evaluations/list` 등)를 경유.
+서버가 Admin SDK 로 DB 접근하며 **기존 조직 체인 로직(`getDescendantIds` 등) 을 그대로 재사용** 해 권한 판단.
+
+```
+[브라우저] → [API Route (조직 체인으로 권한 검증)] → [Firestore]
+규칙: individualEvaluations 등 allow read: if false  (Admin SDK 만 통과)
+```
+
+**왜 viewableBy 보다 나은가:**
+- 조직 체인 로직 재사용 → 평가 doc 에 아무것도 안 박음 (동기화 부담 0)
+- 쿼리 미스매치 없음 (서버가 자유롭게 쿼리)
+- **이미 우리 시스템에 있는 패턴** (`/api/admin/backup`, `/api/admin/delete-user` 동일 구조)
+- 콘솔·curl·다른 SDK 등 **모든 우회 경로 차단** (서버 안 거치면 못 가져감)
+
+**영향 범위:** `getIndividualEvaluationsByOrg` 등 평가 조회 함수를 쓰는 화면
+(evaluation/team, evaluation/result, evaluation, 대시보드 등) 을 fetch 경유로 전환.
+**작업량:** 반나절~1일. **위험:** 중 (화면별 데이터 로딩 변경, 점진 테스트 필요).
+
+**우선순위 판단 (인성 규모 50~100명):**
+- 잔여 위협(내부자 콘솔 우회)은 발생 빈도 낮고 감사로그·인사책임으로 억제됨 → 베타엔 보류 합당
+- **정식 운영 전환 + 외부 협력사 접근/대규모 확장 시** API 프록시 적용 권장
 
 **중간 완화 조치 (지금 가능):**
-- [ ] 베타 사용자 안내 — "비정상적 데이터 접근 시도는 자동 감지 및 감사 로그 기록" 명시
-- [ ] 평가 등급/의견 필드를 별도 서브컬렉션으로 분리 검토 (옵션 C 마이그레이션 사전 준비)
+- [ ] 로그인/이용 안내에 "데이터 접근은 감사·기록됨" 고지 (억제 효과)
+- [ ] 정식 운영 전 옵션 E 적용 여부 재검토
 
 ---
 
