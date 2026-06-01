@@ -254,11 +254,12 @@ async function notifyBackupFailure(
       const notifRef = db.collection('notifications').doc();
       writeBatch.set(notifRef, {
         userId: m.id,
-        category: 'system',
+        type: 'BACKUP_FAILED',
+        category: 'SECURITY',
         title: '백업 실패 알림',
-        body: `${isAuto ? '[자동] ' : ''}백업 실패: ${reason}`,
+        message: `${isAuto ? '[자동] ' : ''}백업 실패: ${reason}`,
         link: '/admin/backup',
-        isRead: false,
+        read: false,
         createdAt: now,
       });
     }

@@ -20,7 +20,7 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { Bell, Target, ClipboardList, MessageCircle, Award, MessageSquareHeart, CheckCircle2, XCircle, Trash2, CheckSquare, Square, RefreshCw, AlertCircle } from 'lucide-react';
+import { Bell, Target, ClipboardList, MessageCircle, Award, MessageSquareHeart, CheckCircle2, XCircle, Trash2, CheckSquare, Square, RefreshCw, AlertCircle, ShieldAlert } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import type { AppNotification, NotificationCategory } from '@/types';
@@ -31,6 +31,7 @@ const CATEGORY_META: Record<NotificationCategory, { label: string; icon: React.R
   ONEONONE:    { label: '1on1',        icon: <MessageCircle className="h-4 w-4" />,      color: 'text-purple-600 bg-purple-50' },
   EVALUATION:  { label: '평가',         icon: <Award className="h-4 w-4" />,              color: 'text-orange-600 bg-orange-50' },
   MENTORING:   { label: '육성면담서',   icon: <MessageSquareHeart className="h-4 w-4" />, color: 'text-pink-600 bg-pink-50' },
+  SECURITY:    { label: '보안',         icon: <ShieldAlert className="h-4 w-4" />,        color: 'text-red-600 bg-red-50' },
 };
 
 export default function NotificationsPage() {
@@ -340,7 +341,7 @@ export default function NotificationsPage() {
 
         {/* 카테고리 필터 */}
         <div className="flex flex-wrap gap-2">
-          {(['ALL', 'GOAL', 'WEEKLY_TASK', 'ONEONONE', 'EVALUATION', 'MENTORING'] as const).map(c => (
+          {(['ALL', 'GOAL', 'WEEKLY_TASK', 'ONEONONE', 'EVALUATION', 'MENTORING', 'SECURITY'] as const).map(c => (
             <button
               key={c}
               onClick={() => setFilter(c)}

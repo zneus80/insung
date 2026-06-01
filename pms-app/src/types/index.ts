@@ -665,9 +665,11 @@ export type NotificationType =
   | 'SELF_EVAL_SUBMITTED'       // 자기평가 제출 → 상위 검토자
   | 'EVAL_LEAD_REVIEWED'        // 팀장 1차 의견 제출 → 본부장 또는 임원
   | 'EVAL_HQ_REVIEWED'          // 본부장 2차 의견 제출 → 임원
-  | 'MENTORING_SUBMITTED';      // 육성면담서 제출 → 상위 검토자
+  | 'MENTORING_SUBMITTED'       // 육성면담서 제출 → 상위 검토자
+  | 'SECURITY_READ_ANOMALY'     // 평가 데이터 대량 read 이상 탐지 → HR 마스터
+  | 'BACKUP_FAILED';            // 백업 실패 → HR 마스터
 
-export type NotificationCategory = 'GOAL' | 'WEEKLY_TASK' | 'ONEONONE' | 'EVALUATION' | 'MENTORING';
+export type NotificationCategory = 'GOAL' | 'WEEKLY_TASK' | 'ONEONONE' | 'EVALUATION' | 'MENTORING' | 'SECURITY';
 
 export interface AppNotification {
   id: string;
