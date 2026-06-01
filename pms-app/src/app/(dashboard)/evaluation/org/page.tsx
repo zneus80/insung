@@ -313,6 +313,31 @@ function OrgEvaluationContent() {
     const current = getEval(org.id);
     if (current?.grade === grade) return; // 동일 등급 재지정 스킵
 
+    // 쿼터 CONFIRMED 상태이거나 산하에 임원 확정/공개된 IE 가 있으면 사전 확인
+    const quota = divQuotas.find(q => q.organizationId === org.id);
+    const wasQuotaConfirmed = quota?.status === 'CONFIRMED';
+    const descIds = [org.id, ...findDescendantIds(org.id, allOrgs)];
+    const allIEs = wasQuotaConfirmed ? await getAllIndividualEvaluations(year) : [];
+    const affectedIEs = allIEs.filter(ie =>
+      descIds.includes(ie.organizationId) &&
+      (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED')
+    );
+    if (wasQuotaConfirmed) {
+      const msgParts: string[] = [
+        `${org.name} 등급을 ${current?.grade ?? '미지정'} → ${grade} 로 변경합니다.`,
+        '',
+        `· 쿼터가 자동으로 DRAFT 로 초기화되어 HR 가 재확정해야 합니다.`,
+      ];
+      if (affectedIEs.length > 0) {
+        msgParts.push(
+          `· 산하 조직에서 이미 임원이 확정한 ${affectedIEs.length}건의 개인 평가 등급이 ` +
+          `자동 무효화되며, 임원이 다시 등급을 부여해야 합니다.`,
+        );
+      }
+      msgParts.push('', '계속하시겠습니까?');
+      if (!confirm(msgParts.join('\n'))) return;
+    }
+
     setSavingGrade(org.id);
     try {
       await upsertOrgEvaluation(org.id, year, {
@@ -328,16 +353,23 @@ function OrgEvaluationContent() {
         userProfile.id
       );
 
-      // 이미 쿼터가 CONFIRMED 상태라면 DRAFT로 초기화 (등급 변경으로 재확정 필요)
-      const quota = divQuotas.find(q => q.organizationId === org.id);
-      if (quota?.status === 'CONFIRMED') {
+      // 이미 쿼터가 CONFIRMED 상태라면 DRAFT로 초기화 + 산하 임원 확정 무효화
+      if (wasQuotaConfirmed) {
         await upsertDivisionGradeQuota(org.id, year, {
-          ...quota,
+          ...quota!,
           orgGrade: grade,
           status: 'DRAFT',
           updatedBy: userProfile.id,
         });
-        toast.warning(`${org.name} 등급이 변경되어 쿼터 재확정이 필요합니다.`);
+        // 산하 EXEC_CONFIRMED/PUBLISHED IE 무효화
+        if (affectedIEs.length > 0) {
+          await Promise.all(affectedIEs.map(ie => clearExecConfirmation(ie)));
+          toast.warning(
+            `${org.name} 등급 변경 — 쿼터 초기화 + 산하 임원 확정 ${affectedIEs.length}건 무효화됨. 재확정 필요.`,
+          );
+        } else {
+          toast.warning(`${org.name} 등급이 변경되어 쿼터 재확정이 필요합니다.`);
+        }
       } else {
         toast.success(`${org.name} 등급이 ${grade}로 지정되었습니다.`);
       }
