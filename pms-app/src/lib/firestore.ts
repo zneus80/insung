@@ -1044,7 +1044,8 @@ export async function seedIndividualEvaluations(year: number): Promise<{ created
   for (const d of usersSnap.docs) {
     const u = d.data() as User;
     if (u.isActive === false) { skipped++; continue; }
-    if (u.role === 'CEO') { skipped++; continue; }
+    // CEO·임원(EXECUTIVE)은 평가 권한자이지 평가 대상자가 아님 — 시드 제외
+    if (u.role === 'CEO' || u.role === 'EXECUTIVE') { skipped++; continue; }
     if (!u.organizationId) { skipped++; continue; }
     if (haveIE.has(d.id)) { skipped++; continue; }
     const viewableBy = await computeViewableBy(d.id, u.organizationId, orgsCache, leadersCache);
