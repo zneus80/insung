@@ -486,7 +486,7 @@ function AllMembersContent() {
                   <tr key={r.user.id} className="hover:bg-gray-50/60">
                     <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">{r.orgName}</td>
                     <td className="px-3 py-2.5 font-medium text-gray-900 whitespace-nowrap">
-                      <MemberInfoModal userId={r.user.id} userName={r.user.name} />
+                      <MemberInfoModal userId={r.user.id} userName={r.user.name} targetRole={r.user.role} />
                     </td>
                     <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{r.user.position ?? '—'}</td>
                     <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{ROLE_LABEL[r.user.role] ?? r.user.role}</td>

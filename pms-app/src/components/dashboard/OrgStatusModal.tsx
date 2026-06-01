@@ -232,7 +232,7 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
                 {rows.map(r => (
                   <tr key={r.user.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">
-                      <MemberInfoModal userId={r.user.id} userName={r.user.name} />
+                      <MemberInfoModal userId={r.user.id} userName={r.user.name} targetRole={r.user.role} />
                     </td>
                     <td className="px-4 py-3 text-gray-600">{orgsById.get(r.user.organizationId)?.name ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{r.user.position ?? '—'}</td>

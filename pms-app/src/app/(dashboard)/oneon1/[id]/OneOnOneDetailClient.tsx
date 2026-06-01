@@ -214,7 +214,7 @@ export default function OneOnOneDetailPage() {
                       <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-600 text-xs font-semibold shrink-0">
                         {asker?.name?.[0] ?? '?'}
                       </div>
-                      {asker && <MemberInfoModal userId={asker.id} userName={asker.name} />}
+                      {asker && <MemberInfoModal userId={asker.id} userName={asker.name} targetRole={asker.role} />}
                       <span className="text-xs text-gray-400">
                         {format(q.createdAt, 'MM.dd HH:mm', { locale: ko })}
                       </span>
@@ -238,7 +238,7 @@ export default function OneOnOneDetailPage() {
                         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-green-100 text-green-600 text-xs font-semibold shrink-0">
                           {answerer?.name?.[0] ?? '?'}
                         </div>
-                        {answerer && <MemberInfoModal userId={answerer.id} userName={answerer.name} />}
+                        {answerer && <MemberInfoModal userId={answerer.id} userName={answerer.name} targetRole={answerer.role} />}
                         {q.answeredAt && (
                           <span className="text-xs text-gray-400">
                             {format(q.answeredAt, 'MM.dd HH:mm', { locale: ko })}

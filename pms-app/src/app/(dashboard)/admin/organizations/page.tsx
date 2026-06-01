@@ -394,7 +394,7 @@ function OrganizationsContent() {
                                   {u.name[0]}
                                 </div>
                                 <div className="text-xs">
-                                  <MemberInfoModal userId={u.id} userName={u.name} />
+                                  <MemberInfoModal userId={u.id} userName={u.name} targetRole={u.role} />
                                   {u.position && <span className="ml-1 text-gray-400">{u.position}</span>}
                                   {u.role && (
                                     <span className="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">

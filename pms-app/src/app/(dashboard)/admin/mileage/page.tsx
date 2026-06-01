@@ -274,7 +274,7 @@ function MileageContent() {
                 return (
                   <tr key={user.id} className={m ? tier.bg : ''}>
                     <td className="px-4 py-3 font-medium text-gray-900">
-                      <MemberInfoModal userId={user.id} userName={user.name} />
+                      <MemberInfoModal userId={user.id} userName={user.name} targetRole={user.role} />
                     </td>
                     <td className="px-4 py-3 text-gray-500">{user.position ?? '-'}</td>
                     <td className="px-4 py-3">

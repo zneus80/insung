@@ -137,7 +137,7 @@ function ProgressMembersContent() {
                                 onClick={() => setExpanded(p => ({ ...p, [member.id]: !isMemberOpen }))}
                               >
                                 <div>
-                                  <MemberInfoModal userId={member.id} userName={member.name} />
+                                  <MemberInfoModal userId={member.id} userName={member.name} targetRole={member.role} />
                                   <p className="text-xs text-gray-400">{member.position} · 목표 {goals.length}개</p>
                                 </div>
                                 <div className="flex items-center gap-3">

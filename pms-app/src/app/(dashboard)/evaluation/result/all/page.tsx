@@ -347,7 +347,7 @@ function MemberGroup({
           return (
             <div key={u.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-2.5">
               <div className="flex items-center gap-2">
-                <MemberInfoModal userId={u.id} userName={u.name} />
+                <MemberInfoModal userId={u.id} userName={u.name} targetRole={u.role} />
                 {u.position && (
                   <span className="text-sm text-gray-400">{u.position}</span>
                 )}
@@ -427,7 +427,7 @@ function SearchResultList({
           return (
             <div key={u.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-2.5">
               <div className="flex items-center gap-2 min-w-0">
-                <MemberInfoModal userId={u.id} userName={u.name} />
+                <MemberInfoModal userId={u.id} userName={u.name} targetRole={u.role} />
                 <span className="text-sm text-gray-500 shrink-0">
                   {u.role === 'TEAM_LEAD' ? '팀장' : '팀원'}
                 </span>

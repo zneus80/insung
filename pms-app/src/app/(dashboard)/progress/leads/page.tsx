@@ -244,7 +244,7 @@ function UserCard({ user, goals, isLead }: { user: User; goals: Goal[]; isLead?:
       {/* 헤더 */}
       <div className="flex items-center gap-1.5 mb-1">
         {isLead && <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
-        <MemberInfoModal userId={user.id} userName={user.name} />
+        <MemberInfoModal userId={user.id} userName={user.name} targetRole={user.role} />
         {user.position && <span className="text-xs text-gray-400">{user.position}</span>}
       </div>
       <div className="flex items-center gap-2 mb-2">

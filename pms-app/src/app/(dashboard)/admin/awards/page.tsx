@@ -326,7 +326,7 @@ function AwardRow({ award, usersById, onDelete, deleting }: {
         {format(new Date(award.awardDate), 'yyyy.MM.dd', { locale: ko })}
       </div>
       <div className="w-28 shrink-0 text-sm font-medium text-gray-900">
-        {u ? <MemberInfoModal userId={u.id} userName={u.name} /> : '—'}
+        {u ? <MemberInfoModal userId={u.id} userName={u.name} targetRole={u.role} /> : '—'}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900">{award.title}</p>
