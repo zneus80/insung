@@ -81,7 +81,7 @@ function EvaluationHistoryContent() {
       // IE doc 가 없는 사용자는 'NOT_STARTED' 가상 row 로 합성 (평가이력 누락 방지)
       const haveIE = new Set(realEvals.map(e => e.userId));
       const virtualEvals: IndividualEvaluation[] = allUsers
-        .filter(u => u.isActive !== false && !haveIE.has(u.id) && u.role !== 'CEO')
+        .filter(u => u.isActive !== false && !haveIE.has(u.id) && u.role !== 'CEO' && u.role !== 'EXECUTIVE')
         .map(u => ({
           id: `virtual_${u.id}_${selectedYear}`,
           userId: u.id,

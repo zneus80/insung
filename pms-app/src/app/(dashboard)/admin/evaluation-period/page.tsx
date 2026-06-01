@@ -43,7 +43,7 @@ function EvaluationPeriodContent() {
   const [seeding, setSeeding] = useState(false);
 
   async function handleSeedEvaluations() {
-    if (!confirm(`${CURRENT_YEAR}년 평가 대상자를 초기화합니다.\n활성 사용자 전원(최고관리자 제외)에 미시작 평가 항목을 생성합니다.\n(이미 있는 사용자는 건너뜁니다)\n\n진행하시겠습니까?`)) return;
+    if (!confirm(`${CURRENT_YEAR}년 평가 대상자를 등록합니다.\n\n평가 대상(팀원·팀장 — 최고관리자·임원 제외)에 미시작 평가 항목을 추가 생성합니다.\n· 이미 평가가 있는 사용자는 그대로 유지 (삭제·변경 없음)\n· 누락된 대상자만 새로 추가\n\n진행하시겠습니까?`)) return;
     setSeeding(true);
     try {
       const { created, skipped } = await seedIndividualEvaluations(CURRENT_YEAR);
@@ -204,16 +204,20 @@ function EvaluationPeriodContent() {
           )}
         </div>
 
-        {/* 평가 대상자 초기화 (IE 시드) */}
+        {/* 평가 대상자 등록 (IE 시드) */}
         <div className="rounded-xl border bg-white p-6 space-y-4">
           <div className="flex items-center gap-2 mb-1">
             <CalendarDays className="h-5 w-5 text-blue-600" />
-            <h2 className="font-semibold text-gray-900">평가 대상자 초기화</h2>
+            <h2 className="font-semibold text-gray-900">평가 대상자 등록</h2>
           </div>
           <p className="text-sm text-gray-500">
-            현재 활성 사용자 전원(최고관리자 제외)에 대해 {CURRENT_YEAR}년 인사평가 항목을
-            <strong> 미시작</strong> 상태로 생성합니다. 이미 평가 항목이 있는 사용자는 건너뜁니다.
-            평가이력 관리·집계에서 누락 없이 전원이 표시됩니다.
+            평가 대상 사용자(팀원·팀장 — 최고관리자·임원 제외)에 대해 {CURRENT_YEAR}년 인사평가 항목을
+            <strong> 미시작</strong> 상태로 <strong>추가 생성</strong>합니다.
+            <br />
+            <span className="text-xs text-gray-400">
+              ※ 이미 평가가 진행 중이거나 완료된 사용자는 그대로 유지됩니다 (기존 데이터 삭제·변경 없음).
+              누락된 대상자만 새로 추가되어 평가이력에 전원 표시됩니다.
+            </span>
           </p>
           <Button
             onClick={handleSeedEvaluations}
@@ -221,7 +225,7 @@ function EvaluationPeriodContent() {
             variant="outline"
             className="w-full"
           >
-            {seeding ? '생성 중...' : `${CURRENT_YEAR}년 평가 대상자 초기화`}
+            {seeding ? '등록 중...' : `${CURRENT_YEAR}년 평가 대상자 등록 (누락분 추가)`}
           </Button>
         </div>
 
