@@ -188,6 +188,9 @@ function EvaluationHistoryContent() {
     .filter(e => {
       const user = users[e.userId];
       if (!user) return false;
+      // 임원·CEO 는 평가 권한자이지 평가 대상자가 아님 — 이력에서 제외
+      // (과거에 잘못 생성된 IE doc 가 있어도 화면에서 숨김)
+      if (user.role === 'EXECUTIVE' || user.role === 'CEO') return false;
       // 텍스트 검색 — 이름, 이메일, 소속 체인 어느 하나라도 매칭
       if (search.trim()) {
         const q = search.trim().toLowerCase();

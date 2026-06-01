@@ -12,6 +12,8 @@ import type { User, Mileage, Organization, Award, InnovationActivity } from '@/t
 interface Props {
   userId: string;
   userName: string;
+  /** 대상 사용자 역할 — 임원(EXECUTIVE)·CEO 는 프로필 비공개 대상이라 클릭 비활성. 미지정 시 제한 없음. */
+  targetRole?: string;
   /** 커스텀 트리거 — 미지정 시 기본은 userName 텍스트 (파란 링크 스타일) */
   renderTrigger?: (open: () => void) => React.ReactNode;
   /** 제어 모드 — open/onOpenChange 모두 지정 시 내부 트리거 없이 외부 제어 */
@@ -34,15 +36,17 @@ const ROLE_LABEL: Record<string, string> = {
   CEO:       '최고관리자',
 };
 
-export default function MemberInfoModal({ userId, userName, renderTrigger, open: openProp, onOpenChange }: Props) {
+export default function MemberInfoModal({ userId, userName, targetRole, renderTrigger, open: openProp, onOpenChange }: Props) {
   const { userProfile } = useAuth();
   const { activeYear } = useActiveYear();
   const isControlled = typeof openProp === 'boolean' && typeof onOpenChange === 'function';
+  const isSelfView = userProfile?.id === userId;
+  // 대상이 임원·CEO 면 프로필 비공개 (다른 사람이 클릭해도 모달 안 뜸). 단, controlled(본인 제어) 는 예외 없음.
+  const targetIsExecOrCeo = targetRole === 'EXECUTIVE' || targetRole === 'CEO';
   // 프로필 보기 권한: 팀원 역할 제외 (팀장·임원·CEO·HR 만 활성)
   // 단, 본인 클릭(헤더의 '내 프로필' 등) 은 항상 허용 — controlled 모드는 외부 제어이므로 항상 허용.
-  const isSelfView = userProfile?.id === userId;
   const canViewProfile = isControlled || isSelfView ||
-    !!userProfile && (userProfile.role !== 'MEMBER' || !!userProfile.isHrAdmin);
+    (!targetIsExecOrCeo && !!userProfile && (userProfile.role !== 'MEMBER' || !!userProfile.isHrAdmin));
   const [internalOpen, setInternalOpen] = useState(false);
   const open = isControlled ? openProp! : internalOpen;
   const setOpen = (v: boolean) => {

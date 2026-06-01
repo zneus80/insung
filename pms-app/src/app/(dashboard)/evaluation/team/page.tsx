@@ -557,7 +557,7 @@ function TeamLeadEvalView() {
                 >
                   <div className="flex items-center gap-4">
                     <div>
-                      <MemberInfoModal userId={member.id} userName={member.name} />
+                      <MemberInfoModal userId={member.id} userName={member.name} targetRole={member.role} />
                       <p className="text-xs text-gray-400">{member.position}</p>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-gray-500">

@@ -801,7 +801,7 @@ function ExecutiveEvalView() {
                     >
                       <div className="flex items-center gap-3">
                         <div>
-                          <MemberInfoModal userId={member.id} userName={member.name} />
+                          <MemberInfoModal userId={member.id} userName={member.name} targetRole={member.role} />
                           <p className="text-xs text-gray-400">
                             {member.role === 'TEAM_LEAD' ? '팀장' : '팀원'} {member.position && `· ${member.position}`}
                           </p>
