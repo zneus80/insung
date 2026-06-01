@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import {
   getAllUsers,
   getAwardsByUser,
@@ -19,11 +20,12 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Plus, Trash2, X, ChevronDown, ChevronRight, Search, User as UserIcon, Calendar } from 'lucide-react';
+import { Plus, Trash2, X, ChevronDown, ChevronRight, Search, User as UserIcon, Calendar, Download, Upload, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { resolveUserByName } from '@/lib/excel-helpers';
 import type { User, Award } from '@/types';
 
 export default function AwardsPage() {
@@ -63,6 +65,11 @@ function AwardsContent() {
   const [searchResults, setSearchResults] = useState<Award[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchPerformed, setSearchPerformed] = useState(false);
+
+  // ── 엑셀 업로드 ──
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ success: number; failed: { row: number; reason: string }[] } | null>(null);
 
   // ── 데이터 로딩 ─────────────────────────────────────
   async function loadUsers() {
@@ -174,10 +181,140 @@ function AwardsContent() {
 
   const usersById = useMemo(() => new Map(users.map(u => [u.id, u])), [users]);
 
+  // ── 엑셀: 양식 다운로드 / 업로드 / 데이터 다운로드 ──
+  function normalizeDate(raw: unknown): string | null {
+    if (raw instanceof Date) return format(raw, 'yyyy-MM-dd');
+    const s = String(raw ?? '').trim();
+    const m = s.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+    if (!m) return null;
+    const y = m[1], mo = m[2].padStart(2, '0'), d = m[3].padStart(2, '0');
+    return `${y}-${mo}-${d}`;
+  }
+
+  function downloadTemplate() {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['이름*', '수여일*(YYYY-MM-DD)', '포상명*', '내용'],
+      ['-- 아래에 데이터를 입력하세요 (이름은 정확히 입력) --', '', '', ''],
+      [users[0]?.name ?? '홍길동', `${activeYear}-01-15`, '우수사원상', '연간 최우수 성과'],
+    ]);
+    ws['!cols'] = [{ wch: 14 }, { wch: 20 }, { wch: 24 }, { wch: 40 }];
+    const ws2 = XLSX.utils.aoa_to_sheet([['등록 가능 사용자 이름'], ...users.map(u => [`${u.name}${u.position ? ` (${u.position})` : ''}`])]);
+    ws2['!cols'] = [{ wch: 30 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '포상이력');
+    XLSX.utils.book_append_sheet(wb, ws2, '사용자목록');
+    XLSX.writeFile(wb, 'INSUNG_포상이력_등록양식.xlsx');
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !userProfile) return;
+    e.target.value = '';
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][];
+      const dataRows = rows.slice(2).filter(r => r[0]?.toString().trim() && !r[0].toString().startsWith('--'));
+      let success = 0;
+      const failed: { row: number; reason: string }[] = [];
+
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rowNum = i + 3;
+        const name = row[0]?.toString().trim();
+        const awardDate = normalizeDate(row[1]);
+        const title = row[2]?.toString().trim();
+        const desc = row[3]?.toString().trim();
+
+        if (!name) { failed.push({ row: rowNum, reason: '이름이 비어있습니다.' }); continue; }
+        if (!awardDate) { failed.push({ row: rowNum, reason: `수여일 "${row[1]}"이 올바르지 않습니다. (YYYY-MM-DD)` }); continue; }
+        if (!title) { failed.push({ row: rowNum, reason: '포상명이 비어있습니다.' }); continue; }
+        const r = resolveUserByName(name, users);
+        if ('error' in r) { failed.push({ row: rowNum, reason: r.error }); continue; }
+
+        try {
+          await createAward({
+            userId: r.id,
+            title,
+            description: desc || undefined,
+            awardDate,
+            grantedBy: userProfile.id,
+          });
+          success++;
+        } catch (err: any) {
+          failed.push({ row: rowNum, reason: err?.message ?? '처리 실패' });
+        }
+      }
+      setUploadResult({ success, failed });
+      if (success > 0) { toast.success(`${success}건 등록 완료`); await loadRecent(); }
+      if (failed.length > 0) toast.error(`${failed.length}건 실패`);
+    } catch {
+      toast.error('파일을 읽는 중 오류가 발생했습니다.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function downloadData() {
+    const rows = recentAwards.map(a => ({
+      '이름': usersById.get(a.userId)?.name ?? '(알 수 없음)',
+      '수여일': a.awardDate,
+      '포상명': a.title,
+      '내용': a.description ?? '',
+    }));
+    if (rows.length === 0) { toast.info('내보낼 데이터가 없습니다.'); return; }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), '포상이력');
+    XLSX.writeFile(wb, `INSUNG_포상이력_${activeYear}.xlsx`);
+  }
+
   return (
     <div className="flex flex-col h-full">
       <Header title="포상 이력 관리" />
       <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-5xl">
+
+        {/* ── 엑셀 일괄 등록 ──── */}
+        <div className="rounded-xl border bg-white p-4 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-gray-900">엑셀로 일괄 등록</span>
+            <div className="flex items-center gap-2 ml-auto">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={downloadTemplate}>
+                <Download className="h-4 w-4" /> 양식 다운로드
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1.5" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+                <Upload className="h-4 w-4" /> {uploading ? '업로드 중...' : '엑셀 업로드'}
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={downloadData}>
+                <Download className="h-4 w-4" /> 데이터 다운로드
+              </Button>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            양식의 헤더·예시는 그대로 두고 3행부터 입력하세요. 이름은 정확히 입력하며, 동명이인은 화면에서 직접 등록하세요. 데이터 다운로드는 최근 {CATEGORY_SPAN}년 내역을 내보냅니다.
+          </p>
+          {uploadResult && (
+            <div className="rounded-lg border bg-gray-50 p-3 space-y-2">
+              <p className="text-sm font-medium text-gray-900">
+                업로드 결과 — 성공 <span className="text-green-600">{uploadResult.success}건</span>
+                {uploadResult.failed.length > 0 && <>, 실패 <span className="text-red-500">{uploadResult.failed.length}건</span></>}
+                <button onClick={() => setUploadResult(null)} className="ml-2 text-xs text-gray-400 hover:text-gray-600">닫기</button>
+              </p>
+              {uploadResult.failed.length > 0 && (
+                <ul className="space-y-1">
+                  {uploadResult.failed.map((f, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-xs text-red-600">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />{f.row}행: {f.reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* ── 인라인 포상 이력 추가 ─────────────────── */}
         <div className="rounded-xl border bg-white p-5 space-y-4">

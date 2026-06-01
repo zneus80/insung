@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import {
   getAllUsers,
   listInnovationActivities,
@@ -19,10 +20,11 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, Search, User as UserIcon, Calendar } from 'lucide-react';
+import { Plus, Trash2, Pencil, X, ChevronDown, ChevronRight, Search, User as UserIcon, Calendar, Download, Upload, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
+import { resolveUserNames, resolveUserByName, parseBoolCell } from '@/lib/excel-helpers';
 import type {
   User,
   InnovationActivity,
@@ -75,6 +77,11 @@ function InnovationContent() {
   const [searchResults, setSearchResults] = useState<InnovationActivity[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchPerformed, setSearchPerformed] = useState(false);
+
+  // ── 엑셀 업로드 ──
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ success: number; failed: { row: number; reason: string }[] } | null>(null);
 
   async function reload() {
     setLoading(true);
@@ -188,6 +195,130 @@ function InnovationContent() {
     }
   }
 
+  // ── 엑셀: 양식 다운로드 / 업로드 / 데이터 다운로드 (현재 탭 기준) ──
+  const typeLabel = tab === 'SMART_PROJECT' ? '스마트프로젝트' : 'TDS';
+  const nameCol = tab === 'SMART_PROJECT' ? '프로젝트명*' : 'TDS명*';
+  const peopleCol1 = tab === 'SMART_PROJECT' ? 'PM(이름;세미콜론구분)' : '수행자(이름;세미콜론구분)';
+  const peopleCol2 = tab === 'SMART_PROJECT' ? '팀원(이름;세미콜론구분)' : '지시자(이름)';
+
+  function parseStatus(raw: string): InnovationActivityStatus | null {
+    const s = String(raw ?? '').trim();
+    if (['추진중', '진행중', 'IN_PROGRESS'].includes(s)) return 'IN_PROGRESS';
+    if (['완료', 'COMPLETED'].includes(s)) return 'COMPLETED';
+    return null;
+  }
+
+  function downloadTemplate() {
+    const headers = ['수행년도*', '진행상태*(추진중/완료)', nameCol, '대내비(Y/N)', peopleCol1, peopleCol2];
+    const example = tab === 'SMART_PROJECT'
+      ? [String(activeYear), '추진중', '예시 프로젝트', 'N', users[0]?.name ?? '홍길동', `${users[1]?.name ?? '김팀원'};${users[2]?.name ?? '이팀원'}`]
+      : [String(activeYear), '완료', '예시 TDS', 'N', `${users[0]?.name ?? '홍길동'};${users[1]?.name ?? '김수행'}`, users[2]?.name ?? '박지시'];
+    const ws = XLSX.utils.aoa_to_sheet([
+      headers,
+      ['-- 아래에 데이터를 입력하세요 (이름은 정확히, 여러 명은 ; 로 구분) --', '', '', '', '', ''],
+      example,
+    ]);
+    ws['!cols'] = [{ wch: 10 }, { wch: 18 }, { wch: 26 }, { wch: 10 }, { wch: 26 }, { wch: 26 }];
+    const ws2 = XLSX.utils.aoa_to_sheet([['등록 가능 사용자 이름'], ...users.map(u => [`${u.name}${u.position ? ` (${u.position})` : ''}`])]);
+    ws2['!cols'] = [{ wch: 30 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, typeLabel);
+    XLSX.utils.book_append_sheet(wb, ws2, '사용자목록');
+    XLSX.writeFile(wb, `INSUNG_${typeLabel}_등록양식.xlsx`);
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !userProfile) return;
+    e.target.value = '';
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' }) as string[][];
+      const dataRows = rows.slice(2).filter(r => r[0]?.toString().trim() && !r[0].toString().startsWith('--'));
+      let success = 0;
+      const failed: { row: number; reason: string }[] = [];
+
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rowNum = i + 3;
+        const year = Number(row[0]?.toString().trim());
+        const status = parseStatus(row[1]?.toString() ?? '');
+        const name = row[2]?.toString().trim();
+        const confidential = parseBoolCell(row[3]);
+
+        if (!Number.isFinite(year) || year < 2000 || year > 2100) { failed.push({ row: rowNum, reason: '수행년도가 올바르지 않습니다.' }); continue; }
+        if (!status) { failed.push({ row: rowNum, reason: `진행상태값 "${row[1]}"이 올바르지 않습니다. (추진중/완료)` }); continue; }
+        if (!name) { failed.push({ row: rowNum, reason: '이름이 비어있습니다.' }); continue; }
+
+        let pmIds: string[] | undefined, memberIds: string[] | undefined, performerIds: string[] | undefined, instructorId: string | undefined;
+        if (tab === 'SMART_PROJECT') {
+          const pm = resolveUserNames(row[4]?.toString() ?? '', users);
+          const mem = resolveUserNames(row[5]?.toString() ?? '', users);
+          const errs = [...pm.errors, ...mem.errors];
+          if (errs.length) { failed.push({ row: rowNum, reason: errs.join(' / ') }); continue; }
+          pmIds = pm.ids; memberIds = mem.ids;
+        } else {
+          const perf = resolveUserNames(row[4]?.toString() ?? '', users);
+          const errs = [...perf.errors];
+          const instRaw = row[5]?.toString().trim();
+          if (instRaw) {
+            const inst = resolveUserByName(instRaw, users);
+            if ('error' in inst) errs.push(inst.error); else instructorId = inst.id;
+          }
+          if (errs.length) { failed.push({ row: rowNum, reason: errs.join(' / ') }); continue; }
+          performerIds = perf.ids;
+        }
+
+        try {
+          const payload = {
+            type: tab, name, isConfidential: confidential, status, year,
+            pmIds, memberIds, performerIds, instructorId,
+            createdBy: userProfile.id,
+          };
+          const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined)) as typeof payload;
+          await createInnovationActivity(clean as Parameters<typeof createInnovationActivity>[0]);
+          success++;
+        } catch (err: any) {
+          failed.push({ row: rowNum, reason: err?.message ?? '처리 실패' });
+        }
+      }
+      setUploadResult({ success, failed });
+      if (success > 0) { toast.success(`${success}건 등록 완료`); await reload(); }
+      if (failed.length > 0) toast.error(`${failed.length}건 실패`);
+    } catch {
+      toast.error('파일을 읽는 중 오류가 발생했습니다.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function downloadData() {
+    const rows = filteredByTab.map(it => {
+      const base: Record<string, string> = {
+        '수행년도': String(it.year),
+        '진행상태': STATUS_LABEL[it.status],
+        [tab === 'SMART_PROJECT' ? '프로젝트명' : 'TDS명']: it.name,
+        '대내비': it.isConfidential ? 'Y' : 'N',
+      };
+      if (tab === 'SMART_PROJECT') {
+        base['PM'] = getPmIds(it).map(id => usersById.get(id)?.name).filter(Boolean).join('; ');
+        base['팀원'] = (it.memberIds ?? []).map(id => usersById.get(id)?.name).filter(Boolean).join('; ');
+      } else {
+        base['수행자'] = getPerformerIds(it).map(id => usersById.get(id)?.name).filter(Boolean).join('; ');
+        base['지시자'] = usersById.get(it.instructorId ?? '')?.name ?? '';
+      }
+      return base;
+    });
+    if (rows.length === 0) { toast.info('내보낼 데이터가 없습니다.'); return; }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), typeLabel);
+    XLSX.writeFile(wb, `INSUNG_${typeLabel}_데이터_${activeYear}.xlsx`);
+  }
+
   return (
     <div className="flex flex-col h-full">
       <Header title="혁신활동 관리" />
@@ -206,6 +337,46 @@ function InnovationContent() {
               {t === 'SMART_PROJECT' ? '스마트 프로젝트' : 'TDS'}
             </button>
           ))}
+        </div>
+
+        {/* ── 엑셀 일괄 등록 ──── */}
+        <div className="rounded-xl border bg-white p-4 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-gray-900">엑셀로 일괄 등록 — {typeLabel}</span>
+            <div className="flex items-center gap-2 ml-auto">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={downloadTemplate}>
+                <Download className="h-4 w-4" /> 양식 다운로드
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1.5" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+                <Upload className="h-4 w-4" /> {uploading ? '업로드 중...' : '엑셀 업로드'}
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={downloadData}>
+                <Download className="h-4 w-4" /> 데이터 다운로드
+              </Button>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            양식의 헤더·예시는 그대로 두고 3행부터 입력하세요. 사람은 <b>이름</b>으로 입력하며 여러 명은 <b>;</b>(세미콜론)으로 구분합니다. 동명이인은 화면에서 직접 등록하세요.
+          </p>
+          {uploadResult && (
+            <div className="rounded-lg border bg-gray-50 p-3 space-y-2">
+              <p className="text-sm font-medium text-gray-900">
+                업로드 결과 — 성공 <span className="text-green-600">{uploadResult.success}건</span>
+                {uploadResult.failed.length > 0 && <>, 실패 <span className="text-red-500">{uploadResult.failed.length}건</span></>}
+                <button onClick={() => setUploadResult(null)} className="ml-2 text-xs text-gray-400 hover:text-gray-600">닫기</button>
+              </p>
+              {uploadResult.failed.length > 0 && (
+                <ul className="space-y-1">
+                  {uploadResult.failed.map((f, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-xs text-red-600">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />{f.row}행: {f.reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── 인라인 추가 폼 ─── */}

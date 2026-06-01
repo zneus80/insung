@@ -589,7 +589,8 @@ export type AuditLogAction =
   | 'BACKUP_RESTORE'     // 백업 복원 (전체 덮어쓰기)
   | 'BACKUP_FAILED'      // 백업 실패 (자동 감지 — D-4)
   | 'USER_DELETE'        // 사용자 삭제
-  | 'EVAL_GRADE_CHANGE'; // 평가 등급 변경 — 핵심 확정 이벤트 (D-3)
+  | 'EVAL_GRADE_CHANGE'  // 평가 등급 변경 — 핵심 확정 이벤트 (D-3)
+  | 'READ_ANOMALY_DETECTED'; // 평가 데이터 대량 read 이상 탐지
 
 export interface AuditLog {
   id: string;

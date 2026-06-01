@@ -329,13 +329,14 @@ const navItems: NavItem[] = [
     requireHrMaster: true,
     group: '시스템 설정',
   },
-  {
-    label: '가시성 ACL 백필',
-    href: '/admin/security-acl',
-    icon: <ShieldCheck className="h-5 w-5" />,
-    requireHrMaster: true,
-    group: '시스템 설정',
-  },
+  // 가시성 ACL 백필 — 현재 미사용(viewableBy 철회). 메뉴 잠금. 필요 시 주석 해제.
+  // {
+  //   label: '가시성 ACL 백필',
+  //   href: '/admin/security-acl',
+  //   icon: <ShieldCheck className="h-5 w-5" />,
+  //   requireHrMaster: true,
+  //   group: '시스템 설정',
+  // },
 ];
 
 export default function Sidebar() {
