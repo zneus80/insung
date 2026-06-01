@@ -65,7 +65,9 @@ function EvaluationHistoryContent() {
       ]);
       setUsers(Object.fromEntries(allUsers.map(u => [u.id, u])));
       setOrgs(Object.fromEntries(allOrgs.map(o => [o.id, o])));
-      setEvals(snap.docs.map(d => ({
+
+      // 실제 IE doc
+      const realEvals = snap.docs.map(d => ({
         ...d.data(),
         id: d.id,
         leadSubmittedAt: fromTimestamp(d.data().leadSubmittedAt),
@@ -73,7 +75,24 @@ function EvaluationHistoryContent() {
         execConfirmedAt: fromTimestamp(d.data().execConfirmedAt),
         createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
         updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-      } as IndividualEvaluation)));
+      } as IndividualEvaluation));
+
+      // 평가 대상 활성 사용자 — CEO·HR 전용 계정 제외하지 않고 전원 표시하되,
+      // IE doc 가 없는 사용자는 'NOT_STARTED' 가상 row 로 합성 (평가이력 누락 방지)
+      const haveIE = new Set(realEvals.map(e => e.userId));
+      const virtualEvals: IndividualEvaluation[] = allUsers
+        .filter(u => u.isActive !== false && !haveIE.has(u.id) && u.role !== 'CEO')
+        .map(u => ({
+          id: `virtual_${u.id}_${selectedYear}`,
+          userId: u.id,
+          organizationId: u.organizationId,
+          cycleYear: selectedYear,
+          status: 'NOT_STARTED',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as IndividualEvaluation));
+
+      setEvals([...realEvals, ...virtualEvals]);
       setLoading(false);
     }
     load();

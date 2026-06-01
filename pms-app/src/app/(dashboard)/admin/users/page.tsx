@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation, abandonActiveGoalsForUser, migrateActiveGoalsToNewOrg, transferActiveGoalsToUpstreamLeader, createAuditLog } from '@/lib/firestore';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
+import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation, abandonActiveGoalsForUser, migrateActiveGoalsToNewOrg, transferActiveGoalsToUpstreamLeader, createAuditLog, migrateCurrentYearEvalOrg } from '@/lib/firestore';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -53,6 +54,7 @@ export default function UsersPage() {
 
 function UsersContent() {
   const { userProfile } = useAuth();
+  const { activeYear } = useActiveYear();
   const [users, setUsers] = useState<User[]>([]);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [search, setSearch] = useState('');
@@ -301,6 +303,7 @@ function UsersContent() {
         const effectiveIsHrAdmin = form.isHrMaster || form.isHrAdmin;
         const prevAdmin = !!editing.isHrAdmin;
         const prevMaster = !!editing.isHrMaster;
+        const orgChanged = editing.organizationId !== (form.organizationId || '');
         await updateUser(editing.id, {
           name: form.name, role: form.role,
           organizationId: form.organizationId || '',
@@ -312,6 +315,24 @@ function UsersContent() {
           // 팀장 역할일 때만 의미 있음 — 다른 역할은 false 로 저장
           isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
         });
+
+        // Q3: 조직 변경 시 — 당해년도 평가 doc(IE/자기평가/육성면담서)의 organizationId 이전 옵션
+        if (orgChanged && form.organizationId) {
+          const wantMigrate = confirm(
+            `${form.name}님의 조직이 변경되었습니다.\n\n` +
+            `${activeYear}년 진행 중인 인사평가·자기평가·육성면담서를 새 조직으로 함께 이전하시겠습니까?\n\n` +
+            `[확인] 새 조직 기준으로 평가가 진행됩니다 (새 팀장/임원이 평가).\n` +
+            `[취소] 평가는 기존 조직 기준으로 유지됩니다 (작성 시점 조직 보존).`
+          );
+          if (wantMigrate) {
+            try {
+              const { updated } = await migrateCurrentYearEvalOrg(editing.id, form.organizationId, activeYear);
+              if (updated > 0) toast.success(`${activeYear}년 평가 데이터 ${updated}건을 새 조직으로 이전했습니다.`);
+            } catch (e: any) {
+              toast.error(`평가 데이터 이전 실패: ${e?.message ?? ''}`);
+            }
+          }
+        }
         // 감사 로그 — HR 권한 변경 추적
         if (userProfile && (prevAdmin !== effectiveIsHrAdmin || prevMaster !== form.isHrMaster)) {
           const grantedMaster = !prevMaster && form.isHrMaster;
