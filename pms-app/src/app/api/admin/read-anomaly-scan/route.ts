@@ -153,7 +153,8 @@ interface Anomaly {
   byCollection: Record<string, number>;
 }
 
-function aggregate(entries: ReadEntry[], threshold: number): Anomaly[] {
+/** 전체 사용자별 집계 (내림차순 정렬) */
+function aggregate(entries: ReadEntry[]): Anomaly[] {
   const map = new Map<string, Anomaly>();
   for (const e of entries) {
     const key = e.uid || e.email;
@@ -163,7 +164,7 @@ function aggregate(entries: ReadEntry[], threshold: number): Anomaly[] {
     if (e.ip && !a.ips.includes(e.ip)) a.ips.push(e.ip);
     a.byCollection[e.collection] = (a.byCollection[e.collection] ?? 0) + 1;
   }
-  return Array.from(map.values()).filter(a => a.count >= threshold).sort((x, y) => y.count - x.count);
+  return Array.from(map.values()).sort((x, y) => y.count - x.count);
 }
 
 async function notifyAnomaly(
@@ -259,14 +260,17 @@ export async function POST(req: NextRequest) {
     const threshold = isHrMasterCaller && url.searchParams.get('threshold')
       ? Math.max(1, Number(url.searchParams.get('threshold')))
       : DEFAULT_THRESHOLD;
-    const dryRun = isHrMasterCaller && url.searchParams.get('dryRun') === '1';
+    // report=1: 현황 조회 전용 — 알림/감사로그/상태 기록을 남기지 않음 (수동 '지금 스캔')
+    const report = isHrMasterCaller && url.searchParams.get('report') === '1';
+    const dryRun = report || (isHrMasterCaller && url.searchParams.get('dryRun') === '1');
 
     // 1) 로그 조회
     const logToken = await getLoggingAccessToken();
     const entries = await fetchEvalReadEntries(logToken, windowMin);
 
     // 2) 사용자별 집계 → 임계 초과 탐지
-    const anomalies = aggregate(entries, threshold);
+    const allUsers = aggregate(entries);
+    const anomalies = allUsers.filter(a => a.count >= threshold);
 
     // 3) 재알림 억제 상태 로드
     const stateRef = db.collection(STATE_COLLECTION).doc(STATE_DOC_ID);
@@ -302,9 +306,12 @@ export async function POST(req: NextRequest) {
       windowMin,
       threshold,
       dryRun,
+      report,
       scannedEntries: entries.length,
       anomalyCount: anomalies.length,
       anomalies: anomalies.map(a => ({ email: a.email, count: a.count, ips: a.ips, byCollection: a.byCollection })),
+      // 수동 스캔/현황 표시용 — 임계 무관 상위 사용자 (최대 50명)
+      topUsers: allUsers.slice(0, 50).map(a => ({ email: a.email, count: a.count, ips: a.ips, byCollection: a.byCollection })),
       alerted,
       suppressed,
       actorName,
