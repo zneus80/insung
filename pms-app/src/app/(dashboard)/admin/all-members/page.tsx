@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   getAllUsers, getOrganizations, getAllMileages, getAllAwards,
-  getAllIndividualEvaluations, getMentoringFormsByUsers,
+  getAllIndividualEvaluations, getMentoringFormsByUsers, listInnovationActivities,
 } from '@/lib/firestore';
+import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import Header from '@/components/layout/Header';
@@ -72,10 +73,16 @@ interface PromotionInfo {
   reasonText: string;
 }
 
-function computePromotion(user: User, mileage: Mileage | undefined): PromotionInfo {
-  const entries = mileage?.entries ?? [];
-  const pmCount = entries.filter(e => e.type === 'SMART_PROJECT' && e.subtype === 'PM').length;
-  const memberCount = entries.filter(e => e.type === 'SMART_PROJECT' && e.subtype === 'MEMBER').length;
+/** 사용자별 혁신활동(스마트프로젝트) 참여 카운트 */
+interface SmartProjectCount {
+  pmCount: number;       // SMART_PROJECT 에 PM 으로 참여
+  memberCount: number;   // SMART_PROJECT 에 멤버로 참여
+}
+
+function computePromotion(user: User, mileage: Mileage | undefined, sp: SmartProjectCount): PromotionInfo {
+  // 스마트프로젝트 카운트는 innovationActivities 직접 집계 (mileage entries 가 아님)
+  const pmCount = sp.pmCount;
+  const memberCount = sp.memberCount;
   const totalPoints = mileage?.points ?? 0;
 
   if (user.role === 'CEO' || user.role === 'EXECUTIVE') {
@@ -151,6 +158,7 @@ function AllMembersContent() {
   const [mileages, setMileages] = useState<Mileage[]>([]);
   const [awards, setAwards] = useState<Award[]>([]);
   const [evalsByYear, setEvalsByYear] = useState<Record<number, Record<string, IndividualEvaluation>>>({});
+  const [spCountByUser, setSpCountByUser] = useState<Map<string, SmartProjectCount>>(new Map());
   // 사용자별 가장 최신 작성 육성면담서 (최근 3개 연도 중)
   const [latestMentoringByUser, setLatestMentoringByUser] = useState<Record<string, MentoringForm>>({});
   const [loading, setLoading] = useState(true);
@@ -168,13 +176,28 @@ function AllMembersContent() {
     (async () => {
       setLoading(true);
       try {
-        const [allUsers, allOrgs, allMileages, allAwards, ...evalLists] = await Promise.all([
+        const [allUsers, allOrgs, allMileages, allAwards, allInnovations, ...evalLists] = await Promise.all([
           getAllUsers(),
           getOrganizations(),
           getAllMileages(),
           getAllAwards(),
+          listInnovationActivities(activeYear),
           ...yearsToShow.map(y => getAllIndividualEvaluations(y)),
         ]);
+        // 사용자별 스마트프로젝트 PM/멤버 카운트 (innovationActivities 직접 집계)
+        const spCountByUser = new Map<string, SmartProjectCount>();
+        for (const a of allInnovations) {
+          if (a.type !== 'SMART_PROJECT') continue;
+          for (const uid of getPmIds(a)) {
+            const c = spCountByUser.get(uid) ?? { pmCount: 0, memberCount: 0 };
+            c.pmCount++; spCountByUser.set(uid, c);
+          }
+          for (const uid of (a.memberIds ?? [])) {
+            const c = spCountByUser.get(uid) ?? { pmCount: 0, memberCount: 0 };
+            c.memberCount++; spCountByUser.set(uid, c);
+          }
+        }
+        setSpCountByUser(spCountByUser);
         // 임원·CEO 는 평가·승진 대상이 아니므로 전사 인원현황에서 제외
         const activeUsers = allUsers.filter(u =>
           u.isActive !== false &&
@@ -273,7 +296,7 @@ function AllMembersContent() {
         mileagePoints: userMileage?.points ?? 0,
         mileageYearPoints: getYearMileage(userMileage, activeYear),
         recentAwards,
-        promotion: computePromotion(u, userMileage),
+        promotion: computePromotion(u, userMileage, spCountByUser.get(u.id) ?? { pmCount: 0, memberCount: 0 }),
         latestMentoring: mentoring,
         jobRequest: jobReq,
         jobRequestLabel: jobReq ? JOB_REQUEST_LABELS[jobReq] : '',
@@ -281,7 +304,7 @@ function AllMembersContent() {
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [users, mileagesByUser, awardsByUser, evalsByYear, latestMentoringByUser, orgsById, activeYear]);
+  }, [users, mileagesByUser, awardsByUser, evalsByYear, latestMentoringByUser, orgsById, activeYear, spCountByUser]);
 
   // ── 필터 + 검색 + 정렬 ────────────────────────────
   const visibleRows = useMemo(() => {
