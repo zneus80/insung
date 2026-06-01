@@ -17,7 +17,9 @@ import {
   getOrganizations,
   getMileage,
   getAwardsByUser,
+  listInnovationActivities,
 } from '@/lib/firestore';
+import { getPmIds } from '@/lib/innovation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
@@ -115,18 +117,31 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
           u.role !== 'EXECUTIVE' && u.role !== 'CEO',
         );
 
-        // 마일리지·포상 병렬 조회 — SMART_PROJECT 참여 횟수는 마일리지 entries 에서 산정
-        const [mileages, awardLists] = await Promise.all([
+        // 마일리지·포상·혁신활동 병렬 조회
+        //  · SMART_PROJECT 참여 횟수는 innovationActivities 직접 집계 (마일리지 entries 아님)
+        const [mileages, awardLists, innovations] = await Promise.all([
           Promise.all(scopeUsers.map(u => getMileage(u.id))),
           Promise.all(scopeUsers.map(u => getAwardsByUser(u.id))),
+          listInnovationActivities(activeYear),
         ]);
+        // 사용자별 스마트프로젝트 PM/멤버 카운트
+        const spByUser = new Map<string, { pm: number; member: number }>();
+        for (const a of innovations) {
+          if (a.type !== 'SMART_PROJECT') continue;
+          for (const uid of getPmIds(a)) {
+            const c = spByUser.get(uid) ?? { pm: 0, member: 0 }; c.pm++; spByUser.set(uid, c);
+          }
+          for (const uid of (a.memberIds ?? [])) {
+            const c = spByUser.get(uid) ?? { pm: 0, member: 0 }; c.member++; spByUser.set(uid, c);
+          }
+        }
 
         const data: RowData[] = scopeUsers.map((u, i) => {
           const mileage: Mileage | null = mileages[i];
           const awards: Award[] = awardLists[i];
-          const entries = mileage?.entries ?? [];
-          const smartPm = entries.filter(e => e.type === 'SMART_PROJECT' && e.subtype === 'PM').length;
-          const smartMember = entries.filter(e => e.type === 'SMART_PROJECT' && e.subtype === 'MEMBER').length;
+          const sp = spByUser.get(u.id) ?? { pm: 0, member: 0 };
+          const smartPm = sp.pm;
+          const smartMember = sp.member;
           const pts = mileage?.points ?? 0;
           // (1) 팀장 승진: SMART_PROJECT(PM 또는 팀원) 1회 이상 + 마일리지 200점 이상
           const qualifyLead = (smartPm + smartMember) >= 1 && pts >= 200;
