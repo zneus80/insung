@@ -248,6 +248,52 @@ export async function POST(req: NextRequest) {
     // 3) 원본 historical 데이터 삭제
     await deleteUserDocuments(db, uid, snapshot);
 
+    // 3-1) 고아 참조 정리 — 다른 doc 에 남는 삭제된 userId 제거
+    const orphanCleanup: Promise<any>[] = [];
+    let orphanCounts = { collaborator: 0, innovation: 0, orgLeader: 0 };
+
+    // (a) goals.collaboratorIds 에서 제거
+    {
+      const collabSnap = await db.collection('goals').where('collaboratorIds', 'array-contains', uid).get();
+      collabSnap.docs.forEach(d => {
+        orphanCleanup.push(d.ref.update({ collaboratorIds: FieldValue.arrayRemove(uid), updatedAt: FieldValue.serverTimestamp() }));
+        orphanCounts.collaborator++;
+      });
+    }
+
+    // (b) innovationActivities 의 pmIds / performerIds / memberIds 배열 + 단일 필드 정리
+    {
+      const innovSnap = await db.collection('innovationActivities').get();
+      for (const d of innovSnap.docs) {
+        const data = d.data();
+        const patch: Record<string, any> = {};
+        for (const field of ['pmIds', 'performerIds', 'memberIds']) {
+          if (Array.isArray(data[field]) && data[field].includes(uid)) {
+            patch[field] = FieldValue.arrayRemove(uid);
+          }
+        }
+        for (const field of ['pmId', 'performerId', 'instructorId']) {
+          if (data[field] === uid) patch[field] = FieldValue.delete();
+        }
+        if (Object.keys(patch).length > 0) {
+          patch.updatedAt = FieldValue.serverTimestamp();
+          orphanCleanup.push(d.ref.update(patch));
+          orphanCounts.innovation++;
+        }
+      }
+    }
+
+    // (c) organizations.leaderId 가 삭제 대상이면 null 로
+    {
+      const ledSnap = await db.collection('organizations').where('leaderId', '==', uid).get();
+      ledSnap.docs.forEach(d => {
+        orphanCleanup.push(d.ref.update({ leaderId: null, updatedAt: FieldValue.serverTimestamp() }));
+        orphanCounts.orgLeader++;
+      });
+    }
+
+    await Promise.all(orphanCleanup);
+
     // 4) Firestore users 문서 삭제
     await db.collection('users').doc(uid).delete();
 
@@ -274,6 +320,7 @@ export async function POST(req: NextRequest) {
       transferTarget,           // { targetUserId, targetOrgId } 또는 null
       transferredGoalCount: transferredGoalIds.length,
       notifSentCount,           // 알림 발송 건수 (0이면 발송 실패)
+      orphanCounts,             // 고아 참조 정리 건수 (collaborator/innovation/orgLeader)
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

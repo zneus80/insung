@@ -198,18 +198,33 @@ export async function countOrgReferences(orgId: string): Promise<{
   weeklyTasks: number;
   annualGoals: number;
   orgEvaluations: number;
+  users: number;            // 이 조직 소속 사용자 (가장 치명적 — 0 이어야 삭제 안전)
+  childOrgs: number;        // 이 조직을 parent 로 하는 하위 조직
+  individualEvals: number;
+  selfEvals: number;
+  mentoringForms: number;
 }> {
-  const [goalsSnap, wtSnap, agSnap, oeSnap] = await Promise.all([
+  const [goalsSnap, wtSnap, agSnap, oeSnap, usersSnap, childSnap, ieSnap, seSnap, mfSnap] = await Promise.all([
     getDocs(query(collection(db, COLLECTIONS.GOALS), where('organizationId', '==', orgId))),
     getDocs(query(collection(db, COLLECTIONS.WEEKLY_TASKS), where('organizationId', '==', orgId))),
     getDocs(query(collection(db, COLLECTIONS.ANNUAL_GOALS), where('organizationId', '==', orgId))),
     getDocs(query(collection(db, COLLECTIONS.ORG_EVALUATIONS), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.USERS), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.ORGANIZATIONS), where('parentId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.SELF_EVALUATIONS), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.MENTORING_FORMS), where('organizationId', '==', orgId))),
   ]);
   return {
     goals: goalsSnap.size,
     weeklyTasks: wtSnap.size,
     annualGoals: agSnap.size,
     orgEvaluations: oeSnap.size,
+    users: usersSnap.size,
+    childOrgs: childSnap.size,
+    individualEvals: ieSnap.size,
+    selfEvals: seSnap.size,
+    mentoringForms: mfSnap.size,
   };
 }
 
@@ -1008,6 +1023,86 @@ export async function getAllIndividualEvaluations(year: number): Promise<Individ
     where('cycleYear', '==', year)
   ));
   return snap.docs.map(d => mapIndividualEval(d.id, d.data()));
+}
+
+/**
+ * 평가 시즌 IE 일괄 시드 (Q2).
+ * 해당 연도에 IE doc 가 없는 활성 사용자(CEO 제외) 전원에 대해 NOT_STARTED IE 생성.
+ * 이미 IE 가 있는 사용자는 건너뜀 (재실행 안전).
+ * 반환: 생성 건수.
+ */
+export async function seedIndividualEvaluations(year: number): Promise<{ created: number; skipped: number }> {
+  const [usersSnap, ieSnap, orgsCache, leadersCache] = await Promise.all([
+    getDocs(collection(db, COLLECTIONS.USERS)),
+    getDocs(query(collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS), where('cycleYear', '==', year))),
+    loadOrgTreeCache(),
+    loadOrgLeadersCache(),
+  ]);
+  const haveIE = new Set(ieSnap.docs.map(d => d.data().userId));
+  let created = 0, skipped = 0;
+  const tasks: Promise<any>[] = [];
+  for (const d of usersSnap.docs) {
+    const u = d.data() as User;
+    if (u.isActive === false) { skipped++; continue; }
+    if (u.role === 'CEO') { skipped++; continue; }
+    if (!u.organizationId) { skipped++; continue; }
+    if (haveIE.has(d.id)) { skipped++; continue; }
+    const viewableBy = await computeViewableBy(d.id, u.organizationId, orgsCache, leadersCache);
+    tasks.push(addDoc(collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS), {
+      userId: d.id,
+      cycleYear: year,
+      organizationId: u.organizationId,
+      status: 'NOT_STARTED',
+      viewableBy,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+    created++;
+  }
+  await Promise.all(tasks);
+  return { created, skipped };
+}
+
+/**
+ * 사용자 조직 이동 시 당해년도 평가 doc 의 organizationId 이전 (Q3).
+ * IE / selfEvaluations / mentoringForms 중 cycleYear === year 인 것만 새 조직으로 갱신.
+ * (다년도 과거 데이터는 작성 시점 조직 보존 — 손대지 않음)
+ * 반환: 갱신 건수.
+ */
+export async function migrateCurrentYearEvalOrg(userId: string, newOrgId: string, year: number): Promise<{ updated: number }> {
+  const oCache = await loadOrgTreeCache();
+  const lCache = await loadOrgLeadersCache();
+  const viewableBy = await computeViewableBy(userId, newOrgId, oCache, lCache);
+  let updated = 0;
+
+  // individualEvaluations
+  const ieSnap = await getDocs(query(
+    collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS),
+    where('userId', '==', userId),
+    where('cycleYear', '==', year),
+  ));
+  for (const d of ieSnap.docs) {
+    await updateDoc(d.ref, { organizationId: newOrgId, viewableBy, updatedAt: serverTimestamp() });
+    updated++;
+  }
+
+  // selfEvaluations (docId = userId_year)
+  const seId = selfEvalDocId(userId, year);
+  const seDoc = await getDoc(doc(db, COLLECTIONS.SELF_EVALUATIONS, seId));
+  if (seDoc.exists()) {
+    await updateDoc(seDoc.ref, { organizationId: newOrgId, viewableBy, updatedAt: serverTimestamp() });
+    updated++;
+  }
+
+  // mentoringForms (docId = userId_year)
+  const mfId = `${userId}_${year}`;
+  const mfDoc = await getDoc(doc(db, COLLECTIONS.MENTORING_FORMS, mfId));
+  if (mfDoc.exists()) {
+    await updateDoc(mfDoc.ref, { organizationId: newOrgId, viewableBy, updatedAt: serverTimestamp() });
+    updated++;
+  }
+
+  return { updated };
 }
 
 /**

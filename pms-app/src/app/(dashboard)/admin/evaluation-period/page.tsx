@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { CalendarDays, Eye } from 'lucide-react';
+import { seedIndividualEvaluations } from '@/lib/firestore';
 
 interface EvalPeriod {
   year: number;
@@ -39,6 +40,20 @@ function EvaluationPeriodContent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+
+  async function handleSeedEvaluations() {
+    if (!confirm(`${CURRENT_YEAR}년 평가 대상자를 초기화합니다.\n활성 사용자 전원(최고관리자 제외)에 미시작 평가 항목을 생성합니다.\n(이미 있는 사용자는 건너뜁니다)\n\n진행하시겠습니까?`)) return;
+    setSeeding(true);
+    try {
+      const { created, skipped } = await seedIndividualEvaluations(CURRENT_YEAR);
+      toast.success(`평가 대상자 초기화 완료 — 신규 ${created}명 / 기존 ${skipped}명 건너뜀`);
+    } catch (e: any) {
+      toast.error(`초기화 실패: ${e?.message ?? '알 수 없는 오류'}`);
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -187,6 +202,27 @@ function EvaluationPeriodContent() {
               {saving ? '저장 중...' : '저장'}
             </Button>
           )}
+        </div>
+
+        {/* 평가 대상자 초기화 (IE 시드) */}
+        <div className="rounded-xl border bg-white p-6 space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+            <CalendarDays className="h-5 w-5 text-blue-600" />
+            <h2 className="font-semibold text-gray-900">평가 대상자 초기화</h2>
+          </div>
+          <p className="text-sm text-gray-500">
+            현재 활성 사용자 전원(최고관리자 제외)에 대해 {CURRENT_YEAR}년 인사평가 항목을
+            <strong> 미시작</strong> 상태로 생성합니다. 이미 평가 항목이 있는 사용자는 건너뜁니다.
+            평가이력 관리·집계에서 누락 없이 전원이 표시됩니다.
+          </p>
+          <Button
+            onClick={handleSeedEvaluations}
+            disabled={seeding}
+            variant="outline"
+            className="w-full"
+          >
+            {seeding ? '생성 중...' : `${CURRENT_YEAR}년 평가 대상자 초기화`}
+          </Button>
         </div>
 
         {/* 평가결과 공개 */}

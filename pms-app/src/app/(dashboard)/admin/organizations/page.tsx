@@ -223,13 +223,17 @@ function OrganizationsContent() {
     setDeleting(true);
     try {
       const refs = await countOrgReferences(deleteTarget.id);
-      const total = refs.goals + refs.weeklyTasks + refs.annualGoals + refs.orgEvaluations;
+      const total = refs.goals + refs.weeklyTasks + refs.annualGoals + refs.orgEvaluations
+        + refs.individualEvals + refs.selfEvals + refs.mentoringForms;
       if (total > 0) {
         const details = [
           refs.goals > 0 ? `핵심목표 ${refs.goals}건` : '',
           refs.weeklyTasks > 0 ? `주간업무 ${refs.weeklyTasks}건` : '',
           refs.annualGoals > 0 ? `연간목표 ${refs.annualGoals}건` : '',
           refs.orgEvaluations > 0 ? `조직평가 ${refs.orgEvaluations}건` : '',
+          refs.individualEvals > 0 ? `개인평가 ${refs.individualEvals}건` : '',
+          refs.selfEvals > 0 ? `자기평가 ${refs.selfEvals}건` : '',
+          refs.mentoringForms > 0 ? `육성면담서 ${refs.mentoringForms}건` : '',
         ].filter(Boolean).join(', ');
         if (!confirm(
           `이 조직에 연결된 이력 데이터가 있습니다.\n  ${details}\n\n` +
