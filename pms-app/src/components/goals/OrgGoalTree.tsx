@@ -86,8 +86,13 @@ const TYPE_LABEL: Record<string, string> = {
 // ── 구성원 + 목표 행 ──────────────────────────────
 function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false, currentOrgId, allOrgs }: { user: User; goals: Goal[]; persistKey?: string; defaultMemberOpen?: boolean; currentOrgId?: string; allOrgs?: Organization[] }) {
   const [open, setOpen] = useState(() => readOpen(persistKey, 'member', user.id, defaultMemberOpen));
+  const [showAbandoned, setShowAbandoned] = useState(false);
   const avg = avgProgress(goals);
   const hasGoals = goals.length > 0;
+  // 정렬: 1) 진행중 2) 완료 3) 포기(기본 접힘)
+  const inProgressGoals = goals.filter(g => g.status !== 'COMPLETED' && g.status !== 'ABANDONED');
+  const completedGoals = goals.filter(g => g.status === 'COMPLETED');
+  const abandonedGoals = goals.filter(g => g.status === 'ABANDONED');
   // 임원/최고관리자는 개인 목표가 없으므로 목표 없으면 행 미표시 ('목표 없음' 표기 대상 아님)
   if (!hasGoals && (user.role === 'EXECUTIVE' || user.role === 'CEO')) return null;
 
@@ -144,16 +149,15 @@ function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false, cur
           <span className="text-xs text-gray-400 shrink-0">목표 없음</span>
         )}
       </div>
-      {open && hasGoals && (
-        <div className="ml-9 space-y-1 mt-1 mb-2">
-          {goals.map(goal => {
-            // 단순화된 배지 (F3): 최종승인/진행중 · 완료 · 포기 만 노출
-            const badge = goal.status === 'COMPLETED'
-              ? { label: '완료', cls: 'bg-green-100 text-green-700' }
-              : goal.status === 'ABANDONED'
-                ? { label: '포기', cls: 'bg-gray-100 text-gray-500' }
-                : { label: '최종승인/진행중', cls: 'bg-blue-100 text-blue-700' };
-            return (
+      {open && hasGoals && (() => {
+        const renderGoal = (goal: Goal) => {
+          // 단순화된 배지 (F3): 최종승인/진행중 · 완료 · 포기 만 노출
+          const badge = goal.status === 'COMPLETED'
+            ? { label: '완료', cls: 'bg-green-100 text-green-700' }
+            : goal.status === 'ABANDONED'
+              ? { label: '포기', cls: 'bg-gray-100 text-gray-500' }
+              : { label: '최종승인/진행중', cls: 'bg-blue-100 text-blue-700' };
+          return (
             <Link key={goal.id} href={`/goals/${goal.id}`}>
               <div className="flex items-center gap-3 rounded-lg border bg-white px-3 py-2 hover:shadow-sm transition-shadow">
                 <span className={cn('inline-block rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0', badge.cls)}>
@@ -169,10 +173,30 @@ function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false, cur
                 </div>
               </div>
             </Link>
-            );
-          })}
-        </div>
-      )}
+          );
+        };
+        return (
+          <div className="ml-9 space-y-1 mt-1 mb-2">
+            {/* 1) 진행중  2) 완료 */}
+            {inProgressGoals.map(renderGoal)}
+            {completedGoals.map(renderGoal)}
+            {/* 3) 포기 — 기본 접힘 */}
+            {abandonedGoals.length > 0 && (
+              <div className="pt-0.5">
+                <button
+                  type="button"
+                  onClick={e => { e.preventDefault(); setShowAbandoned(v => !v); }}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-1 py-1"
+                >
+                  {showAbandoned ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  포기 {abandonedGoals.length}개
+                </button>
+                {showAbandoned && <div className="space-y-1 mt-1">{abandonedGoals.map(renderGoal)}</div>}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
