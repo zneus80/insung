@@ -5,6 +5,20 @@
 
 ---
 
+## 🔎 전체 아키텍처 재점검 결과 (2026-06)
+
+5개 차원 심층 감사 후 조치:
+- [x] **🔴 특권 API 인증 부재 수정 (CRITICAL)** — `reset-password`/`delete-user`(HR마스터)·`link-auth`(HR관리자)가
+  인증 없이 공개돼 익명 계정탈취/삭제 가능했음. `src/lib/api-auth.ts` 공용 가드로 Bearer 토큰+HR 권한 검증 추가.
+- [x] **평가 화면 에러 처리** — result/org/page·evaluation-history load() try/catch (프록시 실패 시 무한 스피너 방지).
+- [x] **데이터 가드** — migrate 에 yearEndEvals 이전, countOrgReferences 참조 보강, deleteOrganization 서버 가드.
+- [x] **마일리지 지급내역 수동입력 제거** — 혁신활동 관리로 일원화.
+- [~] **CEO Viewer write 차단 / orgEvaluations read 잠금** — 운영 결정으로 **수용**(CEO 신뢰·조직등급 유출 무방).
+- [~] **육성면담서 별도 의견 필드** — 현행 유지(등급의견=육성면담 의견, 팀원은 최종권한자 의견만) 결정.
+- [ ] (잔여 알려진 항목) 평가 write 스코프, App Check Enforce, MFA, 로그인 throttling, 외부 접근통제, PAT rotation.
+
+---
+
 ## ✅ 이미 적용된 보안 기능 (참고)
 
 - Google SSO 제거 · 이메일/비밀번호 단독 인증
