@@ -734,7 +734,9 @@ function TeamLeadEvalView() {
                           </div>
                         </div>
                         <div>
-                          <p className="text-xs text-gray-500 mb-1.5">의견 (이유 작성)</p>
+                          <p className="text-xs text-gray-500 mb-1.5">
+                            의견 <span className="text-[11px] font-normal text-gray-400">— 육성면담서와 인사평가 등급에 대한 종합의견을 작성하십시오 (필수)</span>
+                          </p>
                           <textarea
                             value={op.comment}
                             onChange={e => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
