@@ -38,7 +38,7 @@ const SENSITIVE_COLLECTIONS = [
 ];
 
 const DEFAULT_WINDOW_MIN = 10;
-const DEFAULT_THRESHOLD = Number(process.env.READ_ANOMALY_THRESHOLD ?? 150);
+const DEFAULT_THRESHOLD = Number(process.env.READ_ANOMALY_THRESHOLD ?? 300);
 // 같은 사용자에 대해 이 시간(분) 내 재알림 억제 (지속 버스트 스팸 방지)
 const REALERT_SUPPRESS_MIN = 60;
 // 페이지네이션 상한 (1000건 × maxPages) — 50~100명 규모 10분 구간엔 충분
