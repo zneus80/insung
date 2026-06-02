@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { ChevronDown, ChevronRight, Users, Target, LayoutList, Lock } from 'lucide-react';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
+import { compareUserByRoleHire } from '@/lib/user-sort';
 import type { Goal, Organization, User, AnnualGoal } from '@/types';
 
 // ── 유틸 ─────────────────────────────────────────
@@ -66,7 +67,8 @@ export function buildTree(
     .slice()
     .sort(compareOrgByDisplayOrder)
     .map(org => {
-      const members = usersByOrg[org.id] ?? [];
+      // 표준 정렬: 임원 → 팀장 → 팀원, 동일 역할은 입사일순
+      const members = (usersByOrg[org.id] ?? []).slice().sort(compareUserByRoleHire);
       const goals = members.flatMap(u => goalsByUser[u.id] ?? []);
       return { org, members, goals, children: buildTree(org.id, allOrgs, usersByOrg, goalsByUser) };
     });
