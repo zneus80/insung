@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getAllUsers, getOrganizations, getAllGoalsByYear } from '@/lib/firestore';
+import { compareByHireThenName } from '@/lib/user-sort';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Progress } from '@/components/ui/progress';
@@ -47,7 +48,7 @@ function ProgressMembersContent() {
         const descIds = findDescendantIds(userProfile!.organizationId, allOrgs);
         const teamMembers = allUsers.filter(u =>
           u.role === 'MEMBER' && u.isActive && descIds.includes(u.organizationId)
-        );
+        ).sort(compareByHireThenName);
         setMembers(teamMembers);
         setOrgs(allOrgs);
         const gMap: Record<string, Goal[]> = {};

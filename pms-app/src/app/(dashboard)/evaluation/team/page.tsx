@@ -22,6 +22,7 @@ import {
 import type { Organization, OrganizationEvaluation } from '@/types';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import { approverTitle } from '@/lib/approval-filters';
+import { compareUserByRoleHire } from '@/lib/user-sort';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
@@ -215,6 +216,7 @@ function TeamLeadEvalView() {
         if (isExecSub || detectedHQHead) return u.role === 'MEMBER' || u.role === 'TEAM_LEAD';
         return u.role === 'MEMBER';
       });
+      active.sort(compareUserByRoleHire); // 팀장 → 팀원, 동일 역할 입사일순
       setMembers(active);
 
       // 팀장 의견의 작성자 이름 매핑 (본부장 화면용)

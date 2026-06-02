@@ -17,6 +17,7 @@ import {
 } from '@/lib/firestore';
 import type { Organization } from '@/types';
 import { cn } from '@/lib/utils';
+import { compareUserByRoleHire } from '@/lib/user-sort';
 import type { IndividualEvaluation, OrganizationEvaluation, User } from '@/types';
 import { Lock, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -171,6 +172,7 @@ function TeamMembersResultView({ year }: { year: number }) {
         if (detectedHQHead) return u.role === 'MEMBER' || u.role === 'TEAM_LEAD';
         return u.role === 'MEMBER';
       });
+      active.sort(compareUserByRoleHire); // 팀장 → 팀원, 동일 역할 입사일순
       setMembers(active);
       const ieMap: Record<string, IndividualEvaluation> = {};
       evalList.forEach(ie => { ieMap[ie.userId] = ie; });

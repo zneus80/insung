@@ -51,6 +51,8 @@ function getOneOnOneCandidates(
 ): Candidate[] {
   const me = allUsers.find(u => u.id === meId);
   if (!me) return [];
+  // 최고관리자(CEO)는 1on1 대상에서 제외 (시작·대상 모두)
+  if (me.role === 'CEO') return [];
 
   const candidates: Candidate[] = [];
   const seen = new Set<string>([meId]);
@@ -71,7 +73,7 @@ function getOneOnOneCandidates(
     }
     if (leaderId && !seen.has(leaderId)) {
       const leaderUser = allUsers.find(u => u.id === leaderId);
-      if (leaderUser && leaderUser.isActive !== false) {
+      if (leaderUser && leaderUser.isActive !== false && leaderUser.role !== 'CEO') {
         candidates.push({
           user: leaderUser,
           direction: 'UP',
@@ -103,6 +105,7 @@ function getOneOnOneCandidates(
   for (const u of allUsers) {
     if (seen.has(u.id)) continue;
     if (u.isActive === false) continue;
+    if (u.role === 'CEO') continue; // 최고관리자 제외
     if (!descendantOrgIds.has(u.organizationId)) continue;
     const userOrg = allOrgs.find(o => o.id === u.organizationId);
     if (!userOrg) continue;

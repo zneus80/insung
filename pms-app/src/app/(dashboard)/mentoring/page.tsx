@@ -525,7 +525,7 @@ function MentoringContent() {
           {/* ── 종합의견 ── */}
           <SectionCard icon={<MessageSquare className="h-4 w-4" />} title="종합의견" color="gray">
             <Field label="작성자 종합의견"
-              hint="CDP, 5S와 6E 작성 내용들을 종합한 1년간의 자기평가와 함께 회사에 대한 요청사항 등을 자유롭게 기술하세요.">
+              hint="1년간의 자기평가와 함께 회사에 대한 요청사항 등을 자유롭게 기술하세요.">
               <Textarea placeholder="본인의 1년간 성과와 성장에 대한 자기평가, 회사에 대한 요청사항 등을 자유롭게 작성하세요."
                 value={form.selfOpinion} disabled={isSubmitted} rows={6}
                 className="resize-none" onChange={e => set('selfOpinion', e.target.value)} />

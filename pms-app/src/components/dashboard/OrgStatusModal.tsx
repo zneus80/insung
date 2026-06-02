@@ -20,6 +20,7 @@ import {
   listInnovationActivities,
 } from '@/lib/firestore';
 import { getPmIds } from '@/lib/innovation';
+import { roleRank } from '@/lib/user-sort';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
@@ -163,17 +164,6 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
           const o = orgsMap.get(orgId);
           return o?.displayOrder ?? 999;
         };
-        // 직책 우선순위 — 팀장 role / position 텍스트 기반 (책임/주임 등)
-        const positionRank = (u: User): number => {
-          if (u.role === 'TEAM_LEAD') return 0;
-          const p = (u.position ?? '').trim();
-          if (p.includes('팀장')) return 0;
-          if (p.includes('책임')) return 1;
-          if (p.includes('선임')) return 2;
-          if (p.includes('주임')) return 3;
-          if (p.includes('사원')) return 4;
-          return 5;
-        };
         data.sort((a, b) => {
           // 1차: 팀
           const oa = orgRank(a.user.organizationId);
@@ -182,9 +172,9 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
           const orgNameA = orgsMap.get(a.user.organizationId)?.name ?? '';
           const orgNameB = orgsMap.get(b.user.organizationId)?.name ?? '';
           if (orgNameA !== orgNameB) return orgNameA.localeCompare(orgNameB, 'ko');
-          // 2차: 직책
-          const pa = positionRank(a.user);
-          const pb = positionRank(b.user);
+          // 2차: 역할 (팀장 → 팀원)
+          const pa = roleRank(a.user.role);
+          const pb = roleRank(b.user.role);
           if (pa !== pb) return pa - pb;
           // 3차: 입사일 (오래된 사람 우선). 미입력은 최하단.
           const ha = a.user.hireDate || '9999-99-99';
