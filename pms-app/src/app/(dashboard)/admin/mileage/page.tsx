@@ -11,19 +11,14 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Pencil, Lock, Plus, Trash2, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Pencil, Lock, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import type { User, Mileage, MileageEntry, MileageEntryType, MileageEntrySubtype } from '@/types';
+import type { User, Mileage } from '@/types';
 import { getTier } from '@/lib/mileage-tier';
 
 const MILEAGE_ROLES = ['MEMBER', 'TEAM_LEAD'] as const;
-
-const SUBTYPE_OPTIONS: Record<MileageEntryType, { value: MileageEntrySubtype; label: string }[]> = {
-  TDS:           [{ value: 'SUBMIT', label: '제출' }, { value: 'INSTRUCT', label: '지시' }],
-  SMART_PROJECT: [{ value: 'PM', label: 'PM' }, { value: 'MEMBER', label: '팀원' }],
-};
 
 export default function MileagePage() {
   return (
@@ -61,7 +56,6 @@ function MileageContent() {
 
   const [editing, setEditing] = useState<User | null>(null);
   const [points, setPoints] = useState('');
-  const [entries, setEntries] = useState<MileageEntry[]>([]);
   const [saving, setSaving] = useState(false);
 
   const previewPoints = parseInt(points, 10) || 0;
@@ -84,39 +78,20 @@ function MileageContent() {
     const existing = mileages[user.id];
     setEditing(user);
     setPoints(String(existing?.points ?? 0));
-    setEntries(existing?.entries ?? []);
-  }
-
-  function addEntry(type: MileageEntryType) {
-    const def = SUBTYPE_OPTIONS[type][0].value;
-    setEntries(prev => [...prev, {
-      id: crypto.randomUUID(),
-      type, subtype: def, subject: '', points: 0,
-      createdAt: new Date(),
-    }]);
-  }
-  function updateEntry(id: string, patch: Partial<MileageEntry>) {
-    setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
-  }
-  function removeEntry(id: string) {
-    setEntries(prev => prev.filter(e => e.id !== id));
   }
 
   async function handleSave() {
     if (!editing || !userProfile) return;
     const parsed = parseInt(points, 10);
     if (isNaN(parsed) || parsed < 0) { toast.error('올바른 마일리지 값을 입력하세요.'); return; }
-    // entries 정제: subject 비어있으면 제외
-    const cleanEntries = entries
-      .map(e => ({ ...e, subject: e.subject.trim(), points: Number(e.points) || 0 }))
-      .filter(e => e.subject);
     setSaving(true);
     try {
       await setMileage(editing.id, {
         userId: editing.id,
         organizationId: editing.organizationId,
         points: parsed,
-        entries: cleanEntries,
+        // 지급 내역(entries) 수동 입력 폐지 — 혁신활동 관리로 일원화. 기존 값은 보존.
+        entries: mileages[editing.id]?.entries ?? [],
         updatedBy: userProfile.id,
       });
       toast.success(`${editing.name}님의 마일리지가 저장되었습니다.`);
@@ -169,16 +144,6 @@ function MileageContent() {
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
-
-  function entrySummary(m?: Mileage): string {
-    if (!m?.entries || m.entries.length === 0) return '-';
-    const tdsCount = m.entries.filter(e => e.type === 'TDS').length;
-    const spCount = m.entries.filter(e => e.type === 'SMART_PROJECT').length;
-    const parts: string[] = [];
-    if (tdsCount > 0) parts.push(`TDS ${tdsCount}`);
-    if (spCount > 0) parts.push(`SP ${spCount}`);
-    return parts.join(' · ');
-  }
 
   return (
     <div className="flex flex-col h-full">
@@ -253,7 +218,6 @@ function MileageContent() {
                 <th className="px-4 py-3 text-right cursor-pointer select-none hover:text-gray-700" onClick={() => handleSort('points')}>
                   마일리지 <SortIcon col="points" />
                 </th>
-                <th className="px-4 py-3 text-left">지급 내역</th>
                 <th className="px-4 py-3 text-left">최종 수정</th>
                 {!isReadOnly && <th className="px-4 py-3" />}
               </tr>
@@ -262,7 +226,7 @@ function MileageContent() {
               {loading ? (
                 [1, 2, 3].map(i => (
                   <tr key={i}>
-                    <td colSpan={7} className="px-4 py-3">
+                    <td colSpan={6} className="px-4 py-3">
                       <div className="h-4 animate-pulse rounded bg-gray-100" />
                     </td>
                   </tr>
@@ -294,9 +258,6 @@ function MileageContent() {
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {entrySummary(m)}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">
                       {m ? format(m.updatedAt, 'yy.MM.dd', { locale: ko }) : '-'}
@@ -339,72 +300,7 @@ function MileageContent() {
                   onChange={e => setPoints(e.target.value)}
                   placeholder="0"
                 />
-                <p className="text-xs text-gray-400">총 마일리지 점수는 직접 입력하며 지급 내역과 별개로 관리됩니다.</p>
-              </div>
-
-              {/* 마일리지 지급 내역 */}
-              <div className="space-y-3 rounded-xl border bg-gray-50 p-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-800">마일리지 지급 내역</p>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => addEntry('TDS')} className="gap-1 h-7 text-xs">
-                      <Plus className="h-3 w-3" /> TDS 추가
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => addEntry('SMART_PROJECT')} className="gap-1 h-7 text-xs">
-                      <Plus className="h-3 w-3" /> 스마트 프로젝트 추가
-                    </Button>
-                  </div>
-                </div>
-                {entries.length === 0 ? (
-                  <p className="text-xs text-gray-400 text-center py-3">아직 지급 내역이 없습니다. 위 버튼으로 추가하세요.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {entries.map(entry => (
-                      <div key={entry.id} className="rounded-lg border bg-white p-3 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`shrink-0 text-xs font-bold rounded-full px-2 py-0.5 ${
-                            entry.type === 'TDS' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
-                          }`}>
-                            {entry.type === 'TDS' ? 'TDS' : '스마트 프로젝트'}
-                          </span>
-                          <select
-                            value={entry.subtype}
-                            onChange={e => updateEntry(entry.id, { subtype: e.target.value as MileageEntrySubtype })}
-                            className="rounded border border-gray-200 px-2 py-1 text-xs"
-                          >
-                            {SUBTYPE_OPTIONS[entry.type].map(o => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => removeEntry(entry.id)}
-                            className="ml-auto p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500"
-                            title="삭제"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-[1fr_120px] gap-2">
-                          <Input
-                            placeholder="주제명"
-                            value={entry.subject}
-                            onChange={e => updateEntry(entry.id, { subject: e.target.value })}
-                            className="h-8 text-sm"
-                          />
-                          <Input
-                            type="number"
-                            min={0}
-                            placeholder="지급 마일리지"
-                            value={String(entry.points)}
-                            onChange={e => updateEntry(entry.id, { points: Number(e.target.value) || 0 })}
-                            className="h-8 text-sm text-right"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <p className="text-xs text-gray-400">스마트프로젝트·TDS 실적은 혁신활동 관리에서 자동 집계됩니다. 여기서는 마일리지 총점만 관리합니다.</p>
               </div>
 
               <Button onClick={handleSave} disabled={saving} className="w-full">

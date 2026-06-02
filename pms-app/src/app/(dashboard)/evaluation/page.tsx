@@ -166,6 +166,9 @@ function MemberEvalView() {
         done.forEach(g => { map[g.id] = { comment: '' }; });
         setGoalEvals(map);
       }
+    } catch (e: any) {
+      console.error('평가 화면 로드 실패:', e);
+      toast.error('평가 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
     } finally { setLoading(false); }
   }
 

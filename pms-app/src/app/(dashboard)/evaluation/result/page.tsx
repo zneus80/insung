@@ -17,6 +17,7 @@ import {
 } from '@/lib/firestore';
 import type { Organization } from '@/types';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { compareUserByRoleHire } from '@/lib/user-sort';
 import type { IndividualEvaluation, OrganizationEvaluation, User } from '@/types';
 import { Lock, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
@@ -132,6 +133,7 @@ function TeamMembersResultView({ year }: { year: number }) {
     async function load() {
       if (!userProfile) return;
       setLoading(true);
+      try {
       const allOrgs = await getOrganizations();
       // 본부장 판별: leaderId 인 본부 있거나 본인 소속이 HEADQUARTERS
       const myLedHQ = allOrgs.filter(o => o.leaderId === userProfile.id && o.type === 'HEADQUARTERS');
@@ -185,7 +187,12 @@ function TeamMembersResultView({ year }: { year: number }) {
         .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999) || a.name.localeCompare(b.name, 'ko'));
       setTeamTabs(leafOrgs);
       setActiveTeamTabId(prev => leafOrgs.some(o => o.id === prev) ? prev : (leafOrgs[0]?.id ?? ''));
-      setLoading(false);
+      } catch (e: any) {
+        console.error('평가결과 로드 실패:', e);
+        toast.error('평가결과를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, [userProfile, year]);
@@ -311,6 +318,7 @@ function MemberResultView({
     async function load() {
       if (!userProfile) return;
       setLoading(true);
+      try {
       const periodSnap = await getDoc(doc(db, 'evaluationPeriods', `${selectedYear}`));
       const published = periodSnap.exists() ? periodSnap.data().isPublished : false;
       setIsPublished(published);
@@ -352,7 +360,12 @@ function MemberResultView({
       } else {
         setEval(null);
       }
-      setLoading(false);
+      } catch (e: any) {
+        console.error('평가결과 로드 실패:', e);
+        toast.error('평가결과를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, [userProfile, selectedYear]);

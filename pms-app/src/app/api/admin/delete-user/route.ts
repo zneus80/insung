@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth } from '@/lib/firebase-admin';
+import { requireHr } from '@/lib/api-auth';
 import { initializeApp, getApps, getApp, cert } from 'firebase-admin/app';
 import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
 
@@ -140,6 +141,9 @@ async function deleteUserDocuments(db: Firestore, userId: string, snapshot: Reco
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = await requireHr(req, { master: true });
+    if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+
     const { uid, email, deletedBy, forceDeleteGoals } = await req.json();
     if (!uid) return NextResponse.json({ error: 'uid 필요' }, { status: 400 });
 
