@@ -20,7 +20,8 @@ import {
   QueryConstraint,
   DocumentData,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
+import { USE_EVAL_READ_PROXY } from './feature-flags';
 import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, IndividualEvalStatus, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem, InnovationActivity } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
@@ -924,6 +925,35 @@ export async function recomputeViewableByForOrgTree(rootOrgId: string): Promise<
 }
 
 // ─── 개인 평가 ────────────────────────────────
+// ── 개인평가 읽기 프록시 (옵션 E, feature-flags.USE_EVAL_READ_PROXY) ──────────
+/** 프록시 API 응답(ISO 문자열 날짜)을 IndividualEvaluation(Date) 으로 복원 */
+function reviveProxyEval(e: any): IndividualEvaluation {
+  return {
+    ...e,
+    createdAt: e.createdAt ? new Date(e.createdAt) : new Date(),
+    updatedAt: e.updatedAt ? new Date(e.updatedAt) : new Date(),
+    leadSubmittedAt: e.leadSubmittedAt ? new Date(e.leadSubmittedAt) : undefined,
+    hqReviewedAt: e.hqReviewedAt ? new Date(e.hqReviewedAt) : undefined,
+    execConfirmedAt: e.execConfirmedAt ? new Date(e.execConfirmedAt) : undefined,
+  } as IndividualEvaluation;
+}
+
+async function proxyReadIndividualEvals(
+  body: { mode: 'single' | 'org' | 'all'; userId?: string; orgId?: string; year: number },
+): Promise<IndividualEvaluation[]> {
+  const fbUser = auth.currentUser;
+  if (!fbUser) throw new Error('로그인이 필요합니다.');
+  const idToken = await fbUser.getIdToken();
+  const res = await fetch('/api/evaluation/individual', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error ?? '평가 조회 실패');
+  return (data.evals ?? []).map(reviveProxyEval);
+}
+
 function mapIndividualEval(id: string, d: DocumentData): IndividualEvaluation {
   return {
     ...d,
@@ -937,6 +967,10 @@ function mapIndividualEval(id: string, d: DocumentData): IndividualEvaluation {
 }
 
 export async function getIndividualEvaluation(userId: string, year: number): Promise<IndividualEvaluation | null> {
+  if (USE_EVAL_READ_PROXY) {
+    const evals = await proxyReadIndividualEvals({ mode: 'single', userId, year });
+    return evals[0] ?? null;
+  }
   const snap = await getDocs(query(
     collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS),
     where('userId', '==', userId),
@@ -1018,6 +1052,9 @@ export async function upsertIndividualEvaluation(
 }
 
 export async function getAllIndividualEvaluations(year: number): Promise<IndividualEvaluation[]> {
+  if (USE_EVAL_READ_PROXY) {
+    return proxyReadIndividualEvals({ mode: 'all', year });
+  }
   const snap = await getDocs(query(
     collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS),
     where('cycleYear', '==', year)
@@ -1377,6 +1414,9 @@ export async function updateOrgEvaluation(id: string, data: Partial<Organization
 }
 
 export async function getIndividualEvaluationsByOrg(orgId: string, year: number): Promise<IndividualEvaluation[]> {
+  if (USE_EVAL_READ_PROXY) {
+    return proxyReadIndividualEvals({ mode: 'org', orgId, year });
+  }
   const snap = await getDocs(query(
     collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS),
     where('organizationId', '==', orgId),
