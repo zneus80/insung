@@ -30,7 +30,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, getApp, cert, ServiceAccount } from 'firebase-admin/app';
 import { getFirestore, Firestore, Timestamp } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { getEffectiveEvalRole, getDescendantOrgIds } from '@/lib/approval-filters';
+import { computeEvalReadScopeOrgIds } from '@/lib/eval-authz';
 import type { Organization } from '@/types';
 
 const COLLECTION = 'individualEvaluations';
@@ -74,37 +74,6 @@ interface Requester {
 /** HR·CEO 는 전체 열람 */
 function isAllAccess(r: Requester): boolean {
   return r.isHr || r.role === 'CEO';
-}
-
-/**
- * 요청자가 읽을 수 있는 조직 ID 집합 (조직 체인 스코프).
- * 클라이언트(evaluation/team·result)의 scopeOrgIds 계산과 동일하게 맞춘다.
- * MEMBER 는 조직 스코프 없음([]) — 본인 평가만 별도 허용.
- */
-function computeScopeOrgIds(r: Requester, allOrgs: Organization[]): string[] {
-  const led = allOrgs
-    .filter(o => o.leaderId === r.uid)
-    .flatMap(o => getDescendantOrgIds(o.id, allOrgs));
-  const home = r.orgId ? getDescendantOrgIds(r.orgId, allOrgs) : [];
-  const eff = getEffectiveEvalRole(r.uid, r.role, r.orgId, allOrgs);
-
-  if (eff === 'MEMBER') return [];
-  if (eff === 'EXEC_TOP') {
-    // 최상위 임원/CEO: 본인 leader 조직만 (home 제외). led 가 없으면(드묾) home fallback.
-    return Array.from(new Set(led.length ? led : home));
-  }
-  if (eff === 'EXEC_SUB') {
-    return Array.from(new Set([...home, ...led]));
-  }
-  if (eff === 'HQ_HEAD') {
-    const ledHq = allOrgs
-      .filter(o => o.leaderId === r.uid && o.type === 'HEADQUARTERS')
-      .flatMap(o => getDescendantOrgIds(o.id, allOrgs));
-    const base = ledHq.length ? ledHq : home;
-    return Array.from(new Set([...base, ...led]));
-  }
-  // TEAM_LEAD
-  return Array.from(new Set([...home, ...led]));
 }
 
 async function loadAllOrgs(db: Firestore): Promise<Organization[]> {
@@ -151,7 +120,7 @@ export async function POST(req: NextRequest) {
     async function getScope(): Promise<Set<string>> {
       if (!scope) {
         const allOrgs = await loadAllOrgs(db);
-        scope = new Set(computeScopeOrgIds(requester, allOrgs));
+        scope = new Set(computeEvalReadScopeOrgIds(requester.uid, requester.role, requester.orgId, allOrgs));
       }
       return scope;
     }
