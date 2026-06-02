@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
@@ -401,6 +401,19 @@ function ExecDashboard() {
   const [upcomingMeetings, setUpcomingMeetings] = useState<OneOnOne[]>([]);
   const [orgStatusOpen, setOrgStatusOpen] = useState(false);
 
+  // 조직트리 드릴다운 → 목표 상세 → 뒤로가기 시 스크롤 위치 복원 (펼침 상태는 OrgGoalTree가 sessionStorage로 보존)
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const SCROLL_KEY = 'execdash:scroll';
+  useEffect(() => {
+    if (loading) return;
+    let saved = 0;
+    try { saved = Number(sessionStorage.getItem(SCROLL_KEY) ?? '0'); } catch { /* 무시 */ }
+    if (saved > 0 && scrollRef.current) {
+      // 트리 펼침 복원 후 레이아웃이 잡힌 다음 프레임에 스크롤 복원
+      requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = saved; });
+    }
+  }, [loading]);
+
   useEffect(() => {
     if (!userProfile) return;
     async function load() {
@@ -495,7 +508,11 @@ function ExecDashboard() {
   return (
     <div className="flex flex-col h-full">
       <Header title="대시보드" />
-      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+      <div
+        ref={scrollRef}
+        onScroll={e => { try { sessionStorage.setItem(SCROLL_KEY, String(e.currentTarget.scrollTop)); } catch { /* 무시 */ } }}
+        className="flex-1 overflow-y-auto p-6 space-y-5"
+      >
 
         <div className="flex items-start justify-between gap-3">
           <div>
