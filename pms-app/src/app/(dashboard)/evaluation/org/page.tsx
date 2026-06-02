@@ -193,6 +193,7 @@ function OrgEvaluationContent() {
 
   async function load() {
     setLoading(true);
+    try {
     const [orgs, users, evals, dQuotas, rawGlobal] = await Promise.all([
       getOrganizations(),
       getAllUsers(),
@@ -221,7 +222,12 @@ function OrgEvaluationContent() {
     const gMap: Record<string, number> = {};
     rawGlobal.forEach((q: any) => { gMap[`${q.orgGrade}-${q.memberGrade}`] = q.count; });
     setGlobalQuotas(gMap);
-    setLoading(false);
+    } catch (e: any) {
+      console.error('조직평가 로드 실패:', e);
+      toast.error('데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { load(); }, []);

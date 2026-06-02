@@ -19,7 +19,13 @@ import { toast } from 'sonner';
 import type { User, Organization, UserRole } from '@/types';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword } from 'firebase/auth';
-import { firebaseConfig } from '@/lib/firebase';
+import { firebaseConfig, auth } from '@/lib/firebase';
+
+/** 특권 admin API 호출용 — Firebase ID 토큰 Authorization 헤더 */
+async function adminAuthHeaders(): Promise<Record<string, string>> {
+  const t = await auth.currentUser?.getIdToken();
+  return t ? { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` } : { 'Content-Type': 'application/json' };
+}
 import { isEmulator } from '@/lib/auth';
 import * as XLSX from 'xlsx';
 
@@ -414,7 +420,7 @@ function UsersContent() {
         try {
           const res = await fetch('/api/admin/link-auth', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: await adminAuthHeaders(),
             body: JSON.stringify({ placeholderId: user.id, email: user.email, resetPassword: true }),
           });
           const json = await res.json();
@@ -442,7 +448,7 @@ function UsersContent() {
       try {
         const res = await fetch('/api/admin/reset-password', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: await adminAuthHeaders(),
           body: JSON.stringify({ uid: user.id }),
         });
         if (!res.ok) throw new Error((await res.json()).error);
@@ -529,7 +535,7 @@ function UsersContent() {
     try {
       const res = await fetch('/api/admin/delete-user', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await adminAuthHeaders(),
         body: JSON.stringify({
           uid: deleteTarget.id,
           email: deleteTarget.email,

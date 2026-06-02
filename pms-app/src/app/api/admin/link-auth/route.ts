@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth } from '@/lib/firebase-admin';
+import { requireHr } from '@/lib/api-auth';
 import { initializeApp, getApps, getApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
@@ -32,6 +33,9 @@ const adminDb = () => getFirestore(getAdminApp());
  */
 export async function POST(req: NextRequest) {
   try {
+    const gate = await requireHr(req, {});
+    if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+
     const { placeholderId, email, resetPassword = true } = await req.json();
     if (!placeholderId || !email) {
       return NextResponse.json({ error: 'placeholderId, email 필요' }, { status: 400 });

@@ -224,7 +224,8 @@ function OrganizationsContent() {
     try {
       const refs = await countOrgReferences(deleteTarget.id);
       const total = refs.goals + refs.weeklyTasks + refs.annualGoals + refs.orgEvaluations
-        + refs.individualEvals + refs.selfEvals + refs.mentoringForms;
+        + refs.individualEvals + refs.selfEvals + refs.mentoringForms
+        + refs.yearEndEvals + refs.oneOnOnes + refs.orgGradeHistories + refs.divisionGradeQuotas;
       if (total > 0) {
         const details = [
           refs.goals > 0 ? `핵심목표 ${refs.goals}건` : '',
@@ -234,6 +235,10 @@ function OrganizationsContent() {
           refs.individualEvals > 0 ? `개인평가 ${refs.individualEvals}건` : '',
           refs.selfEvals > 0 ? `자기평가 ${refs.selfEvals}건` : '',
           refs.mentoringForms > 0 ? `육성면담서 ${refs.mentoringForms}건` : '',
+          refs.yearEndEvals > 0 ? `연말평가 ${refs.yearEndEvals}건` : '',
+          refs.oneOnOnes > 0 ? `1on1 ${refs.oneOnOnes}건` : '',
+          refs.orgGradeHistories > 0 ? `조직등급이력 ${refs.orgGradeHistories}건` : '',
+          refs.divisionGradeQuotas > 0 ? `등급쿼터 ${refs.divisionGradeQuotas}건` : '',
         ].filter(Boolean).join(', ');
         if (!confirm(
           `이 조직에 연결된 이력 데이터가 있습니다.\n  ${details}\n\n` +
@@ -248,8 +253,8 @@ function OrganizationsContent() {
       toast.success(`${deleteTarget.name} 조직이 삭제되었습니다.`);
       setDeleteTarget(null);
       await load();
-    } catch {
-      toast.error('삭제에 실패했습니다.');
+    } catch (e: any) {
+      toast.error(e?.message ?? '삭제에 실패했습니다.');
     } finally { setDeleting(false); }
   }
 

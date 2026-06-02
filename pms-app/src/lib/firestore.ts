@@ -186,6 +186,18 @@ export async function updateOrganization(id: string, data: Partial<Organization>
 }
 
 export async function deleteOrganization(id: string) {
+  // 서버측 안전 가드 — 소속 사용자/하위 조직이 남아 있으면 삭제 거부 (고아 데이터 방지).
+  // UI 단 검사 우회(스크립트·직접 호출) 시에도 최소한의 무결성 보장.
+  const [usersSnap, childSnap] = await Promise.all([
+    getDocs(query(collection(db, COLLECTIONS.USERS), where('organizationId', '==', id))),
+    getDocs(query(collection(db, COLLECTIONS.ORGANIZATIONS), where('parentId', '==', id))),
+  ]);
+  if (!usersSnap.empty) {
+    throw new Error(`조직 삭제 불가: 소속 사용자 ${usersSnap.size}명이 남아 있습니다. 먼저 이동/삭제하세요.`);
+  }
+  if (!childSnap.empty) {
+    throw new Error(`조직 삭제 불가: 하위 조직 ${childSnap.size}개가 남아 있습니다. 먼저 정리하세요.`);
+  }
   await deleteDoc(doc(db, COLLECTIONS.ORGANIZATIONS, id));
 }
 
@@ -204,8 +216,13 @@ export async function countOrgReferences(orgId: string): Promise<{
   individualEvals: number;
   selfEvals: number;
   mentoringForms: number;
+  yearEndEvals: number;
+  oneOnOnes: number;
+  orgGradeHistories: number;
+  divisionGradeQuotas: number;
 }> {
-  const [goalsSnap, wtSnap, agSnap, oeSnap, usersSnap, childSnap, ieSnap, seSnap, mfSnap] = await Promise.all([
+  const [goalsSnap, wtSnap, agSnap, oeSnap, usersSnap, childSnap, ieSnap, seSnap, mfSnap,
+         yeSnap, ooSnap, oghSnap, dgqSnap] = await Promise.all([
     getDocs(query(collection(db, COLLECTIONS.GOALS), where('organizationId', '==', orgId))),
     getDocs(query(collection(db, COLLECTIONS.WEEKLY_TASKS), where('organizationId', '==', orgId))),
     getDocs(query(collection(db, COLLECTIONS.ANNUAL_GOALS), where('organizationId', '==', orgId))),
@@ -215,6 +232,10 @@ export async function countOrgReferences(orgId: string): Promise<{
     getDocs(query(collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS), where('organizationId', '==', orgId))),
     getDocs(query(collection(db, COLLECTIONS.SELF_EVALUATIONS), where('organizationId', '==', orgId))),
     getDocs(query(collection(db, COLLECTIONS.MENTORING_FORMS), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.YEAR_END_EVALS), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.ONE_ON_ONES), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.ORG_GRADE_HISTORIES), where('organizationId', '==', orgId))),
+    getDocs(query(collection(db, COLLECTIONS.DIVISION_GRADE_QUOTAS), where('organizationId', '==', orgId))),
   ]);
   return {
     goals: goalsSnap.size,
@@ -226,6 +247,10 @@ export async function countOrgReferences(orgId: string): Promise<{
     individualEvals: ieSnap.size,
     selfEvals: seSnap.size,
     mentoringForms: mfSnap.size,
+    yearEndEvals: yeSnap.size,
+    oneOnOnes: ooSnap.size,
+    orgGradeHistories: oghSnap.size,
+    divisionGradeQuotas: dgqSnap.size,
   };
 }
 
@@ -1189,10 +1214,18 @@ export async function migrateCurrentYearEvalOrg(userId: string, newOrgId: string
   }
 
   // mentoringForms (docId = userId_year)
-  const mfId = `${userId}_${year}`;
+  const mfId = mentoringDocId(userId, year);
   const mfDoc = await getDoc(doc(db, COLLECTIONS.MENTORING_FORMS, mfId));
   if (mfDoc.exists()) {
     await updateDoc(mfDoc.ref, { organizationId: newOrgId, viewableBy, updatedAt: serverTimestamp() });
+    updated++;
+  }
+
+  // yearEndEvals (docId = userId_year)
+  const yeId = yearEndEvalDocId(userId, year);
+  const yeDoc = await getDoc(doc(db, COLLECTIONS.YEAR_END_EVALS, yeId));
+  if (yeDoc.exists()) {
+    await updateDoc(yeDoc.ref, { organizationId: newOrgId, viewableBy, updatedAt: serverTimestamp() });
     updated++;
   }
 
