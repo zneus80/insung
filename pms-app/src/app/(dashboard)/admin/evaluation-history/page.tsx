@@ -1,9 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
-import { getAllUsers, getOrganizations, getOrgEvaluations } from '@/lib/firestore';
+import { getAllUsers, getOrganizations, getOrgEvaluations, getAllIndividualEvaluations } from '@/lib/firestore';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
@@ -11,7 +9,6 @@ import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
-import { fromTimestamp } from '@/lib/firestore';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
@@ -55,27 +52,13 @@ function EvaluationHistoryContent() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const [allUsers, allOrgs, snap] = await Promise.all([
+      const [allUsers, allOrgs, realEvals] = await Promise.all([
         getAllUsers(),
         getOrganizations(),
-        getDocs(query(
-          collection(db, 'individualEvaluations'),
-          where('cycleYear', '==', selectedYear),
-        )),
+        getAllIndividualEvaluations(selectedYear),
       ]);
       setUsers(Object.fromEntries(allUsers.map(u => [u.id, u])));
       setOrgs(Object.fromEntries(allOrgs.map(o => [o.id, o])));
-
-      // 실제 IE doc
-      const realEvals = snap.docs.map(d => ({
-        ...d.data(),
-        id: d.id,
-        leadSubmittedAt: fromTimestamp(d.data().leadSubmittedAt),
-        hqReviewedAt: fromTimestamp(d.data().hqReviewedAt),
-        execConfirmedAt: fromTimestamp(d.data().execConfirmedAt),
-        createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
-        updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-      } as IndividualEvaluation));
 
       // 평가 대상 활성 사용자 — CEO·HR 전용 계정 제외하지 않고 전원 표시하되,
       // IE doc 가 없는 사용자는 'NOT_STARTED' 가상 row 로 합성 (평가이력 누락 방지)
@@ -109,23 +92,12 @@ function EvaluationHistoryContent() {
     async function loadCompareData() {
       setCompareLoading(true);
       try {
-        const [snap, orgEvs] = await Promise.all([
-          getDocs(query(
-            collection(db, 'individualEvaluations'),
-            where('cycleYear', '==', selectedYear - 1),
-          )),
+        const [prev, orgEvs] = await Promise.all([
+          getAllIndividualEvaluations(selectedYear - 1),
           getOrgEvaluations(selectedYear),
         ]);
         if (cancelled) return;
-        setPrevEvals(snap.docs.map(d => ({
-          ...d.data(),
-          id: d.id,
-          leadSubmittedAt: fromTimestamp(d.data().leadSubmittedAt),
-          hqReviewedAt: fromTimestamp(d.data().hqReviewedAt),
-          execConfirmedAt: fromTimestamp(d.data().execConfirmedAt),
-          createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
-          updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-        } as IndividualEvaluation)));
+        setPrevEvals(prev);
         setOrgEvalsForYear(orgEvs);
       } finally {
         if (!cancelled) setCompareLoading(false);
