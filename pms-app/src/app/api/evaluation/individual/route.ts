@@ -13,18 +13,25 @@ export const dynamic = 'force-dynamic';
  *  - org:    특정 조직의 해당 연도 평가 목록
  *  - all:    해당 연도 전체(권한 범위 내)
  *
- * 【Phase 1】 현재 권한 정책을 그대로 서버에서 재현한다(투명 리팩터):
- *   읽기 허용 = 본인 평가 OR 팀장/임원/CEO OR HR(관리자·마스터)
- *   → 동작 변화 없음. read 경로만 서버로 이전.
+ * 【Phase 2a】 조직 체인 스코프 기반 권한:
+ *   - HR(관리자·마스터)·CEO → 전체
+ *   - 팀장 → home팀 ∪ 본인 leader 조직 산하
+ *   - 본부장(HQ_HEAD) → 본인 HQ 산하 (비-leader 면 home HQ 산하)
+ *   - 차순위임원(EXEC_SUB) → home부문 산하 ∪ led 산하
+ *   - 최상위임원(EXEC_TOP) → 본인 leader 조직 산하만 (home 제외, §6-1)
+ *   - 그 외(MEMBER) → 본인 평가만
+ *   클라이언트 화면(evaluation/team·result 등)의 scopeOrgIds 계산과 동일.
  *
- * 【Phase 2 예정】 authorizeAndFilter() 를 조직 체인 스코프 기반으로 좁히고,
- *   firestore.rules 의 read 를 `if isHrAdmin()` 로 잠가 비-HR 의 직접 조회를 차단한다.
+ * 【Phase 2b 예정】 화면 검증 후 firestore.rules individualEvaluations read 를
+ *   `if isHrAdmin()` 로 잠가 비-HR 의 콘솔·curl 직접 조회를 차단.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, getApp, cert, ServiceAccount } from 'firebase-admin/app';
 import { getFirestore, Firestore, Timestamp } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { getEffectiveEvalRole, getDescendantOrgIds } from '@/lib/approval-filters';
+import type { Organization } from '@/types';
 
 const COLLECTION = 'individualEvaluations';
 
@@ -60,15 +67,49 @@ function serializeEval(id: string, d: any) {
 interface Requester {
   uid: string;
   role: string;
+  orgId: string | undefined;
   isHr: boolean;
 }
 
+/** HR·CEO 는 전체 열람 */
+function isAllAccess(r: Requester): boolean {
+  return r.isHr || r.role === 'CEO';
+}
+
 /**
- * 권한 판정 + 필터.
- * 【Phase 1】 현재 정책 그대로: privileged(팀장/임원/CEO/HR)는 전체, 그 외는 본인 것만.
+ * 요청자가 읽을 수 있는 조직 ID 집합 (조직 체인 스코프).
+ * 클라이언트(evaluation/team·result)의 scopeOrgIds 계산과 동일하게 맞춘다.
+ * MEMBER 는 조직 스코프 없음([]) — 본인 평가만 별도 허용.
  */
-function isPrivileged(r: Requester): boolean {
-  return r.isHr || r.role === 'CEO' || r.role === 'EXECUTIVE' || r.role === 'TEAM_LEAD';
+function computeScopeOrgIds(r: Requester, allOrgs: Organization[]): string[] {
+  const led = allOrgs
+    .filter(o => o.leaderId === r.uid)
+    .flatMap(o => getDescendantOrgIds(o.id, allOrgs));
+  const home = r.orgId ? getDescendantOrgIds(r.orgId, allOrgs) : [];
+  const eff = getEffectiveEvalRole(r.uid, r.role, r.orgId, allOrgs);
+
+  if (eff === 'MEMBER') return [];
+  if (eff === 'EXEC_TOP') {
+    // 최상위 임원/CEO: 본인 leader 조직만 (home 제외). led 가 없으면(드묾) home fallback.
+    return Array.from(new Set(led.length ? led : home));
+  }
+  if (eff === 'EXEC_SUB') {
+    return Array.from(new Set([...home, ...led]));
+  }
+  if (eff === 'HQ_HEAD') {
+    const ledHq = allOrgs
+      .filter(o => o.leaderId === r.uid && o.type === 'HEADQUARTERS')
+      .flatMap(o => getDescendantOrgIds(o.id, allOrgs));
+    const base = ledHq.length ? ledHq : home;
+    return Array.from(new Set([...base, ...led]));
+  }
+  // TEAM_LEAD
+  return Array.from(new Set([...home, ...led]));
+}
+
+async function loadAllOrgs(db: Firestore): Promise<Organization[]> {
+  const snap = await db.collection('organizations').get();
+  return snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as Organization[];
 }
 
 export async function POST(req: NextRequest) {
@@ -95,6 +136,7 @@ export async function POST(req: NextRequest) {
     const requester: Requester = {
       uid,
       role: userData.role ?? 'MEMBER',
+      orgId: userData.organizationId ?? undefined,
       isHr: userData.isHrAdmin === true || userData.isHrMaster === true || userData.role === 'HR_ADMIN',
     };
 
@@ -103,28 +145,39 @@ export async function POST(req: NextRequest) {
     const year = Number(body.year);
     if (!Number.isFinite(year)) return NextResponse.json({ error: 'year 필요' }, { status: 400 });
 
-    const priv = isPrivileged(requester);
+    const allAccess = isAllAccess(requester);
+    // 조직 스코프는 필요할 때만 계산 (allAccess 면 불필요)
+    let scope: Set<string> | null = null;
+    async function getScope(): Promise<Set<string>> {
+      if (!scope) {
+        const allOrgs = await loadAllOrgs(db);
+        scope = new Set(computeScopeOrgIds(requester, allOrgs));
+      }
+      return scope;
+    }
 
     if (mode === 'single') {
       const targetUserId: string = body.userId;
       if (!targetUserId) return NextResponse.json({ error: 'userId 필요' }, { status: 400 });
-      // 권한: 본인 또는 privileged
-      if (targetUserId !== uid && !priv) {
-        return NextResponse.json({ evals: [] });
-      }
       const snap = await db.collection(COLLECTION)
         .where('userId', '==', targetUserId)
         .where('cycleYear', '==', year)
         .get();
-      const evals = snap.docs.map(d => serializeEval(d.id, d.data()));
-      return NextResponse.json({ evals });
+      const docs = snap.docs.map(d => serializeEval(d.id, d.data()));
+      // 권한: 본인 OR HR/CEO OR 대상 평가의 조직이 내 스코프 내
+      if (targetUserId === uid || allAccess) return NextResponse.json({ evals: docs });
+      const s = await getScope();
+      const allowed = docs.filter(e => s.has(e.organizationId));
+      return NextResponse.json({ evals: allowed });
     }
 
     if (mode === 'org') {
       const orgId: string = body.orgId;
       if (!orgId) return NextResponse.json({ error: 'orgId 필요' }, { status: 400 });
-      // Phase 1: privileged 만 조직 단위 조회 허용 (기존 화면이 호출하는 권한과 동일)
-      if (!priv) return NextResponse.json({ evals: [] });
+      if (!allAccess) {
+        const s = await getScope();
+        if (!s.has(orgId)) return NextResponse.json({ evals: [] });
+      }
       const snap = await db.collection(COLLECTION)
         .where('organizationId', '==', orgId)
         .where('cycleYear', '==', year)
@@ -136,8 +189,10 @@ export async function POST(req: NextRequest) {
     if (mode === 'all') {
       const snap = await db.collection(COLLECTION).where('cycleYear', '==', year).get();
       const all = snap.docs.map(d => serializeEval(d.id, d.data()));
-      // Phase 1: privileged → 전체, 그 외 → 본인 것만
-      const evals = priv ? all : all.filter(e => e.userId === uid);
+      if (allAccess) return NextResponse.json({ evals: all });
+      // 비-HR/CEO: 본인 스코프 조직 + 본인 평가만
+      const s = await getScope();
+      const evals = all.filter(e => e.userId === uid || s.has(e.organizationId));
       return NextResponse.json({ evals });
     }
 
