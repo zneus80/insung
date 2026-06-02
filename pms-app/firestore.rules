@@ -82,14 +82,14 @@ service cloud.firestore {
       allow write: if isHrAdmin() || isCeo();
     }
 
-    // 개인 평가 — 읽기 권한 강화 (v0.9):
-    //  · 팀원(MEMBER)은 본인 평가만 조회 가능
-    //  · 팀장(TEAM_LEAD)·임원(EXECUTIVE)·CEO·HR관리자/마스터는 전체 조회 가능 (UI 에서 추가 scope 필터)
+    // 개인 평가 — 읽기 권한 잠금 (v0.10, 옵션 E API 프록시):
+    //  · 일반 read 는 서버 API(/api/evaluation/individual, Admin SDK)를 경유한다.
+    //    서버가 조직 체인 스코프로 권한을 판정하므로 클라이언트 직접 조회는 불필요.
+    //  · 클라이언트 직접 조회는 HR(관리자·마스터)·CEO 만 허용
+    //    (팀장·임원의 콘솔/curl 우회 대량조회 차단 — 정보탈취 방지).
+    //  · 팀원·팀장·임원의 정상 조회는 전부 프록시 경유(스코프 적용)되므로 영향 없음.
     match /individualEvaluations/{id} {
-      allow read: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid ||
-        isLead() || isExec() || isCeo() || isHrAdmin() || isHrMaster()
-      );
+      allow read: if isAuthenticated() && (isHrAdmin() || isHrMaster() || isCeo());
       allow write: if isAuthenticated() && (
         (resource == null && request.resource.data.userId == request.auth.uid) ||
         (resource != null && resource.data.userId == request.auth.uid) ||
