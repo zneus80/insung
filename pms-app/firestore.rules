@@ -68,7 +68,11 @@ service cloud.firestore {
 
     // 1on1
     match /oneOnOnes/{id} {
-      allow read: if isAuthenticated();
+      // 1on1 은 사적 대화 — 당사자(팀장/팀원)만 조회 가능. (백업은 Admin SDK 경유)
+      allow read: if isAuthenticated() && (
+        resource.data.leaderId == request.auth.uid ||
+        resource.data.memberId == request.auth.uid
+      );
       allow write: if isAuthenticated() && (
         resource == null ||
         resource.data.leaderId == request.auth.uid ||
@@ -97,11 +101,12 @@ service cloud.firestore {
       );
     }
 
-    // 자기평가 (docId = userId_year 형태)
+    // 자기평가 (docId = userId_year) — read 잠금 (옵션 E Phase 3):
+    //  본인(docId) + HR/CEO 만 직접 read. 팀장·임원 조회는 /api/evaluation/forms 프록시 경유.
     match /selfEvaluations/{docId} {
       allow read: if isAuthenticated() && (
         docId.matches('^' + request.auth.uid + '_.*') ||
-        isLead() || isExec() || isCeo() || isHrAdmin()
+        isHrAdmin() || isHrMaster() || isCeo()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
@@ -132,9 +137,12 @@ service cloud.firestore {
       allow write: if isHrAdmin() || isCeo();
     }
 
-    // 1on1 Q&A 서브컬렉션
+    // 1on1 Q&A 서브컬렉션 — 부모 1on1 의 당사자만
     match /oneOnOnes/{id}/questions/{qId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        get(/databases/$(database)/documents/oneOnOnes/$(id)).data.leaderId == request.auth.uid ||
+        get(/databases/$(database)/documents/oneOnOnes/$(id)).data.memberId == request.auth.uid
+      );
       allow create: if isAuthenticated();
       allow update: if isAuthenticated();
     }
@@ -189,11 +197,11 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
-    // 연말 평가 (docId = userId_year)
+    // 연말 평가 (docId = userId_year) — read 잠금 (옵션 E Phase 3): 본인 + HR/CEO 만 직접.
     match /yearEndEvals/{docId} {
       allow read: if isAuthenticated() && (
         docId.matches('^' + request.auth.uid + '_.*') ||
-        isLead() || isExec() || isCeo() || isHrAdmin()
+        isHrAdmin() || isHrMaster() || isCeo()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
@@ -205,11 +213,12 @@ service cloud.firestore {
       allow write: if isHrAdmin() || isCeo();
     }
 
-    // 육성면담서 (docId = userId_year)
+    // 육성면담서 (docId = userId_year) — read 잠금 (옵션 E Phase 3):
+    //  본인 + HR/CEO 만 직접. 팀장·임원 조회는 /api/evaluation/forms 프록시 경유.
     match /mentoringForms/{docId} {
       allow read: if isAuthenticated() && (
         docId.matches('^' + request.auth.uid + '_.*') ||
-        isLead() || isExec() || isCeo() || isHrAdmin()
+        isHrAdmin() || isHrMaster() || isCeo()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       // 본인 작성/수정 OR HR관리자가 수정 요청 승인/거절 처리

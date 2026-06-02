@@ -599,15 +599,15 @@ function ExecDashboard() {
                 </div>
               </Link>
               <Link href="/oneon1">
-                <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer">
+                <div className={`rounded-xl border px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer ${upcomingMeetings.length > 0 ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-white'}`}>
                   <div className="flex items-center gap-2 mb-1">
-                    <Users className="h-4 w-4 text-blue-500" />
-                    <span className="text-sm font-semibold text-gray-600">예정된 1on1</span>
+                    <Users className={`h-4 w-4 ${upcomingMeetings.length > 0 ? 'text-orange-500' : 'text-blue-500'}`} />
+                    <span className={`text-sm font-semibold ${upcomingMeetings.length > 0 ? 'text-orange-700' : 'text-gray-600'}`}>예정된 1on1</span>
                   </div>
-                  <p className="text-2xl font-bold text-gray-400">
+                  <p className={`text-2xl font-bold ${upcomingMeetings.length > 0 ? 'text-orange-700' : 'text-gray-400'}`}>
                     {upcomingMeetings.length}<span className="text-sm font-normal ml-1">건</span>
                   </p>
-                  <p className="text-xs text-gray-400 mt-1">진행 중인 면담</p>
+                  <p className={`text-xs mt-1 ${upcomingMeetings.length > 0 ? 'text-orange-500' : 'text-gray-400'}`}>진행 중인 면담</p>
                 </div>
               </Link>
           <button
