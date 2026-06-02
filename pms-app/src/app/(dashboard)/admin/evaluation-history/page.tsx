@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getAllUsers, getOrganizations, getOrgEvaluations, getAllIndividualEvaluations } from '@/lib/firestore';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
+import { roleRank } from '@/lib/user-sort';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
@@ -200,20 +201,15 @@ function EvaluationHistoryContent() {
         const cmp = compareOrgByDisplayOrder(ta, tb);
         if (cmp !== 0) return cmp;
       }
-      // 직책 우선순위 (본부장 → 팀장 → 책임 → 주임 → 그 외 → 빈 값)
-      const POSITION_RANK: Record<string, number> = { '본부장': 1, '팀장': 2, '책임': 3, '주임': 4 };
-      const pa = ua?.position ?? '';
-      const pb = ub?.position ?? '';
-      const ra = POSITION_RANK[pa] ?? (pa ? 90 : 99);
-      const rb = POSITION_RANK[pb] ?? (pb ? 90 : 99);
+      // 역할 우선순위 (임원 → 팀장 → 팀원) → 입사일 → 이름
+      const ra = roleRank(ua?.role);
+      const rb = roleRank(ub?.role);
       if (ra !== rb) return ra - rb;
-      // 같은 직책이면 입사일 순 (이른 입사일이 위)
       const ha = ua?.hireDate ?? '';
       const hb = ub?.hireDate ?? '';
       if (ha && !hb) return -1;
       if (!ha && hb) return 1;
       if (ha !== hb) return ha.localeCompare(hb);
-      // 마지막은 이름 가나다순
       return (ua?.name ?? '').localeCompare(ub?.name ?? '', 'ko');
     });
 

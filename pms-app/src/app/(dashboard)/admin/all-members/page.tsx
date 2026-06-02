@@ -8,6 +8,7 @@ import {
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
+import { roleRank } from '@/lib/user-sort';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Input } from '@/components/ui/input';
@@ -355,8 +356,10 @@ function AllMembersContent() {
           if (da && db) cmp = compareOrgByDisplayOrder(da, db);
           else if (da) cmp = -1;
           else if (db) cmp = 1;
-          // 같은 부문 내 — 직속 조직명 → 이름 순으로 2차 정렬
+          // 같은 부문 내 — 직속 조직명 → 역할(팀장→팀원) → 입사일 → 이름
           if (cmp === 0) cmp = a.orgName.localeCompare(b.orgName, 'ko');
+          if (cmp === 0) cmp = roleRank(a.user.role) - roleRank(b.user.role);
+          if (cmp === 0) cmp = (a.hireDate || '9999').localeCompare(b.hireDate || '9999');
           break;
         }
         case 'position':   cmp = (a.user.position ?? '').localeCompare(b.user.position ?? '', 'ko'); break;

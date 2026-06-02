@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getAllUsers, getOrganizations, getAllGoalsByYear } from '@/lib/firestore';
+import { compareByHireThenName } from '@/lib/user-sort';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Progress } from '@/components/ui/progress';
@@ -139,8 +140,8 @@ function ProgressContent() {
 
   const activeTeam = teamOrgs.find(t => t.id === activeTeamId);
   const teamMembers = activeTeam ? scopedUsers.filter(u => u.organizationId === activeTeam.id) : [];
-  const teamLeads = teamMembers.filter(u => u.role === 'TEAM_LEAD');
-  const teamMembersOnly = teamMembers.filter(u => u.role === 'MEMBER');
+  const teamLeads = teamMembers.filter(u => u.role === 'TEAM_LEAD').sort(compareByHireThenName);
+  const teamMembersOnly = teamMembers.filter(u => u.role === 'MEMBER').sort(compareByHireThenName);
   const allTeamGoals = teamMembers.flatMap(u => goalsByUser[u.id] ?? []);
   const teamAvg = avgProgressExcludingAbandoned(allTeamGoals);
   const teamCounts = bucketize(allTeamGoals);

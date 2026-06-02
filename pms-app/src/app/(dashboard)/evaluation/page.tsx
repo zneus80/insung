@@ -22,6 +22,7 @@ import {
 } from '@/lib/firestore';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import { approverTitle } from '@/lib/approval-filters';
+import { compareUserByRoleHire } from '@/lib/user-sort';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
@@ -534,6 +535,7 @@ function ExecutiveEvalView() {
       const descIds = [...new Set(rootIds.flatMap(id => getDescendantOrgIds(id, orgs)))];
 
       const active = allUsers.filter(u => (u.role === 'MEMBER' || u.role === 'TEAM_LEAD') && u.isActive && descIds.includes(u.organizationId));
+      active.sort(compareUserByRoleHire); // 팀장 → 팀원, 동일 역할 입사일순
       setMembers(active);
 
       const evalResults = await Promise.all(
