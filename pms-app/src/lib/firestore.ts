@@ -666,6 +666,10 @@ function mapSelfEval(id: string, d: DocumentData): SelfEvaluation {
 }
 
 export async function getSelfEvaluation(userId: string, year: number): Promise<SelfEvaluation | null> {
+  if (USE_EVAL_READ_PROXY) {
+    const docs = await proxyReadForms('selfEvaluations', { mode: 'single', userId, year });
+    return docs[0] ? reviveSelfEval(docs[0]) : null;
+  }
   const snap = await getDoc(doc(db, COLLECTIONS.SELF_EVALUATIONS, selfEvalDocId(userId, year)));
   if (!snap.exists()) return null;
   return mapSelfEval(snap.id, snap.data());
@@ -718,6 +722,10 @@ export async function upsertSelfEvaluation(
 
 export async function getSelfEvaluationsByUsers(userIds: string[], year: number): Promise<SelfEvaluation[]> {
   if (userIds.length === 0) return [];
+  if (USE_EVAL_READ_PROXY) {
+    const docs = await proxyReadForms('selfEvaluations', { mode: 'byUsers', userIds, year });
+    return docs.map(reviveSelfEval);
+  }
   const results = await Promise.all(
     userIds.map(uid => getSelfEvaluation(uid, year))
   );
@@ -952,6 +960,54 @@ async function proxyReadIndividualEvals(
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error ?? '평가 조회 실패');
   return (data.evals ?? []).map(reviveProxyEval);
+}
+
+// ── 평가 부속 문서(자기평가·연말평가·육성면담서) 읽기 프록시 (Phase 3) ──
+function reviveDate(v: any): Date | undefined { return v ? new Date(v) : undefined; }
+
+async function proxyReadForms(
+  collection: 'selfEvaluations' | 'yearEndEvals' | 'mentoringForms',
+  body: { mode: 'single' | 'byUsers'; userId?: string; userIds?: string[]; year: number },
+): Promise<any[]> {
+  const fbUser = auth.currentUser;
+  if (!fbUser) throw new Error('로그인이 필요합니다.');
+  const idToken = await fbUser.getIdToken();
+  const res = await fetch('/api/evaluation/forms', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ collection, ...body }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error ?? '평가 조회 실패');
+  return data.docs ?? [];
+}
+
+function reviveSelfEval(o: any): SelfEvaluation {
+  return {
+    ...o,
+    goalEvals: (o.goalEvals ?? []) as SelfEvalGoalEntry[],
+    submittedAt: reviveDate(o.submittedAt),
+    createdAt: reviveDate(o.createdAt) ?? new Date(),
+    updatedAt: reviveDate(o.updatedAt) ?? new Date(),
+  } as SelfEvaluation;
+}
+function reviveYearEndEval(o: any): YearEndEval {
+  return {
+    ...o,
+    submittedAt: reviveDate(o.submittedAt),
+    createdAt: reviveDate(o.createdAt) ?? new Date(),
+    updatedAt: reviveDate(o.updatedAt) ?? new Date(),
+  } as YearEndEval;
+}
+function reviveMentoringForm(o: any): MentoringForm {
+  return {
+    ...o,
+    submittedAt: reviveDate(o.submittedAt),
+    editRequestedAt: reviveDate(o.editRequestedAt),
+    editRequestApprovedAt: reviveDate(o.editRequestApprovedAt),
+    createdAt: reviveDate(o.createdAt) ?? new Date(),
+    updatedAt: reviveDate(o.updatedAt) ?? new Date(),
+  } as MentoringForm;
 }
 
 function mapIndividualEval(id: string, d: DocumentData): IndividualEvaluation {
@@ -1687,6 +1743,10 @@ function yearEndEvalDocId(userId: string, year: number) {
 }
 
 export async function getYearEndEval(userId: string, year: number): Promise<YearEndEval | null> {
+  if (USE_EVAL_READ_PROXY) {
+    const docs = await proxyReadForms('yearEndEvals', { mode: 'single', userId, year });
+    return docs[0] ? reviveYearEndEval(docs[0]) : null;
+  }
   const snap = await getDoc(doc(db, COLLECTIONS.YEAR_END_EVALS, yearEndEvalDocId(userId, year)));
   if (!snap.exists()) return null;
   const d = snap.data();
@@ -1728,6 +1788,10 @@ function mentoringDocId(userId: string, year: number) {
 }
 
 export async function getMentoringForm(userId: string, year: number): Promise<MentoringForm | null> {
+  if (USE_EVAL_READ_PROXY) {
+    const docs = await proxyReadForms('mentoringForms', { mode: 'single', userId, year });
+    return docs[0] ? reviveMentoringForm(docs[0]) : null;
+  }
   const snap = await getDoc(doc(db, COLLECTIONS.MENTORING_FORMS, mentoringDocId(userId, year)));
   if (!snap.exists()) return null;
   const d = snap.data();
@@ -1835,6 +1899,10 @@ export async function upsertMentoringForm(
 
 export async function getMentoringFormsByUsers(userIds: string[], year: number): Promise<MentoringForm[]> {
   if (userIds.length === 0) return [];
+  if (USE_EVAL_READ_PROXY) {
+    const docs = await proxyReadForms('mentoringForms', { mode: 'byUsers', userIds, year });
+    return docs.map(reviveMentoringForm);
+  }
   const results = await Promise.all(
     userIds.map(uid => getMentoringForm(uid, year))
   );
