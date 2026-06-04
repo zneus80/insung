@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { collection, doc, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { computeViewableBy, getUser, COLLECTIONS, createAuditLog, loadOrgTreeCache, loadOrgLeadersCache, type OrgTreeCache, type OrgLeadersCache } from '@/lib/firestore';
+import { computeViewableBy, getUser, COLLECTIONS, createAuditLog, loadOrgTreeCache, loadOrgLeadersCache, migrateWeeklyTasksToTeamDocs, type OrgTreeCache, type OrgLeadersCache } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { ShieldCheck, AlertCircle, CheckCircle2 } from 'lucide-react';
@@ -66,6 +66,26 @@ function SecurityAclContent() {
     mentoringForms:        { total: 0, alreadyHasAcl: 0, updated: 0, failed: 0, errors: [] },
   }));
   const [done, setDone] = useState(false);
+
+  // 주간보고 팀 통합 마이그레이션 (v0.9 팀공유)
+  const [wmYear, setWmYear] = useState(new Date().getFullYear());
+  const [wmRunning, setWmRunning] = useState(false);
+  const [wmResult, setWmResult] = useState<{ teamDocs: number; sourceDocs: number } | null>(null);
+
+  async function handleWeeklyMigrate() {
+    if (!confirm(`${wmYear}년 개인별 주간보고를 팀 공유 문서로 통합합니다.\n기존 개인 문서는 삭제하지 않고 보존됩니다. 진행할까요?`)) return;
+    setWmRunning(true);
+    setWmResult(null);
+    try {
+      const r = await migrateWeeklyTasksToTeamDocs(wmYear);
+      setWmResult(r);
+      toast.success(`주간보고 통합 완료 — 팀 문서 ${r.teamDocs}건 생성/병합 (원본 개인 문서 ${r.sourceDocs}건)`);
+    } catch (e: any) {
+      toast.error(`마이그레이션 실패: ${e?.message ?? 'unknown'}`);
+    } finally {
+      setWmRunning(false);
+    }
+  }
 
   // userId 기준 캐시 — 같은 사용자의 evaluation 이 여러 개일 때 user fetch 중복 방지
   const userCache = new Map<string, { organizationId: string } | null>();
@@ -285,6 +305,28 @@ function SecurityAclContent() {
               </div>
             );
           })}
+        </div>
+
+        {/* 주간보고 팀 통합 마이그레이션 (v0.9 팀공유) */}
+        <div className="rounded-xl border bg-white p-5 space-y-3">
+          <p className="text-sm font-semibold text-gray-900">주간업무보고 — 팀 공유 문서 통합 (v0.9)</p>
+          <p className="text-sm text-gray-500">
+            해당 연도의 <strong>개인별</strong> 주간보고 문서를 <strong>팀(조직) 공유 문서</strong>로 통합합니다.
+            각 항목에 작성자가 입력자로 기록되며, 기존 개인 문서는 <strong>삭제하지 않고 보존</strong>합니다(재실행 안전).
+          </p>
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-600">연도</label>
+            <input type="number" value={wmYear} disabled={wmRunning}
+              onChange={e => setWmYear(Number(e.target.value) || new Date().getFullYear())}
+              className="w-28 rounded-lg border border-gray-200 px-3 py-1.5 text-sm" />
+            <button onClick={handleWeeklyMigrate} disabled={wmRunning}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300">
+              {wmRunning ? '통합 중...' : '주간보고 통합 실행'}
+            </button>
+            {wmResult && (
+              <span className="text-sm text-green-700">팀 문서 {wmResult.teamDocs}건 · 원본 {wmResult.sourceDocs}건</span>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -17,6 +17,7 @@ import {
   serverTimestamp,
   Timestamp,
   arrayUnion,
+  onSnapshot,
   QueryConstraint,
   DocumentData,
 } from 'firebase/firestore';
@@ -2146,10 +2147,15 @@ export async function deleteBackup(id: string): Promise<void> {
   await deleteDoc(doc(db, COLLECTIONS.BACKUPS, id));
 }
 
-// ─── 주간 업무 ────────────────────────────────
-function weeklyTaskDocId(userId: string, year: number, week: number): string {
-  return `${userId}_${year}_W${String(week).padStart(2, '0')}`;
+// ─── 주간 업무 (v0.9 팀 공유 문서) ────────────────────────────────
+// 문서 1개 = 팀(조직) × 1주차. docId = `${teamOrgId}_${year}_Wnn`.
+// 각 항목(SimpleTaskItem)에 authorId/authorName 가 붙어 입력자를 표시한다.
+// 레거시(개인별) 문서 `${userId}_${year}_Wnn` 와 공존하며, 평가 조회는 양쪽을 병합한다.
+function weeklyTaskDocId(ownerId: string, year: number, week: number): string {
+  return `${ownerId}_${year}_W${String(week).padStart(2, '0')}`;
 }
+// 팀 문서 id (의미 명시용 별칭 — ownerId 자리에 팀 조직 id)
+const teamWeeklyDocId = weeklyTaskDocId;
 
 function toWeeklyTask(snap: { id: string; data(): DocumentData }): WeeklyTask {
   const d = snap.data();
@@ -2162,6 +2168,7 @@ function toWeeklyTask(snap: { id: string; data(): DocumentData }): WeeklyTask {
       authorId: c.authorId ?? '',
       authorName: c.authorName ?? '',
       createdAt: c.createdAt instanceof Timestamp ? c.createdAt.toDate() : new Date(c.createdAt ?? 0),
+      ...(c.editedAt ? { editedAt: c.editedAt instanceof Timestamp ? c.editedAt.toDate() : new Date(c.editedAt) } : {}),
     }));
   } else if (typeof d.leadComment === 'string' && d.leadComment) {
     // 구버전 단일 문자열 → 1건 배열로 변환
@@ -2169,8 +2176,9 @@ function toWeeklyTask(snap: { id: string; data(): DocumentData }): WeeklyTask {
   }
   return {
     id: snap.id,
-    userId: d.userId,
+    userId: d.userId ?? '',
     organizationId: d.organizationId,
+    teamOrgId: d.teamOrgId ?? undefined,
     year: d.year,
     weekNumber: d.weekNumber,
     weekStart: fromTimestamp(d.weekStart) ?? new Date(),
@@ -2185,12 +2193,54 @@ function toWeeklyTask(snap: { id: string; data(): DocumentData }): WeeklyTask {
   };
 }
 
+/** 레거시 개인 문서 단건 조회 (마이그레이션·하위호환용). */
 export async function getWeeklyTask(
   userId: string, year: number, week: number
 ): Promise<WeeklyTask | null> {
   const snap = await getDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, weeklyTaskDocId(userId, year, week)));
   if (!snap.exists()) return null;
   return toWeeklyTask(snap);
+}
+
+/** 팀 공유 주간 문서 단건 조회. */
+export async function getTeamWeeklyTask(
+  orgId: string, year: number, week: number
+): Promise<WeeklyTask | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, teamWeeklyDocId(orgId, year, week)));
+  if (!snap.exists()) return null;
+  return toWeeklyTask(snap);
+}
+
+/** 팀 공유 주간 문서 실시간 구독 — 동시 편집 반영. unsubscribe 반환. */
+export function subscribeTeamWeeklyTask(
+  orgId: string, year: number, week: number,
+  cb: (t: WeeklyTask | null) => void,
+): () => void {
+  return onSnapshot(
+    doc(db, COLLECTIONS.WEEKLY_TASKS, teamWeeklyDocId(orgId, year, week)),
+    snap => cb(snap.exists() ? toWeeklyTask(snap) : null),
+    err => console.error('[주간 구독] 실패:', err),
+  );
+}
+
+/** 팀 공유 주간 문서 저장 (본문 — hasDone/willDo/진행률). leadComments 는 merge 로 보존. */
+export async function upsertTeamWeeklyTask(
+  orgId: string, year: number, week: number,
+  weekStart: Date, weekEnd: Date,
+  hasDoneItems: SimpleTaskItem[],
+  willDoItems: SimpleTaskItem[],
+  goalProgress?: Record<string, number>,
+): Promise<void> {
+  const docId = teamWeeklyDocId(orgId, year, week);
+  const payload: DocumentData = {
+    userId: '', organizationId: orgId, teamOrgId: orgId, year, weekNumber: week,
+    weekStart: Timestamp.fromDate(weekStart),
+    weekEnd:   Timestamp.fromDate(weekEnd),
+    hasDoneItems, willDoItems,
+    updatedAt: serverTimestamp(),
+  };
+  if (goalProgress) payload.goalProgress = goalProgress;
+  await setDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, docId), payload, { merge: true });
 }
 
 export async function upsertWeeklyTask(
@@ -2236,22 +2286,26 @@ export async function upsertWeeklyTaskSections(
  * comment 는 그 주 해당 목표의 Has Done 요약(호출 측 전달).
  */
 export async function syncWeeklyGoalProgress(params: {
-  userId: string;
+  orgId: string;       // 팀 문서 소유 조직 — 공동과제(같은 조직 목표) 판정용
+  actorId: string;     // 진행률을 입력/저장한 사용자 (progressUpdate 기록 주체)
   year: number;
   week: number;
   goalProgress: Record<string, number>;
   goalComments?: Record<string, string>;
 }): Promise<void> {
-  const { userId, year, week, goalProgress, goalComments = {} } = params;
+  const { orgId, actorId, year, week, goalProgress, goalComments = {} } = params;
   const entries = Object.entries(goalProgress);
   for (const [goalId, pct] of entries) {
     if (!goalId || typeof pct !== 'number' || pct < 0 || pct > 100) continue;
     const goalSnap = await getDoc(doc(db, COLLECTIONS.GOALS, goalId));
     if (!goalSnap.exists()) continue;
     const g = goalSnap.data();
-    // 본인(owner/공동수행자) 목표만 역류 — 안전장치
-    const isOwner = g.userId === userId || (Array.isArray(g.collaboratorIds) && g.collaboratorIds.includes(userId));
-    if (!isOwner) continue;
+    // 공동과제: 같은 팀(조직)의 목표면 팀원 누구나 역류 허용. 또는 소유자/공동수행자.
+    const allowed =
+      g.organizationId === orgId ||
+      g.userId === actorId ||
+      (Array.isArray(g.collaboratorIds) && g.collaboratorIds.includes(actorId));
+    if (!allowed) continue;
     if ((g.progress ?? 0) === pct) continue; // 변동 없으면 skip
     await updateDoc(goalSnap.ref, {
       progress: pct,
@@ -2259,7 +2313,7 @@ export async function syncWeeklyGoalProgress(params: {
       updatedAt: serverTimestamp(),
     });
     await addDoc(collection(db, COLLECTIONS.PROGRESS_UPDATES), {
-      goalId, userId, progress: pct,
+      goalId, userId: actorId, progress: pct,
       comment: goalComments[goalId] ?? `${year}년 ${week}주차 주간보고`,
       weekNumber: week, weekYear: year,
       createdAt: serverTimestamp(),
@@ -2268,10 +2322,10 @@ export async function syncWeeklyGoalProgress(params: {
 }
 
 export async function addLeadComment(
-  userId: string, year: number, week: number,
+  ownerId: string, year: number, week: number,
   authorId: string, authorName: string, text: string
 ): Promise<LeadCommentEntry> {
-  const docId = weeklyTaskDocId(userId, year, week);
+  const docId = weeklyTaskDocId(ownerId, year, week);
   const entry = {
     id: crypto.randomUUID(),
     text,
@@ -2289,10 +2343,10 @@ export async function addLeadComment(
 
 // v0.76 A2: 팀 코멘트 수정 — 동일 commentId 의 텍스트 갱신
 export async function updateLeadComment(
-  userId: string, year: number, week: number,
+  ownerId: string, year: number, week: number,
   commentId: string, newText: string,
 ): Promise<void> {
-  const docId = weeklyTaskDocId(userId, year, week);
+  const docId = weeklyTaskDocId(ownerId, year, week);
   const ref = doc(db, COLLECTIONS.WEEKLY_TASKS, docId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
@@ -2304,10 +2358,10 @@ export async function updateLeadComment(
 
 // v0.76 A2: 팀 코멘트 삭제
 export async function deleteLeadComment(
-  userId: string, year: number, week: number,
+  ownerId: string, year: number, week: number,
   commentId: string,
 ): Promise<void> {
-  const docId = weeklyTaskDocId(userId, year, week);
+  const docId = weeklyTaskDocId(ownerId, year, week);
   const ref = doc(db, COLLECTIONS.WEEKLY_TASKS, docId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
@@ -2317,36 +2371,125 @@ export async function deleteLeadComment(
   await updateDoc(ref, { leadComments: next, updatedAt: serverTimestamp() });
 }
 
-export async function getWeeklyTasksByUsersAndWeek(
-  userIds: string[], year: number, week: number
+/** 여러 팀(조직)의 특정 주차 팀 문서 — 읽기전용 팀/조직 현황 뷰용. */
+export async function getTeamWeeklyTasksByOrgsAndWeek(
+  orgIds: string[], year: number, week: number
 ): Promise<WeeklyTask[]> {
-  if (!userIds.length) return [];
-  const docIds = userIds.map(uid => weeklyTaskDocId(uid, year, week));
-  // getDoc 병렬 처리 (chunk 필요 없음 — 개별 doc reads)
-  const snaps = await Promise.all(
-    docIds.map(id => getDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, id)))
-  );
+  const ids = [...new Set(orgIds.filter(Boolean))].map(o => teamWeeklyDocId(o, year, week));
+  if (!ids.length) return [];
+  const snaps = await Promise.all(ids.map(id => getDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, id))));
   return snaps.filter(s => s.exists()).map(s => toWeeklyTask(s));
 }
 
-export async function getWeeklyTasksByUsersAndYear(
-  userIds: string[], year: number
+type WeeklyMember = { id: string; organizationId: string };
+
+/** 팀 문서를 멤버별 WeeklyTask[] 로 분해 — 항목을 authorId 로 귀속. 레거시 개인 문서는 미커버 (member,week)만 보강. */
+function explodeTeamDocsToMembers(
+  teamDocs: WeeklyTask[], legacyDocs: WeeklyTask[], members: WeeklyMember[],
+): WeeklyTask[] {
+  const out: WeeklyTask[] = [];
+  const seen = new Set<string>(); // `${memberId}_${week}`
+  for (const m of members) {
+    for (const td of teamDocs) {
+      if (td.organizationId !== m.organizationId) continue;
+      const owns = (i: SimpleTaskItem) => (i.authorId ?? td.userId) === m.id;
+      const hd = (td.hasDoneItems ?? []).filter(owns);
+      const wd = (td.willDoItems ?? []).filter(owns);
+      if (hd.length === 0 && wd.length === 0) continue;
+      out.push({ ...td, id: weeklyTaskDocId(m.id, td.year, td.weekNumber), userId: m.id, hasDoneItems: hd, willDoItems: wd, summary: '' });
+      seen.add(`${m.id}_${td.weekNumber}`);
+    }
+  }
+  // 레거시 개인 문서 — 팀 문서로 커버되지 않은 (member,week) 만 보강
+  const memberIds = new Set(members.map(m => m.id));
+  for (const ld of legacyDocs) {
+    if (!ld.userId || !memberIds.has(ld.userId)) continue;
+    if (seen.has(`${ld.userId}_${ld.weekNumber}`)) continue;
+    out.push(ld);
+    seen.add(`${ld.userId}_${ld.weekNumber}`);
+  }
+  return out.sort((a, b) => a.weekNumber - b.weekNumber);
+}
+
+/** 멤버들의 연간 주간실적 — 팀 문서(authorId 귀속) + 레거시 개인 문서 병합. 평가/AI 조회용. */
+export async function getWeeklyTasksByMembersAndYear(
+  members: WeeklyMember[], year: number
 ): Promise<WeeklyTask[]> {
-  if (!userIds.length) return [];
-  // Firestore 'in' 쿼리 최대 30개 → chunk 처리
+  if (!members.length) return [];
+  const orgIds = [...new Set(members.map(m => m.organizationId).filter(Boolean))];
+  const memberIds = members.map(m => m.id);
+  // 팀 문서: orgId × 1..53 직접 조회(인덱스 불필요)
+  const teamIds: string[] = [];
+  for (const o of orgIds) for (let w = 1; w <= 53; w++) teamIds.push(teamWeeklyDocId(o, year, w));
+  const teamSnapsP = Promise.all(teamIds.map(id => getDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, id))));
+  // 레거시 개인 문서: userId in chunk && year
   const chunks: string[][] = [];
-  for (let i = 0; i < userIds.length; i += 30) chunks.push(userIds.slice(i, i + 30));
-  const results = await Promise.all(
-    chunks.map(chunk =>
-      getDocs(query(
-        collection(db, COLLECTIONS.WEEKLY_TASKS),
-        where('userId', 'in', chunk),
-        where('year', '==', year),
-      ))
-    )
-  );
-  return results.flatMap(snap => snap.docs.map(d => toWeeklyTask(d)))
-    .sort((a, b) => a.weekNumber - b.weekNumber);
+  for (let i = 0; i < memberIds.length; i += 30) chunks.push(memberIds.slice(i, i + 30));
+  const legacyP = Promise.all(chunks.map(chunk =>
+    getDocs(query(
+      collection(db, COLLECTIONS.WEEKLY_TASKS),
+      where('userId', 'in', chunk),
+      where('year', '==', year),
+    ))
+  ));
+  const [teamSnaps, legacyResults] = await Promise.all([teamSnapsP, legacyP]);
+  const teamDocs = teamSnaps.filter(s => s.exists()).map(s => toWeeklyTask(s)).filter(t => !!t.teamOrgId);
+  const legacyDocs = legacyResults.flatMap(snap => snap.docs.map(d => toWeeklyTask(d))).filter(t => !t.teamOrgId);
+  return explodeTeamDocsToMembers(teamDocs, legacyDocs, members);
+}
+
+/**
+ * 마이그레이션 — 해당 연도의 레거시 개인별 주간문서를 팀(조직) 문서로 병합.
+ * 각 항목에 authorId/authorName 주입, goalProgress·leadComments 병합. 기존 개인 문서는 삭제하지 않음.
+ * 반환: { teamDocs, sourceDocs } 처리 건수.
+ */
+export async function migrateWeeklyTasksToTeamDocs(
+  year: number
+): Promise<{ teamDocs: number; sourceDocs: number }> {
+  const [snap, allUsers] = await Promise.all([
+    getDocs(query(collection(db, COLLECTIONS.WEEKLY_TASKS), where('year', '==', year))),
+    getAllUsers(),
+  ]);
+  const nameById = new Map(allUsers.map(u => [u.id, u.name]));
+  // 레거시 개인 문서만 (teamOrgId 없음 + userId 있음)
+  const legacy = snap.docs.map(d => toWeeklyTask(d)).filter(t => !t.teamOrgId && !!t.userId);
+  // (orgId, week) 그룹핑
+  const groups = new Map<string, WeeklyTask[]>();
+  for (const t of legacy) {
+    if (!t.organizationId) continue;
+    const key = `${t.organizationId}__${t.weekNumber}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(t);
+  }
+  let teamDocs = 0;
+  for (const [key, docs] of groups) {
+    const [orgId, weekStr] = key.split('__');
+    const week = Number(weekStr);
+    const stamp = (i: SimpleTaskItem, uid: string): SimpleTaskItem =>
+      ({ ...i, authorId: i.authorId ?? uid, authorName: i.authorName ?? nameById.get(uid) ?? '' });
+    const hasDoneItems = docs.flatMap(d => (d.hasDoneItems ?? []).map(i => stamp(i, d.userId)));
+    const willDoItems  = docs.flatMap(d => (d.willDoItems  ?? []).map(i => stamp(i, d.userId)));
+    const goalProgress: Record<string, number> = {};
+    for (const d of docs) for (const [g, p] of Object.entries(d.goalProgress ?? {})) goalProgress[g] = p;
+    const leadCommentsRaw = docs.flatMap(d => d.leadComments ?? []);
+    const seenC = new Set<string>();
+    const leadComments = leadCommentsRaw
+      .filter(c => (c.id && !seenC.has(c.id)) ? (seenC.add(c.id), true) : false)
+      .map(c => ({
+        id: c.id, text: c.text, authorId: c.authorId, authorName: c.authorName,
+        createdAt: Timestamp.fromDate(c.createdAt instanceof Date ? c.createdAt : new Date(c.createdAt ?? 0)),
+        ...(c.editedAt ? { editedAt: Timestamp.fromDate(c.editedAt as Date) } : {}),
+      }));
+    const ref = doc(db, COLLECTIONS.WEEKLY_TASKS, teamWeeklyDocId(orgId, year, week));
+    await setDoc(ref, {
+      userId: '', organizationId: orgId, teamOrgId: orgId, year, weekNumber: week,
+      weekStart: Timestamp.fromDate(docs[0].weekStart),
+      weekEnd:   Timestamp.fromDate(docs[0].weekEnd),
+      hasDoneItems, willDoItems, goalProgress, leadComments,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    teamDocs += 1;
+  }
+  return { teamDocs, sourceDocs: legacy.length };
 }
 
 // ─── 감사 로그 (Audit Log) — HR 마스터 보안 액션 추적 ──

@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'this backup has no snapshot data (legacy)' }, { status: 400 });
     }
 
-    const bucket = getStorage(app).bucket();
+    const bucket = getStorage(app).bucket(process.env.BACKUP_STORAGE_BUCKET ?? 'insung-pms-backups');
     const [buf] = await bucket.file(meta.storagePath).download();
 
     // 감사 로그

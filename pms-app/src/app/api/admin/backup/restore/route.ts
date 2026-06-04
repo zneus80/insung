@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Storage 에서 JSON 읽기
-    const bucket = getStorage(app).bucket();
+    const bucket = getStorage(app).bucket(process.env.BACKUP_STORAGE_BUCKET ?? 'insung-pms-backups');
     const file = bucket.file(backupMeta.storagePath);
     const [exists] = await file.exists();
     if (!exists) return NextResponse.json({ error: 'snapshot file not found in storage' }, { status: 404 });

@@ -3,22 +3,22 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  getWeeklyTask,
-  upsertWeeklyTaskSections,
+  getTeamWeeklyTask,
+  upsertTeamWeeklyTask,
+  subscribeTeamWeeklyTask,
   addLeadComment,
-  getWeeklyTasksByUsersAndWeek,
-  getUsersByOrganization,
+  updateLeadComment,
+  deleteLeadComment,
+  syncWeeklyGoalProgress,
+  getGoalsByOrganization,
   getAllUsers,
   getOrganizations,
-  createNotification,
-  getGoalsByUser,
-  syncWeeklyGoalProgress,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, ChevronDown, Check, Star,
+  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
@@ -76,29 +76,73 @@ export default function TasksPage() {
 
 // ── 팀원 / 팀장 페이지 ─────────────────────────────────────
 function MemberTasksPage() {
+  const { userProfile } = useAuth();
   const [tab, setTab] = useState<'my' | 'team'>('my');
   const today = getISOWeek(new Date());
   const [year, setYear] = useState(today.year);
   const [week, setWeek] = useState(today.week);
+  const { start, end } = getWeekRange(year, week);
+  const isCurrentWeek = year === today.year && week === today.week;
+  // 산하 '다른 팀'(본인 팀 제외) — 있을 때만 '팀 업무 현황' 탭 노출
+  const [orgsAll, setOrgsAll] = useState<Organization[]>([]);
+  const [otherTeams, setOtherTeams] = useState<Organization[]>([]);
+
+  useEffect(() => {
+    if (!userProfile) return;
+    (async () => {
+      const allOrgs = await getOrganizations();
+      const scopeIds = getMyScopeOrgIds(userProfile.id, userProfile.role, userProfile.organizationId, allOrgs);
+      const scopeSet = new Set(scopeIds);
+      const leaves = allOrgs
+        .filter(o => scopeSet.has(o.id) && o.id !== userProfile.organizationId) // 본인 팀 제외
+        .filter(o => !allOrgs.some(c => c.parentId === o.id && scopeSet.has(c.id)))
+        .slice()
+        .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999) || a.name.localeCompare(b.name, 'ko'));
+      setOrgsAll(allOrgs);
+      setOtherTeams(leaves);
+    })().catch(console.error);
+  }, [userProfile]);
+
+  if (!userProfile) return null;
+  const hasOtherTeams = otherTeams.length > 0;
 
   return (
     <div className="flex flex-col h-full">
       <Header title="주간업무보고" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-          {(['my', 'team'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={cn('px-5 py-1.5 rounded-md text-sm font-medium transition-colors',
-                tab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
-              {t === 'my' ? '내 주간 보고' : '팀 업무 현황'}
-            </button>
-          ))}
-        </div>
+        {hasOtherTeams && (
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+            {(['my', 'team'] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={cn('px-5 py-1.5 rounded-md text-sm font-medium transition-colors',
+                  tab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                {t === 'my' ? '우리 팀 주간보고' : '산하 팀 현황'}
+              </button>
+            ))}
+          </div>
+        )}
 
-        {tab === 'my'
-          ? <WeeklyReport year={year} week={week} onWeekChange={(y, w) => { setYear(y); setWeek(w); }} />
-          : <TeamWeeklyView year={year} week={week} onWeekChange={(y, w) => { setYear(y); setWeek(w); }} />
-        }
+        <WeekNav year={year} week={week} start={start} end={end}
+          isCurrentWeek={isCurrentWeek} saveStatus="idle"
+          onPrev={() => { const p = prevWeek(year, week); setYear(p.year); setWeek(p.week); }}
+          onNext={() => { const n = nextWeek(year, week); setYear(n.year); setWeek(n.week); }}
+          onToday={() => { setYear(today.year); setWeek(today.week); }}
+          onSelect={(y, w) => { setYear(y); setWeek(w); }}
+        />
+
+        {(tab === 'my' || !hasOtherTeams) ? (
+          <div className="max-w-6xl">
+            <TeamWeeklyForm
+              orgId={userProfile.organizationId}
+              year={year} week={week}
+              editable
+              currentUser={{ id: userProfile.id, name: userProfile.name }}
+            />
+          </div>
+        ) : (
+          <ScopeTeamsView year={year} week={week} teams={otherTeams} orgs={orgsAll}
+            currentUser={{ id: userProfile.id, name: userProfile.name }} />
+        )}
       </div>
     </div>
   );
@@ -303,54 +347,45 @@ function WeekNav({ year, week, start, end, isCurrentWeek, saveStatus, onPrev, on
 
 // ── 간단 업무 폼 ──────────────────────────────────────────
 function SimpleItemForm({
-  value, onChange, onSave, onCancel, isNew, goals = [],
+  value, onChange, onSave, onCancel, isNew, coreMode = false,
 }: {
   value: Omit<SimpleTaskItem, 'id'>;
   onChange: (v: Omit<SimpleTaskItem, 'id'>) => void;
   onSave: () => void;
   onCancel: () => void;
   isNew: boolean;
-  goals?: Goal[];
+  coreMode?: boolean;   // 핵심업무 — 업무명 생략, 진행사항(content)만 입력
 }) {
+  const label = coreMode ? '진행사항' : '업무';
+  const canSave = coreMode ? !!value.content.trim() : !!value.title.trim();
   return (
     <div className="rounded-xl border-2 border-blue-200 bg-blue-50/30 p-4 space-y-3">
-      <p className="text-xs font-semibold text-blue-700">{isNew ? '업무 추가' : '업무 수정'}</p>
+      <p className="text-xs font-semibold text-blue-700">{isNew ? `${label} 추가` : `${label} 수정`}</p>
+      {!coreMode && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-gray-600">업무명 <span className="text-red-400">*</span></label>
+          <input
+            type="text"
+            value={value.title}
+            onChange={e => onChange({ ...value, title: e.target.value })}
+            placeholder="업무명을 입력하세요"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
+          />
+        </div>
+      )}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-gray-600">분류</label>
-        <select
-          value={value.goalId ?? ''}
-          onChange={e => onChange({ ...value, goalId: e.target.value || undefined })}
-          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">일반업무</option>
-          {goals.map(g => (
-            <option key={g.id} value={g.id}>[핵심목표] {g.title}</option>
-          ))}
-        </select>
-      </div>
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-gray-600">업무명 <span className="text-red-400">*</span></label>
-        <input
-          type="text"
-          value={value.title}
-          onChange={e => onChange({ ...value, title: e.target.value })}
-          placeholder="업무명을 입력하세요"
-          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
-        />
-      </div>
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-gray-600">업무 상세내용</label>
+        <label className="text-xs font-medium text-gray-600">{coreMode ? '진행사항' : '업무 상세내용'}{coreMode && <span className="text-red-400"> *</span>}</label>
         <textarea
           rows={3}
           value={value.content}
           onChange={e => onChange({ ...value, content: e.target.value })}
-          placeholder="업무 상세내용을 입력하세요"
+          placeholder={coreMode ? '진행사항을 입력하세요' : '업무 상세내용을 입력하세요'}
           className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
         />
       </div>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>취소</Button>
-        <Button size="sm" onClick={onSave} disabled={!value.title.trim()}>
+        <Button size="sm" onClick={onSave} disabled={!canSave}>
           {isNew ? '추가' : '저장'}
         </Button>
       </div>
@@ -358,194 +393,222 @@ function SimpleItemForm({
   );
 }
 
-// ── 내 주간 실적 보고 ──────────────────────────────────────
-function WeeklyReport({ year, week, onWeekChange }: {
-  year: number; week: number; onWeekChange: (y: number, w: number) => void;
+// ── 입력자 배지 ────────────────────────────────────────────
+function AuthorBadge({ name }: { name?: string }) {
+  if (!name) return null;
+  return (
+    <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">{name}</span>
+  );
+}
+
+// ── 팀 공유 주간보고 폼 (editable=우리 팀 / read-only=상위자 검토) ──
+function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
+  orgId: string; year: number; week: number; editable: boolean;
+  currentUser: { id: string; name: string };
 }) {
-  const { userProfile } = useAuth();
   const [hasDoneItems, setHasDoneItems] = useState<SimpleTaskItem[]>([]);
   const [willDoItems, setWillDoItems] = useState<SimpleTaskItem[]>([]);
-  const [summary, setSummary] = useState('');
+  const [goalProgress, setGoalProgress] = useState<Record<string, number>>({});
   const [leadComments, setLeadComments] = useState<LeadCommentEntry[]>([]);
+  const [activeGoals, setActiveGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [summaryLocked, setSummaryLocked] = useState(false); // 저장 직후 시각적 고정 효과
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Omit<SimpleTaskItem, 'id'>>(EMPTY_SIMPLE());
-  const [activeGoals, setActiveGoals] = useState<Goal[]>([]);           // 핵심업무목표 연계 대상
-  const [goalProgress, setGoalProgress] = useState<Record<string, number>>({}); // 목표별 이번주 진행률
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const goalProgressRef = useRef(goalProgress);
-  useEffect(() => { goalProgressRef.current = goalProgress; }, [goalProgress]);
-  const summaryRef = useRef<HTMLTextAreaElement | null>(null);
-  const today = getISOWeek(new Date());
-  const { start, end } = getWeekRange(year, week);
-  const isCurrentWeek = year === today.year && week === today.week;
-  // 본문(HD/WD/요약) 잠금 — 해당 주 토요일 00:00 도달 시 읽기전용 (코멘트는 계속 가능)
-  const saturday = new Date(start);
-  saturday.setDate(start.getDate() + 5);
-  saturday.setHours(0, 0, 0, 0);
-  const isBodyLocked = new Date() >= saturday;
+  const [commentDraft, setCommentDraft] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
 
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const carriedRef = useRef(false);
+  const gpRef = useRef(goalProgress);
+  useEffect(() => { gpRef.current = goalProgress; }, [goalProgress]);
+
+  const { start, end } = getWeekRange(year, week);
+  const saturday = new Date(start); saturday.setDate(start.getDate() + 5); saturday.setHours(0, 0, 0, 0);
+  // 검토자(read-only)는 항상 본문 잠금. 편집 가능자도 해당 주 토요일 이후 잠금.
+  const isBodyLocked = !editable || new Date() >= saturday;
+
+  // 팀 목표 로드 (핵심업무 그룹)
   useEffect(() => {
-    if (!userProfile) return;
+    let alive = true;
+    setActiveGoals([]);
+    getGoalsByOrganization(orgId, year)
+      .then(list => { if (alive) setActiveGoals(list.filter(g => WEEKLY_GOAL_STATUSES.has(g.status))); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [orgId, year]);
+
+  // 팀 문서 실시간 구독 (동시 편집 반영)
+  useEffect(() => {
+    if (!orgId) return;
     setLoading(true);
+    carriedRef.current = false;
     setEditingKey(null);
-    setSummaryLocked(false);
-    (async () => {
-      const [wt, goalsList] = await Promise.all([
-        getWeeklyTask(userProfile.id, year, week),
-        getGoalsByUser(userProfile.id, year),
-      ]);
-      const actives = goalsList.filter(g => WEEKLY_GOAL_STATUSES.has(g.status));
-      setActiveGoals(actives);
-      // 목표별 진행률 초기값: 저장된 주간 값 우선, 없으면 목표 현재 진행률
-      const gp: Record<string, number> = {};
-      actives.forEach(g => { gp[g.id] = wt?.goalProgress?.[g.id] ?? g.progress ?? 0; });
-      setGoalProgress(gp);
+    setCommentDraft('');
+    const unsub = subscribeTeamWeeklyTask(orgId, year, week, async (wt) => {
       if (wt) {
         setHasDoneItems(wt.hasDoneItems ?? []);
         setWillDoItems(wt.willDoItems ?? []);
-        setSummary(wt.summary ?? '');
+        setGoalProgress(wt.goalProgress ?? {});
         setLeadComments(wt.leadComments ?? []);
-        // 저장된 종합 의견이 있으면 잠금 상태로 시작
-        if (wt.summary && wt.summary.trim()) setSummaryLocked(true);
+        setLoading(false);
       } else {
-        // Auto-carry: prev week's willDoItems → this week's hasDoneItems
-        // carriedFromId 로 원본 추적 → 이전 주 willDo 가 추후 변경되면 동기화 가능
-        const prev = prevWeek(year, week);
-        const prevWt = await getWeeklyTask(userProfile.id, prev.year, prev.week);
-        const carried: SimpleTaskItem[] = (prevWt?.willDoItems ?? []).map(i => ({
-          ...i, id: crypto.randomUUID(), carriedFromId: i.id,
-        }));
-        if (carried.length > 0) {
-          setHasDoneItems(carried);
-          await upsertWeeklyTaskSections(
-            userProfile.id, year, week,
-            userProfile.organizationId, start, end,
-            carried, [], '',
-          );
-          toast.success(`지난 주 계획 ${carried.length}개를 이번 주 실적으로 불러왔습니다.`);
-        } else {
-          setHasDoneItems([]);
+        setHasDoneItems([]); setWillDoItems([]); setGoalProgress({}); setLeadComments([]);
+        setLoading(false);
+        // 문서 없음 — 편집 가능 시 1회 자동 이월(지난 주 계획 → 이번 주 실적)
+        if (editable && !carriedRef.current) {
+          carriedRef.current = true;
+          try {
+            const prev = prevWeek(year, week);
+            const prevWt = await getTeamWeeklyTask(orgId, prev.year, prev.week);
+            const carried: SimpleTaskItem[] = (prevWt?.willDoItems ?? []).map(i => ({ ...i, id: crypto.randomUUID(), carriedFromId: i.id }));
+            if (carried.length > 0) {
+              await upsertTeamWeeklyTask(orgId, year, week, start, end, carried, [], {});
+              toast.success(`지난 주 계획 ${carried.length}개를 이번 주 실적으로 불러왔습니다.`);
+            }
+          } catch (e) { console.error('[이월] 실패:', e); }
         }
-        setWillDoItems([]);
-        setSummary('');
-        setLeadComments([]);
       }
-      setLoading(false);
-    })();
-  }, [userProfile, year, week]);
+    });
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, year, week, editable]);
 
-  const scheduleSave = useCallback((hd: SimpleTaskItem[], wd: SimpleTaskItem[], sum: string, gp?: Record<string, number>) => {
+  const saveBody = useCallback((hd: SimpleTaskItem[], wd: SimpleTaskItem[], gp?: Record<string, number>) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setSaveStatus('saving');
     timerRef.current = setTimeout(async () => {
-      if (!userProfile) return;
       try {
-        await upsertWeeklyTaskSections(
-          userProfile.id, year, week,
-          userProfile.organizationId, start, end,
-          hd, wd, sum, gp ?? goalProgressRef.current,
-        );
-
-        // ── 차주 HAS DONE 동기화 (B1 수정) ─────────────────────
-        // 이번 주 WILL DO 가 변경되었을 때 차주 hasDone 의 carried 부분만 갱신.
-        //  - 차주 hasDone 에서 carriedFromId 있는 항목 모두 제거
-        //  - 현재 willDo 를 새 carried 로 추가 (carriedFromId 마킹)
-        //  - 차주에서 직접 추가한 항목 (carriedFromId 없는 것) 은 유지
+        const gpEff = gp ?? gpRef.current;
+        await upsertTeamWeeklyTask(orgId, year, week, start, end, hd, wd, gpEff);
+        // 진행률 역류 (공동과제 — 같은 팀 멤버 누구나)
+        if (gpEff && Object.keys(gpEff).length > 0) {
+          const goalComments: Record<string, string> = {};
+          for (const gid of Object.keys(gpEff)) {
+            const titles = hd.filter(i => i.goalId === gid).map(i => (i.title || i.content).trim()).filter(Boolean);
+            goalComments[gid] = titles.length ? `[${year}년 ${week}주차] ${titles.join(', ')}` : `${year}년 ${week}주차 주간보고`;
+          }
+          try { await syncWeeklyGoalProgress({ orgId, actorId: currentUser.id, year, week, goalProgress: gpEff, goalComments }); }
+          catch (e) { console.error('[진행률 역류] 실패:', e); }
+        }
+        // 차주 hasDone 이월 동기화
         try {
           const nxt = nextWeek(year, week);
-          const nextWt = await getWeeklyTask(userProfile.id, nxt.year, nxt.week);
+          const nextWt = await getTeamWeeklyTask(orgId, nxt.year, nxt.week);
           if (nextWt) {
             const nxtKept = (nextWt.hasDoneItems ?? []).filter(i => !i.carriedFromId);
-            const nxtCarried: SimpleTaskItem[] = wd.map(i => ({
-              ...i, id: crypto.randomUUID(), carriedFromId: i.id,
-            }));
+            const nxtCarried: SimpleTaskItem[] = wd.map(i => ({ ...i, id: crypto.randomUUID(), carriedFromId: i.id }));
             const merged = [...nxtCarried, ...nxtKept];
-            // 변경 없음이면 skip
             const prevHD = nextWt.hasDoneItems ?? [];
-            const isSameLen = prevHD.length === merged.length;
-            const isSame = isSameLen && prevHD.every((p, idx) => p.title === merged[idx].title && p.content === merged[idx].content && (p.important ?? false) === (merged[idx].important ?? false) && p.carriedFromId === merged[idx].carriedFromId);
-            if (!isSame) {
+            const same = prevHD.length === merged.length && prevHD.every((p, idx) =>
+              p.title === merged[idx].title && p.content === merged[idx].content &&
+              (p.important ?? false) === (merged[idx].important ?? false) && p.carriedFromId === merged[idx].carriedFromId);
+            if (!same) {
               const { start: nStart, end: nEnd } = getWeekRange(nxt.year, nxt.week);
-              await upsertWeeklyTaskSections(
-                userProfile.id, nxt.year, nxt.week,
-                userProfile.organizationId, nStart, nEnd,
-                merged, nextWt.willDoItems ?? [], nextWt.summary ?? '',
-              );
+              await upsertTeamWeeklyTask(orgId, nxt.year, nxt.week, nStart, nEnd, merged, nextWt.willDoItems ?? [], nextWt.goalProgress ?? {});
             }
           }
-        } catch (err) {
-          console.error('[차주 hasDone 동기화] 실패:', err);
-        }
-
+        } catch (e) { console.error('[차주 동기화] 실패:', e); }
         setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2500);
+        setTimeout(() => setSaveStatus('idle'), 2000);
       } catch { setSaveStatus('idle'); }
-    }, 700);
-  }, [userProfile, year, week, start, end]);
+    }, 600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, year, week, currentUser.id]);
 
-  function openNew(section: 'hd' | 'wd') {
-    setEditDraft(EMPTY_SIMPLE());
+  function editing(section: 'hd' | 'wd', id: string) { return editingKey === `${section}-${id}`; }
+  function openNew(section: 'hd' | 'wd', goalId?: string) {
+    setEditDraft({ ...EMPTY_SIMPLE(), goalId });
     setEditingKey(`${section}-new`);
   }
-
   function openEdit(section: 'hd' | 'wd', item: SimpleTaskItem) {
     const { id, ...rest } = item;
     setEditDraft(rest);
     setEditingKey(`${section}-${id}`);
   }
-
   function saveItem() {
-    if (!editDraft.title.trim() || !editingKey) return;
+    if ((!editDraft.title.trim() && !editDraft.content.trim()) || !editingKey) return;
     const isHd = editingKey.startsWith('hd-');
     const idPart = editingKey.slice(3);
-    if (isHd) {
-      const newItems = idPart === 'new'
-        ? [...hasDoneItems, { ...editDraft, id: crypto.randomUUID() }]
-        : hasDoneItems.map(i => i.id === idPart ? { ...editDraft, id: i.id } : i);
-      setHasDoneItems(newItems);
-      setEditingKey(null);
-      scheduleSave(newItems, willDoItems, summary);
-    } else {
-      const newItems = idPart === 'new'
-        ? [...willDoItems, { ...editDraft, id: crypto.randomUUID() }]
-        : willDoItems.map(i => i.id === idPart ? { ...editDraft, id: i.id } : i);
-      setWillDoItems(newItems);
-      setEditingKey(null);
-      scheduleSave(hasDoneItems, newItems, summary);
-    }
+    const list = isHd ? hasDoneItems : willDoItems;
+    const newItems = idPart === 'new'
+      ? [...list, { ...editDraft, id: crypto.randomUUID(), authorId: currentUser.id, authorName: currentUser.name }]
+      : list.map(i => i.id === idPart ? { ...editDraft, id: i.id } : i); // 수정 시 원 작성자 보존(editDraft 에 author 포함)
+    if (isHd) { setHasDoneItems(newItems); saveBody(newItems, willDoItems); }
+    else { setWillDoItems(newItems); saveBody(hasDoneItems, newItems); }
+    setEditingKey(null);
   }
-
   function deleteItem(section: 'hd' | 'wd', id: string) {
-    if (section === 'hd') {
-      const newItems = hasDoneItems.filter(i => i.id !== id);
-      setHasDoneItems(newItems);
-      scheduleSave(newItems, willDoItems, summary);
-    } else {
-      const newItems = willDoItems.filter(i => i.id !== id);
-      setWillDoItems(newItems);
-      scheduleSave(hasDoneItems, newItems, summary);
-    }
+    if (section === 'hd') { const n = hasDoneItems.filter(i => i.id !== id); setHasDoneItems(n); saveBody(n, willDoItems); }
+    else { const n = willDoItems.filter(i => i.id !== id); setWillDoItems(n); saveBody(hasDoneItems, n); }
+  }
+  function toggleImportant(section: 'hd' | 'wd', id: string) {
+    if (section === 'hd') { const n = hasDoneItems.map(i => i.id === id ? { ...i, important: !i.important } : i); setHasDoneItems(n); saveBody(n, willDoItems); }
+    else { const n = willDoItems.map(i => i.id === id ? { ...i, important: !i.important } : i); setWillDoItems(n); saveBody(hasDoneItems, n); }
   }
 
-  // 중요(별표) 토글 — Has Done(실적) 항목만 대상
-  function toggleImportant(section: 'hd' | 'wd', id: string) {
-    if (section === 'hd') {
-      const newItems = hasDoneItems.map(i => i.id === id ? { ...i, important: !i.important } : i);
-      setHasDoneItems(newItems);
-      scheduleSave(newItems, willDoItems, summary);
-    } else {
-      const newItems = willDoItems.map(i => i.id === id ? { ...i, important: !i.important } : i);
-      setWillDoItems(newItems);
-      scheduleSave(hasDoneItems, newItems, summary);
+  function renderItemRow(section: 'hd' | 'wd', item: SimpleTaskItem, isGreen: boolean) {
+    if (editing(section, item.id)) {
+      return (
+        <div key={item.id} className="p-3">
+          <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew={false} coreMode={!!item.goalId} />
+        </div>
+      );
     }
+    const hasTitle = !!item.title?.trim();
+    return (
+      <div key={item.id} className={cn('flex items-start gap-2.5 px-3 py-2.5 group hover:bg-gray-50 transition-colors', item.important && 'bg-amber-50/60')}>
+        {isGreen && !isBodyLocked && (
+          <button onClick={() => toggleImportant(section, item.id)} title={item.important ? '중요 해제' : '중요 표시'}
+            className={cn('shrink-0 mt-0.5 rounded p-0.5 transition-colors', item.important ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400')}>
+            <Star className={cn('h-4 w-4', item.important && 'fill-amber-400')} />
+          </button>
+        )}
+        {isGreen && isBodyLocked && item.important && (
+          <Star className="h-4 w-4 shrink-0 mt-0.5 text-amber-500 fill-amber-400" />
+        )}
+        <div className="flex-1 min-w-0">
+          {hasTitle ? (
+            <>
+              <p className="text-sm font-medium text-gray-800 leading-snug">{item.title}</p>
+              {item.content && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed whitespace-pre-wrap">{item.content}</p>}
+            </>
+          ) : (
+            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{item.content}</p>
+          )}
+        </div>
+        <AuthorBadge name={item.authorName} />
+        {!isBodyLocked && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <button onClick={() => openEdit(section, item)} className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
+            <button onClick={() => deleteItem(section, item.id)} className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderAdd(section: 'hd' | 'wd', goalId: string | undefined) {
+    const isAddingHere = editingKey === `${section}-new` && (editDraft.goalId ?? undefined) === goalId;
+    const isCore = !!goalId;
+    if (isAddingHere) {
+      return <div className="p-3"><SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew coreMode={isCore} /></div>;
+    }
+    if (isBodyLocked) return null;
+    return (
+      <div className="px-3 py-2">
+        <button onClick={() => openNew(section, goalId)} className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors">
+          <Plus className="h-3.5 w-3.5" /> {isCore ? '진행사항 추가' : '업무 추가'}
+        </button>
+      </div>
+    );
   }
 
   function renderSection(section: 'hd' | 'wd', items: SimpleTaskItem[], isGreen: boolean) {
-    const newKey = `${section}-new`;
-    const isAdding = editingKey === newKey;
+    const general = items.filter(i => !i.goalId);
+    const orphan = items.filter(i => i.goalId && !activeGoals.some(g => g.id === i.goalId));
     return (
       <div className="rounded-xl border bg-white overflow-hidden">
         <div className={cn('px-4 py-2.5 border-b flex items-center gap-2', isGreen ? 'bg-green-50' : 'bg-gray-50')}>
@@ -554,617 +617,210 @@ function WeeklyReport({ year, week, onWeekChange }: {
           </span>
           <span className={cn('text-xs', isGreen ? 'text-green-500' : 'text-gray-400')}>{items.length}건</span>
         </div>
-        {items.length === 0 && !isAdding ? (
-          <div className="py-6 text-center">
-            <p className="text-sm text-gray-400">{isGreen ? '이번 주 실적이 없습니다.' : '다음 주 계획이 없습니다.'}</p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {(() => {
-              const goalById = new Map(activeGoals.map(g => [g.id, g]));
-              const order = (it: SimpleTaskItem) => {
-                if (!it.goalId) return activeGoals.length; // 일반업무 맨 뒤
-                const idx = activeGoals.findIndex(g => g.id === it.goalId);
-                return idx < 0 ? activeGoals.length + 1 : idx; // 삭제된 목표 연계는 더 뒤
-              };
-              const ordered = [...items].sort((a, b) => order(a) - order(b));
-              let prevGroup: string | null = '__init__' as any;
-              return ordered.map(item => {
-              const itemKey = `${section}-${item.id}`;
-              const isEditing = editingKey === itemKey;
-              const gid = item.goalId ?? null;
-              const showHeader = gid !== prevGroup;
-              prevGroup = gid;
-              const headerLabel = gid
-                ? (goalById.get(gid)?.title ? `핵심목표 · ${goalById.get(gid)!.title}` : '핵심목표 (삭제됨)')
-                : '일반업무';
+
+        {(activeGoals.length > 0 || orphan.length > 0) && (
+          <div>
+            <div className="px-4 py-1.5 bg-blue-50/70 border-b text-[11px] font-bold text-blue-700">핵심업무</div>
+            {activeGoals.map(g => {
+              const gItems = items.filter(i => i.goalId === g.id);
+              const pct = goalProgress[g.id] ?? g.progress ?? 0;
               return (
-                <div key={item.id}>
-                  {showHeader && (
-                    <div className={cn('px-4 py-1.5 text-[11px] font-semibold border-b',
-                      gid ? 'text-blue-700 bg-blue-50/60' : 'text-gray-500 bg-gray-50')}>
-                      {headerLabel}
-                    </div>
-                  )}
-                  {!isEditing ? (
-                    <div className={cn('flex items-start gap-3 px-4 py-3 group hover:bg-gray-50 transition-colors',
-                      isGreen && 'bg-green-50/20',
-                      item.important && 'bg-amber-50/60')}>
-                      {/* 중요(별표) 토글 — Has Done(실적)만. 본문 잠금되어도 별표는 항상 토글 가능 */}
-                      {isGreen && (
-                        <button
-                          onClick={() => toggleImportant(section, item.id)}
-                          title={item.important ? '중요 해제' : '중요 표시'}
-                          className={cn('shrink-0 mt-0.5 rounded p-0.5 transition-colors',
-                            item.important ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400')}
-                        >
-                          <Star className={cn('h-4 w-4', item.important && 'fill-amber-400')} />
-                        </button>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 leading-snug">{item.title}</p>
-                        {item.content && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed whitespace-pre-wrap">{item.content}</p>}
+                <div key={g.id} className="border-b last:border-b-0">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-50/60">
+                    <span className="flex-1 text-sm font-semibold text-gray-800 truncate" title={g.title}>{g.title}</span>
+                    {isGreen && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[11px] text-gray-400">진행률</span>
+                        {isBodyLocked ? (
+                          <span className="text-sm font-medium text-blue-600">{pct}%</span>
+                        ) : (
+                          <>
+                            <input type="number" min={0} max={100} value={pct}
+                              onChange={e => {
+                                const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                                const next = { ...goalProgress, [g.id]: v };
+                                setGoalProgress(next);
+                                saveBody(hasDoneItems, willDoItems, next);
+                              }}
+                              className="w-14 rounded border border-gray-200 px-1.5 py-0.5 text-sm text-right" />
+                            <span className="text-[11px] text-gray-400">%</span>
+                          </>
+                        )}
                       </div>
-                      {!isBodyLocked && (
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                          <button onClick={() => openEdit(section, item)}
-                            className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => deleteItem(section, item.id)}
-                            className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="p-4">
-                      <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew={false} goals={activeGoals} />
-                    </div>
-                  )}
+                    )}
+                  </div>
+                  <div className="divide-y">{gItems.map(it => renderItemRow(section, it, isGreen))}</div>
+                  {renderAdd(section, g.id)}
                 </div>
               );
-              });
-            })()}
-            {isAdding && (
-              <div className="p-4">
-                <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew goals={activeGoals} />
+            })}
+            {orphan.length > 0 && (
+              <div className="border-b last:border-b-0">
+                <div className="px-3 py-2 bg-gray-50/60 text-sm font-semibold text-gray-400">기타(종료/이전 목표)</div>
+                <div className="divide-y">{orphan.map(it => renderItemRow(section, it, isGreen))}</div>
               </div>
             )}
           </div>
         )}
-        {!isAdding && !isBodyLocked && (
-          <div className="border-t px-4 py-2.5">
-            <button onClick={() => openNew(section)}
-              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors">
-              <Plus className="h-4 w-4" /> 업무 추가
-            </button>
-          </div>
-        )}
+
+        <div>
+          <div className="px-4 py-1.5 bg-gray-100/70 border-b text-[11px] font-bold text-gray-600">일반업무</div>
+          <div className="divide-y">{general.map(it => renderItemRow(section, it, isGreen))}</div>
+          {renderAdd(section, undefined)}
+        </div>
       </div>
     );
   }
 
+  async function postComment() {
+    if (!commentDraft.trim()) return;
+    setPosting(true);
+    try {
+      const entry = await addLeadComment(orgId, year, week, currentUser.id, currentUser.name, commentDraft.trim());
+      setLeadComments(prev => [...prev, entry]);
+      setCommentDraft('');
+    } catch { toast.error('코멘트 등록에 실패했습니다.'); }
+    finally { setPosting(false); }
+  }
+  async function saveEditComment(commentId: string) {
+    if (!editingText.trim()) return;
+    try {
+      await updateLeadComment(orgId, year, week, commentId, editingText.trim());
+      setLeadComments(prev => prev.map(c => c.id === commentId ? { ...c, text: editingText.trim(), editedAt: new Date() } : c));
+    } catch { toast.error('수정에 실패했습니다.'); }
+    setEditingCommentId(null); setEditingText('');
+  }
+  async function removeComment(commentId: string) {
+    if (!confirm('이 코멘트를 삭제하시겠습니까?')) return;
+    try {
+      await deleteLeadComment(orgId, year, week, commentId);
+      setLeadComments(prev => prev.filter(c => c.id !== commentId));
+    } catch { toast.error('삭제에 실패했습니다.'); }
+  }
+
+  if (loading) {
+    return <div className="space-y-3">{[1, 2].map(i => <div key={i} className="h-36 animate-pulse rounded-xl bg-gray-100" />)}</div>;
+  }
+
   return (
-    <div className="space-y-5 max-w-6xl">
-      <WeekNav year={year} week={week} start={start} end={end}
-        isCurrentWeek={isCurrentWeek} saveStatus={saveStatus}
-        onPrev={() => { const p = prevWeek(year, week); onWeekChange(p.year, p.week); }}
-        onNext={() => { const n = nextWeek(year, week); onWeekChange(n.year, n.week); }}
-        onToday={() => onWeekChange(today.year, today.week)}
-        onSelect={(y, w) => onWeekChange(y, w)}
-      />
+    <div className="space-y-5">
+      <div className="flex items-center gap-3">
+        {activeGoals.length > 0 && (
+          <p className="text-xs text-gray-400 flex-1">
+            핵심업무목표는 핵심업무 영역에 자동 표시됩니다. 진행사항·진행률을 입력하면 골카드 진행상황에 자동 반영되며, <span className="font-medium text-blue-600">입력자</span>가 표시됩니다.
+          </p>
+        )}
+        <span className={cn('text-xs transition-opacity ml-auto', saveStatus === 'idle' ? 'opacity-0' : 'opacity-100', saveStatus === 'saving' ? 'text-gray-400' : 'text-green-600 font-medium')}>
+          {saveStatus === 'saving' ? '저장 중...' : '✓ 저장됨'}
+        </span>
+      </div>
 
-      {loading ? (
-        <div className="space-y-3">{[1, 2].map(i => <div key={i} className="h-36 animate-pulse rounded-xl bg-gray-100" />)}</div>
-      ) : (
-        <>
-          {/* 본문 잠금 안내 — 해당 주 토요일 00:00 이후 */}
-          {isBodyLocked && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
-              해당 주 토요일이 지나 본문(실적/계획/종합의견)은 읽기 전용입니다. 코멘트는 계속 가능합니다.
-            </div>
-          )}
+      {editable && new Date() >= saturday && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
+          해당 주 토요일이 지나 본문(실적/계획)은 읽기 전용입니다. 코멘트는 계속 가능합니다.
+        </div>
+      )}
 
-          {/* 핵심업무목표 진행률 — 승인된 활성 목표 자동 나열, 저장 시 핵심업무목표관리로 역류 */}
-          {activeGoals.length > 0 && (
-            <div className="rounded-xl border bg-white p-5 space-y-3">
-              <p className="text-sm font-semibold text-gray-800">
-                핵심업무목표 진행률
-                <span className="ml-1 text-xs font-normal text-gray-400">— 이번 주 기준. 종합의견 저장 시 핵심업무목표관리에 반영됩니다.</span>
-              </p>
-              <div className="space-y-2.5">
-                {activeGoals.map(g => {
-                  const pct = goalProgress[g.id] ?? 0;
-                  const setPct = (v: number) => {
-                    const next = { ...goalProgress, [g.id]: Math.max(0, Math.min(100, v)) };
-                    setGoalProgress(next);
-                    scheduleSave(hasDoneItems, willDoItems, summary, next);
-                  };
-                  return (
-                    <div key={g.id} className="flex items-center gap-3">
-                      <span className="flex-1 text-sm text-gray-700 truncate" title={g.title}>{g.title}</span>
-                      <input type="range" min={0} max={100} step={5} value={pct} disabled={isBodyLocked}
-                        onChange={e => setPct(Number(e.target.value))}
-                        className="w-36 accent-blue-600 disabled:opacity-50" />
-                      <input type="number" min={0} max={100} value={pct} disabled={isBodyLocked}
-                        onChange={e => setPct(Number(e.target.value) || 0)}
-                        className="w-16 rounded border border-gray-200 px-2 py-1 text-sm text-right disabled:bg-gray-50" />
-                      <span className="text-xs text-gray-400 w-3">%</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+        {renderSection('hd', hasDoneItems, true)}
+        {renderSection('wd', willDoItems, false)}
+      </div>
 
-          {/* Has Done · Will Do 가로 2열 배치 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-            {renderSection('hd', hasDoneItems, true)}
-            {renderSection('wd', willDoItems, false)}
-          </div>
-
-          {/* 종합 의견 */}
-          <div className={cn(
-            'rounded-xl border p-5 space-y-3 transition-all',
-            summaryLocked ? 'bg-green-50/40 border-green-200' : 'bg-white border-gray-200',
-          )}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h4 className="text-sm font-semibold text-gray-800">이번 주 종합 의견</h4>
-                {summaryLocked && (
-                  <span className="flex items-center gap-1 text-xs font-medium text-green-600">
-                    <Check className="h-3.5 w-3.5" /> 저장됨
-                  </span>
-                )}
-              </div>
-              {isBodyLocked ? null : summaryLocked ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSummaryLocked(false);
-                    setTimeout(() => summaryRef.current?.focus(), 50);
-                  }}
-                  className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  수정
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!userProfile) return;
-                    if (timerRef.current) clearTimeout(timerRef.current);
-                    setSaveStatus('saving');
-                    try {
-                      await upsertWeeklyTaskSections(
-                        userProfile.id, year, week,
-                        userProfile.organizationId, start, end,
-                        hasDoneItems, willDoItems, summary, goalProgress,
-                      );
-                      // 핵심목표 진행률 역류 — 변경된 목표만 goal.progress + progressUpdate(주차)
-                      if (Object.keys(goalProgress).length > 0) {
-                        const goalComments: Record<string, string> = {};
-                        for (const gid of Object.keys(goalProgress)) {
-                          const titles = hasDoneItems.filter(i => i.goalId === gid).map(i => i.title).filter(Boolean);
-                          goalComments[gid] = titles.length
-                            ? `[${year}년 ${week}주차] ${titles.join(', ')}`
-                            : `${year}년 ${week}주차 주간보고`;
-                        }
-                        await syncWeeklyGoalProgress({ userId: userProfile.id, year, week, goalProgress, goalComments });
-                      }
-                      setSaveStatus('saved');
-                      setSummaryLocked(true);
-                      summaryRef.current?.blur();
-                      toast.success('저장되었습니다. 핵심목표 진행률이 반영되었습니다.');
-                      setTimeout(() => setSaveStatus('idle'), 2500);
-                    } catch {
-                      setSaveStatus('idle');
-                      toast.error('저장에 실패했습니다.');
-                    }
-                  }}
-                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
-                  disabled={saveStatus === 'saving'}
-                >
-                  {saveStatus === 'saving' ? '저장 중…' : '저장'}
-                </button>
-              )}
-            </div>
-            <textarea
-              ref={summaryRef}
-              rows={4}
-              value={summary}
-              readOnly={summaryLocked || isBodyLocked}
-              onChange={e => {
-                if (isBodyLocked) return;
-                setSummary(e.target.value);
-                scheduleSave(hasDoneItems, willDoItems, e.target.value);
-              }}
-              placeholder="이번 주 업무 전반에 대한 종합 의견, 이슈 등을 자유롭게 작성하세요."
-              className={cn(
-                'w-full resize-none rounded-lg border px-4 py-3 text-sm text-gray-700 placeholder:text-gray-300 leading-relaxed transition-colors',
-                isBodyLocked
-                  ? 'bg-gray-50 border-gray-200 cursor-default focus:outline-none text-gray-500'
-                  : summaryLocked
-                  ? 'bg-white border-green-200 cursor-default focus:outline-none'
-                  : 'bg-white border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500',
-              )}
-            />
-          </div>
-
-          {/* 팀 코멘트 — 종합 의견 아래에 항상 표시 (팀장·임원이 작성한 코멘트) */}
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 space-y-3">
-            <p className="text-sm font-semibold text-blue-700">팀 코멘트</p>
-            {leadComments.length === 0 ? (
-              <p className="text-xs text-blue-400 italic">아직 작성된 코멘트가 없습니다.</p>
-            ) : (
-              <div className="space-y-3">
-                {leadComments.map(c => (
-                  <div key={c.id} className="rounded-lg bg-white border border-blue-100 px-4 py-3 space-y-1">
-                    <div className="flex items-center gap-2 text-xs text-gray-400">
-                      <span className="font-medium text-blue-700">{c.authorName}</span>
-                      <span>·</span>
-                      <span>{c.createdAt.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.text}</p>
+      {/* 코멘트 — 본인 + 조직 체인(팀장·본부장·임원) 스레드 */}
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 space-y-3">
+        <p className="text-sm font-semibold text-blue-700">코멘트</p>
+        {leadComments.length === 0 ? (
+          <p className="text-xs text-blue-400 italic">아직 작성된 코멘트가 없습니다.</p>
+        ) : (
+          <div className="space-y-3">
+            {leadComments.map(c => {
+              const isOwn = c.authorId === currentUser.id;
+              const isEditing = editingCommentId === c.id;
+              return (
+                <div key={c.id} className="rounded-lg bg-white border border-blue-100 px-4 py-3 space-y-1 group">
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <span className="font-medium text-blue-700">{c.authorName}</span>
+                    <span>·</span>
+                    <span>{c.createdAt.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    {c.editedAt && <span className="text-gray-300">(수정됨)</span>}
+                    {isOwn && !isEditing && (
+                      <span className="ml-auto opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+                        <button onClick={() => { setEditingCommentId(c.id); setEditingText(c.text); }} className="text-blue-500 hover:text-blue-700">수정</button>
+                        <span>·</span>
+                        <button onClick={() => removeComment(c.id)} className="text-red-500 hover:text-red-700">삭제</button>
+                      </span>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
+                  {isEditing ? (
+                    <div className="space-y-1.5">
+                      <textarea rows={2} value={editingText} onChange={e => setEditingText(e.target.value)} className="w-full resize-none rounded-md border border-blue-300 bg-white px-2 py-1.5 text-sm" />
+                      <div className="flex justify-end gap-2 text-xs">
+                        <button onClick={() => { setEditingCommentId(null); setEditingText(''); }} className="text-gray-500 hover:text-gray-700">취소</button>
+                        <button onClick={() => saveEditComment(c.id)} className="text-blue-600 font-medium hover:text-blue-800">저장</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.text}</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
+        )}
+        <div className="flex items-end gap-2 pt-1">
+          <textarea rows={2} value={commentDraft} onChange={e => setCommentDraft(e.target.value)} placeholder="코멘트를 입력하세요"
+            className="flex-1 resize-none rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <Button size="sm" disabled={posting || !commentDraft.trim()} onClick={postComment}>{posting ? '등록 중…' : '등록'}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 산하 팀 현황 (팀장·본부장 — 본인 팀 외 산하 팀 read-only) ───────────
+function ScopeTeamsView({ year, week, teams, orgs, currentUser }: {
+  year: number; week: number;
+  teams: Organization[];          // 본인 팀 제외, 산하 leaf 팀들 (호출 측에서 계산)
+  orgs: Organization[];
+  currentUser: { id: string; name: string };
+}) {
+  const [activeId, setActiveId] = useState('');
+  useEffect(() => {
+    setActiveId(prev => teams.some(o => o.id === prev) ? prev : (teams[0]?.id ?? ''));
+  }, [teams]);
+
+  function teamPath(team: Organization): string {
+    const labels: string[] = [team.name];
+    let cur = team.parentId ? orgs.find(o => o.id === team.parentId!) : undefined;
+    while (cur) { labels.unshift(cur.name); cur = cur.parentId ? orgs.find(o => o.id === cur!.parentId!) : undefined; }
+    return labels.join(' · ');
+  }
+
+  if (teams.length === 0) return <p className="max-w-6xl rounded-xl border bg-white p-8 text-center text-sm text-gray-400">산하 다른 팀이 없습니다.</p>;
+
+  const active = teams.find(o => o.id === activeId);
+  return (
+    <div className="space-y-3 max-w-6xl">
+      <div className="flex gap-1 border-b bg-white px-1 pt-1 overflow-x-auto">
+        {teams.map(o => (
+          <button key={o.id} onClick={() => setActiveId(o.id)} title={teamPath(o)}
+            className={cn('px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors whitespace-nowrap',
+              activeId === o.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700')}>
+            {o.name}
+          </button>
+        ))}
+      </div>
+      {active && (
+        <>
+          <p className="text-xs text-gray-400">{teamPath(active)}</p>
+          <TeamWeeklyForm orgId={active.id} year={year} week={week} editable={false} currentUser={currentUser} />
         </>
       )}
     </div>
   );
 }
 
-// ── 팀 업무 현황 (팀장 검토 뷰) ───────────────────────────
-function TeamWeeklyView({ year, week, onWeekChange }: {
-  year: number; week: number; onWeekChange: (y: number, w: number) => void;
-}) {
-  const { userProfile } = useAuth();
-  const me = userProfile;  // Comment 작성자 정보
-  const [members, setMembers] = useState<User[]>([]);
-  const [teamTabs, setTeamTabs] = useState<Organization[]>([]);
-  const [activeTeamTabId, setActiveTeamTabId] = useState<string>('');
-  const [orgsById, setOrgsById] = useState<Map<string, Organization>>(new Map());
-  const [tasksByUser, setTasksByUser] = useState<Record<string, WeeklyTask>>({});
-  const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
-  const [savingComment, setSavingComment] = useState<string | null>(null);
-  // v0.76 A2: 코멘트 수정 상태
-  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
-  const [editingText, setEditingText] = useState('');
-  const today = getISOWeek(new Date());
-  const { start, end } = getWeekRange(year, week);
-  const isCurrentWeek = year === today.year && week === today.week;
-
-  // 코멘트 수정 저장
-  async function handleEditComment(memberId: string, commentId: string) {
-    if (!editingText.trim()) return;
-    const { updateLeadComment } = await import('@/lib/firestore');
-    await updateLeadComment(memberId, year, week, commentId, editingText.trim());
-    setTasksByUser(p => ({
-      ...p,
-      [memberId]: {
-        ...p[memberId],
-        leadComments: (p[memberId].leadComments ?? []).map(c =>
-          c.id === commentId ? { ...c, text: editingText.trim(), editedAt: new Date() } : c
-        ),
-      },
-    }));
-    setEditingCommentId(null);
-    setEditingText('');
-  }
-
-  // 코멘트 삭제
-  async function handleDeleteComment(memberId: string, commentId: string) {
-    if (!confirm('이 코멘트를 삭제하시겠습니까?')) return;
-    const { deleteLeadComment } = await import('@/lib/firestore');
-    await deleteLeadComment(memberId, year, week, commentId);
-    setTasksByUser(p => ({
-      ...p,
-      [memberId]: {
-        ...p[memberId],
-        leadComments: (p[memberId].leadComments ?? []).filter(c => c.id !== commentId),
-      },
-    }));
-  }
-
-  useEffect(() => {
-    if (!userProfile) return;
-    setLoading(true);
-    (async () => {
-      // 본부장·다중 팀 겸직 등 모든 leader 케이스 포괄 — home org descendants ∪ 본인 led orgs descendants
-      const [allUsers, allOrgs] = await Promise.all([getAllUsers(), getOrganizations()]);
-      const scopeOrgIds = getMyScopeOrgIds(userProfile!.id, userProfile!.role, userProfile!.organizationId, allOrgs);
-      const users = allUsers.filter(u =>
-        u.id !== userProfile!.id && scopeOrgIds.includes(u.organizationId),
-      );
-      setMembers(users);
-      setOrgsById(new Map(allOrgs.map(o => [o.id, o])));
-      // 팀 탭 — scope 의 leaf 조직(자식이 scope 에 없는) 들을 탭으로
-      const scopeSet = new Set(scopeOrgIds);
-      const leafOrgs = allOrgs
-        .filter(o => scopeSet.has(o.id))
-        .filter(o => !allOrgs.some(c => c.parentId === o.id && scopeSet.has(c.id)))
-        .slice()
-        .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999) || a.name.localeCompare(b.name, 'ko'));
-      setTeamTabs(leafOrgs);
-      setActiveTeamTabId(prev => leafOrgs.some(o => o.id === prev) ? prev : (leafOrgs[0]?.id ?? ''));
-      const tasks = await getWeeklyTasksByUsersAndWeek(users.map(u => u.id), year, week);
-      const map: Record<string, WeeklyTask> = {};
-      tasks.forEach(t => { map[t.userId] = t; });
-      setTasksByUser(map);
-      setCommentDraft({});  // 초기에는 모두 빈 입력란
-      const init: Record<string, boolean> = {};
-      users.forEach(u => { init[u.id] = true; });
-      setExpanded(init);
-      setLoading(false);
-    })();
-  }, [userProfile, year, week]);
-
-  async function handleSaveComment(userId: string) {
-    const wt = tasksByUser[userId];
-    const text = (commentDraft[userId] ?? '').trim();
-    if (!wt || !text || !me) return;
-    setSavingComment(userId);
-    try {
-      const newEntry = await addLeadComment(userId, year, week, me.id, me.name, text);
-      // 로컬 스레드에 즉시 추가 + 입력란 초기화
-      setTasksByUser(p => ({
-        ...p,
-        [userId]: {
-          ...p[userId],
-          leadComments: [...(p[userId].leadComments ?? []), newEntry],
-        },
-      }));
-      setCommentDraft(p => ({ ...p, [userId]: '' }));
-      // 알림 생성 (작성 대상자에게)
-      try {
-        await createNotification({
-          userId,
-          type: 'WEEKLY_TASK_COMMENT',
-          category: 'WEEKLY_TASK',
-          title: `${year}년 ${week}주차 주간업무`,
-          message: `${me.name}님이 코멘트를 남겼습니다: ${text.slice(0, 60)}${text.length > 60 ? '…' : ''}`,
-          link: '/tasks',
-          read: false,
-        });
-      } catch { /* 알림 실패는 무시 */ }
-    } finally {
-      setSavingComment(null);
-    }
-  }
-
-  return (
-    <div className="space-y-4 max-w-5xl">
-      <WeekNav year={year} week={week} start={start} end={end}
-        isCurrentWeek={isCurrentWeek} saveStatus="idle"
-        onPrev={() => { const p = prevWeek(year, week); onWeekChange(p.year, p.week); }}
-        onNext={() => { const n = nextWeek(year, week); onWeekChange(n.year, n.week); }}
-        onToday={() => onWeekChange(today.year, today.week)}
-        onSelect={(y, w) => onWeekChange(y, w)}
-      />
-
-      {/* 팀 탭 (다중 팀 겸직 시) */}
-      {teamTabs.length > 1 && (
-        <div className="flex gap-1 border-b bg-white px-1 pt-1 overflow-x-auto">
-          {teamTabs.map(o => (
-            <button
-              key={o.id}
-              onClick={() => setActiveTeamTabId(o.id)}
-              className={cn(
-                'px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors whitespace-nowrap',
-                activeTeamTabId === o.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700',
-              )}
-            >
-              {o.name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {(() => {
-        const filteredMembers = teamTabs.length > 1
-          ? members.filter(m => m.organizationId === activeTeamTabId)
-          : members;
-        return (
-      loading ? (
-        <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-100" />)}</div>
-      ) : filteredMembers.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-10 text-center">
-          <p className="text-sm text-gray-400">같은 조직의 팀원이 없습니다.</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filteredMembers.map(member => {
-            const wt = tasksByUser[member.id];
-            const hdItems = wt?.hasDoneItems ?? [];
-            const wdItems = wt?.willDoItems ?? [];
-            const hasAny = hdItems.length > 0 || wdItems.length > 0;
-            const isOpen = expanded[member.id] ?? true;
-
-            return (
-              <div key={member.id} className="rounded-xl border bg-white overflow-hidden shadow-sm">
-                {/* 멤버 헤더 */}
-                <button
-                  onClick={() => setExpanded(p => ({ ...p, [member.id]: !isOpen }))}
-                  className="w-full flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-600">
-                    {member.name[0]}
-                  </div>
-                  <div className="flex-1 text-left">
-                    <span className="text-sm font-semibold text-gray-900">{member.name}</span>
-                    <span className="ml-2 text-xs text-gray-400">
-                      {[orgsById.get(member.organizationId)?.name, member.position].filter(Boolean).join(' · ')}
-                    </span>
-                  </div>
-                  {hasAny ? (
-                    <div className="flex items-center gap-4 text-xs shrink-0">
-                      <span className="text-green-600 font-medium">실적 {hdItems.length}건</span>
-                      <span className="text-gray-500">계획 {wdItems.length}건</span>
-                    </div>
-                  ) : (
-                    <span className="text-xs text-gray-300 shrink-0">보고서 없음</span>
-                  )}
-                  <ChevronDown className={cn('h-4 w-4 text-gray-400 shrink-0 transition-transform', !isOpen && '-rotate-90')} />
-                </button>
-
-                {/* 상세 내용 */}
-                {isOpen && (
-                  <div className="border-t">
-                    {!hasAny ? (
-                      <p className="px-5 py-4 text-sm text-gray-400 text-center">이번 주 보고서가 없습니다.</p>
-                    ) : (
-                      <div className="grid grid-cols-2">
-                        {/* Has Done */}
-                        <div className="border-r">
-                          <div className="px-4 py-2 bg-green-50 border-b flex items-center gap-2">
-                            <span className="text-xs font-bold text-green-700">Has Done — 이번 주 실적</span>
-                            <span className="text-xs text-green-500">{hdItems.length}건</span>
-                          </div>
-                          {hdItems.length === 0 ? (
-                            <p className="px-5 py-3 text-xs text-gray-300 italic">기록 없음</p>
-                          ) : (
-                            <div className="divide-y">
-                              {hdItems.map(item => (
-                                <div key={item.id} className="px-5 py-3 bg-green-50/20">
-                                  <p className="text-sm font-medium text-gray-800">{item.title}</p>
-                                  {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        {/* Will Do */}
-                        <div>
-                          <div className="px-4 py-2 bg-gray-50 border-b flex items-center gap-2">
-                            <span className="text-xs font-bold text-gray-700">Will Do — 다음 주 계획</span>
-                            <span className="text-xs text-gray-400">{wdItems.length}건</span>
-                          </div>
-                          {wdItems.length === 0 ? (
-                            <p className="px-5 py-3 text-xs text-gray-300 italic">기록 없음</p>
-                          ) : (
-                            <div className="divide-y">
-                              {wdItems.map(item => (
-                                <div key={item.id} className="px-5 py-3">
-                                  <p className="text-sm font-medium text-gray-800">{item.title}</p>
-                                  {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 종합 의견 — 업무 유무 관계없이 항상 Comment 위에 표시 */}
-                    {wt?.summary && (
-                      <div className="mx-4 my-3 rounded-lg bg-gray-50 px-4 py-3">
-                        <p className="text-xs font-semibold text-gray-500 mb-1">종합 의견</p>
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{wt.summary}</p>
-                      </div>
-                    )}
-
-                    {/* 팀 코멘트 섹션 */}
-                    <div className="border-t bg-blue-50/40 px-4 py-3 space-y-3">
-                      <p className="text-xs font-semibold text-blue-700">팀 코멘트</p>
-
-                      {/* 기존 Comment 스레드 — 본인 코멘트는 수정·삭제 가능 (v0.76 A2) */}
-                      {(wt?.leadComments ?? []).length > 0 && (
-                        <div className="space-y-2">
-                          {(wt!.leadComments).map(c => {
-                            const isOwn = me && c.authorId === me.id;
-                            const isEditing = editingCommentId === c.id;
-                            return (
-                              <div key={c.id} className="rounded-lg bg-white border border-blue-100 px-3 py-2.5 space-y-1 group">
-                                <div className="flex items-center gap-2 text-xs text-gray-400">
-                                  <span className="font-medium text-blue-700">{c.authorName}</span>
-                                  <span>·</span>
-                                  <span>{c.createdAt.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                                  {c.editedAt && <span className="text-gray-300">(수정됨)</span>}
-                                  {isOwn && !isEditing && (
-                                    <span className="ml-auto opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
-                                      <button
-                                        onClick={() => { setEditingCommentId(c.id); setEditingText(c.text); }}
-                                        className="text-blue-500 hover:text-blue-700"
-                                      >
-                                        수정
-                                      </button>
-                                      <span>·</span>
-                                      <button
-                                        onClick={() => handleDeleteComment(member.id, c.id)}
-                                        className="text-red-500 hover:text-red-700"
-                                      >
-                                        삭제
-                                      </button>
-                                    </span>
-                                  )}
-                                </div>
-                                {isEditing ? (
-                                  <div className="space-y-1.5">
-                                    <textarea
-                                      rows={2}
-                                      value={editingText}
-                                      onChange={e => setEditingText(e.target.value)}
-                                      className="w-full resize-none rounded-md border border-blue-300 bg-white px-2 py-1.5 text-sm"
-                                    />
-                                    <div className="flex justify-end gap-2 text-xs">
-                                      <button onClick={() => { setEditingCommentId(null); setEditingText(''); }} className="text-gray-500 hover:text-gray-700">취소</button>
-                                      <button onClick={() => handleEditComment(member.id, c.id)} className="text-blue-600 font-medium hover:text-blue-800">저장</button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.text}</p>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* 새 Comment 입력 — 보고서 없으면 비활성화 */}
-                      {!wt ? (
-                        <p className="text-xs text-gray-300 italic">이번 주 보고서가 없어 팀 코멘트를 작성할 수 없습니다.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          <textarea
-                            rows={2}
-                            value={commentDraft[member.id] ?? ''}
-                            onChange={e => setCommentDraft(p => ({ ...p, [member.id]: e.target.value }))}
-                            placeholder="이번 주 업무에 대한 팀 코멘트를 남겨주세요."
-                            className="w-full resize-none rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-gray-300"
-                          />
-                          <div className="flex justify-end">
-                            <Button size="sm" variant="outline"
-                              onClick={() => handleSaveComment(member.id)}
-                              disabled={savingComment === member.id || !(commentDraft[member.id] ?? '').trim()}
-                              className="h-7 text-xs">
-                              {savingComment === member.id ? '저장 중...' : '저장'}
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )
-        );
-      })()}
-    </div>
-  );
-}
-
-// ── 임원 / CEO 조직 업무 현황 (v0.75 개편) ──────────────────────────────
-// 산하 팀별 탭 + Has Done/Will Do 2-column + 행은 팀장→팀원 순
+// ── 임원 / CEO 조직 업무 현황 ──────────────────────────────
 function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
   const { userProfile } = useAuth();
   const today = getISOWeek(new Date());
@@ -1172,83 +828,15 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
   const [week, setWeek] = useState(today.week);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [tasksByUser, setTasksByUser] = useState<Record<string, WeeklyTask>>({});
   const [loading, setLoading] = useState(true);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
-  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
-  const [savingComment, setSavingComment] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  // v0.76 A2: 본인 코멘트 수정 상태
-  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
-  const [editingText, setEditingText] = useState('');
   const { start, end } = getWeekRange(year, week);
   const isCurrentWeek = year === today.year && week === today.week;
-
-  async function handleEditComment(memberId: string, commentId: string) {
-    if (!editingText.trim()) return;
-    const { updateLeadComment } = await import('@/lib/firestore');
-    await updateLeadComment(memberId, year, week, commentId, editingText.trim());
-    setTasksByUser(p => ({
-      ...p,
-      [memberId]: {
-        ...p[memberId],
-        leadComments: (p[memberId].leadComments ?? []).map(c =>
-          c.id === commentId ? { ...c, text: editingText.trim(), editedAt: new Date() } : c
-        ),
-      },
-    }));
-    setEditingCommentId(null);
-    setEditingText('');
-  }
-
-  async function handleDeleteComment(memberId: string, commentId: string) {
-    if (!confirm('이 코멘트를 삭제하시겠습니까?')) return;
-    const { deleteLeadComment } = await import('@/lib/firestore');
-    await deleteLeadComment(memberId, year, week, commentId);
-    setTasksByUser(p => ({
-      ...p,
-      [memberId]: {
-        ...p[memberId],
-        leadComments: (p[memberId].leadComments ?? []).filter(c => c.id !== commentId),
-      },
-    }));
-  }
-
-  async function handleSaveComment(memberId: string) {
-    const wt = tasksByUser[memberId];
-    const text = (commentDraft[memberId] ?? '').trim();
-    if (!wt || !text || !userProfile) return;
-    setSavingComment(memberId);
-    try {
-      const newEntry = await addLeadComment(memberId, year, week, userProfile.id, userProfile.name, text);
-      setTasksByUser(p => ({
-        ...p,
-        [memberId]: {
-          ...p[memberId],
-          leadComments: [...(p[memberId].leadComments ?? []), newEntry],
-        },
-      }));
-      setCommentDraft(p => ({ ...p, [memberId]: '' }));
-      try {
-        await createNotification({
-          userId: memberId,
-          type: 'WEEKLY_TASK_COMMENT',
-          category: 'WEEKLY_TASK',
-          title: `${year}년 ${week}주차 주간업무`,
-          message: `${userProfile.name}님이 코멘트를 남겼습니다: ${text.slice(0, 60)}${text.length > 60 ? '…' : ''}`,
-          link: '/tasks',
-          read: false,
-        });
-      } catch { /* 알림 실패 무시 */ }
-    } finally {
-      setSavingComment(null);
-    }
-  }
 
   useEffect(() => {
     if (!userProfile) return;
     setLoading(true);
-    async function load() {
+    (async () => {
       const [allUsersList, allOrgsList] = await Promise.all([getAllUsers(), getOrganizations()]);
       const scopeOrgIds: string[] = isAllOrgs
         ? allOrgsList.map(o => o.id)
@@ -1257,88 +845,46 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
             const byLead = allOrgsList.filter(o => o.leaderId === userProfile!.id).flatMap(o => findDescendantIds(o.id, allOrgsList));
             return [...new Set([...byOrg, ...byLead])];
           })();
-      const scopeUsers = allUsersList.filter(u => u.id !== userProfile!.id && scopeOrgIds.includes(u.organizationId));
-      const scopeOrgs  = allOrgsList.filter(o => scopeOrgIds.includes(o.id));
-      setOrgs(scopeOrgs);
-      setUsers(scopeUsers);
-      const tasks = await getWeeklyTasksByUsersAndWeek(scopeUsers.map(u => u.id), year, week);
-      const map: Record<string, WeeklyTask> = {};
-      tasks.forEach(t => { map[t.userId] = t; });
-      setTasksByUser(map);
+      setUsers(allUsersList.filter(u => u.id !== userProfile!.id && scopeOrgIds.includes(u.organizationId)));
+      setOrgs(allOrgsList.filter(o => scopeOrgIds.includes(o.id)));
       setLoading(false);
-    }
-    load().catch(console.error);
-  }, [userProfile, year, week, isAllOrgs]);
+    })().catch(console.error);
+  }, [userProfile, isAllOrgs]);
 
-  // 산하 팀 목록 — TEAM + 주간업무 작성 대상자가 있는 HEADQUARTERS
-  // (본부장이 임원 role이면 주간업무 작성 안 함 → 그런 본부는 탭에 노출 안 함)
-  // 정렬: 부문 → 본부 → 팀 순서 (조직 트리 DFS 순회)
+  // 산하 팀 목록 — TEAM + 작성 대상자 있는 HEADQUARTERS, 트리 DFS 정렬
   const teams = (() => {
     const filtered = orgs.filter(o => {
       if (o.type === 'TEAM') return true;
-      if (o.type === 'HEADQUARTERS') {
-        // HEADQUARTERS 본부장은 임원 role 또는 팀장 role 인데, 임원 role 본부장은
-        // 본인 주간업무 작성 안 함 (CLAUDE.md 본부장 권한 케이스 정의). 따라서 본부 직속
-        // 멤버 중 주간업무 작성 대상(MEMBER 또는 TEAM_LEAD)이 있을 때만 탭에 노출.
-        return users.some(u =>
-          u.organizationId === o.id && (u.role === 'MEMBER' || u.role === 'TEAM_LEAD'),
-        );
-      }
+      if (o.type === 'HEADQUARTERS') return users.some(u => u.organizationId === o.id && (u.role === 'MEMBER' || u.role === 'TEAM_LEAD'));
       return false;
     });
-    // 조직 트리 DFS — 타입 우선순위: COMPANY → DIVISION → HEADQUARTERS → TEAM
-    // 임원의 경우 scopeOrgs 가 부문부터 시작하므로 "scope 내 루트"는 parent 가 scope 에 없는 조직
     const typeRank: Record<string, number> = { COMPANY: 0, DIVISION: 1, HEADQUARTERS: 2, TEAM: 3 };
     const orgIdSet = new Set(orgs.map(o => o.id));
     const orderMap = new Map<string, number>();
     let idx = 0;
-    function sortSiblings(list: Organization[]) {
-      return list.sort((a, b) => {
-        const ra = typeRank[a.type] ?? 99;
-        const rb = typeRank[b.type] ?? 99;
-        if (ra !== rb) return ra - rb;
-        return a.name.localeCompare(b.name);
-      });
-    }
-    function visit(node: Organization) {
-      orderMap.set(node.id, idx++);
-      const children = sortSiblings(orgs.filter(o => o.parentId === node.id));
-      for (const c of children) visit(c);
-    }
-    // scope 내 루트: parent 가 없거나 scope 밖
-    const roots = sortSiblings(orgs.filter(o => !o.parentId || !orgIdSet.has(o.parentId)));
-    for (const r of roots) visit(r);
+    const sortSiblings = (list: Organization[]) => list.sort((a, b) => {
+      const ra = typeRank[a.type] ?? 99, rb = typeRank[b.type] ?? 99;
+      return ra !== rb ? ra - rb : a.name.localeCompare(b.name);
+    });
+    function visit(node: Organization) { orderMap.set(node.id, idx++); for (const c of sortSiblings(orgs.filter(o => o.parentId === node.id))) visit(c); }
+    for (const r of sortSiblings(orgs.filter(o => !o.parentId || !orgIdSet.has(o.parentId)))) visit(r);
     return filtered.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
   })();
-  // 활성 탭이 없거나 더 이상 유효하지 않으면 첫 팀으로
+
   useEffect(() => {
     if (teams.length === 0) { setActiveTeamId(null); return; }
-    if (!activeTeamId || !teams.find(t => t.id === activeTeamId)) {
-      setActiveTeamId(teams[0].id);
-    }
+    if (!activeTeamId || !teams.find(t => t.id === activeTeamId)) setActiveTeamId(teams[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teams, activeTeamId]);
 
-  // 상위 조직 체인 라벨 (예: "재경부문 · 재경본부 · 재경팀")
-  function teamPath(teamOrg: Organization): string {
-    const labels: string[] = [teamOrg.name];
-    let cur = teamOrg.parentId ? orgs.find(o => o.id === teamOrg.parentId!) : undefined;
-    while (cur) {
-      labels.unshift(cur.name);
-      cur = cur.parentId ? orgs.find(o => o.id === cur!.parentId!) : undefined;
-    }
+  function teamPath(team: Organization): string {
+    const labels: string[] = [team.name];
+    let cur = team.parentId ? orgs.find(o => o.id === team.parentId!) : undefined;
+    while (cur) { labels.unshift(cur.name); cur = cur.parentId ? orgs.find(o => o.id === cur!.parentId!) : undefined; }
     return labels.join(' · ');
   }
 
   const activeTeam = teams.find(t => t.id === activeTeamId);
-  const teamMembers = activeTeam
-    ? users
-        .filter(u => u.organizationId === activeTeam.id)
-        // 팀장 먼저, 팀원 다음 (그 외 역할은 뒤로)
-        .sort((a, b) => {
-          const rank = (r: string) => r === 'TEAM_LEAD' ? 0 : r === 'MEMBER' ? 1 : 2;
-          return rank(a.role) - rank(b.role);
-        })
-    : [];
 
   return (
     <div className="flex flex-col h-full">
@@ -1351,217 +897,30 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
           onToday={() => { setYear(today.year); setWeek(today.week); }}
           onSelect={(y, w) => { setYear(y); setWeek(w); }}
         />
-
-        <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-3">
-            {isAllOrgs ? '전체 조직' : '담당 조직'} 주간 업무 현황
-          </h4>
-          {loading ? (
-            <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100" />)}</div>
-          ) : teams.length === 0 ? (
-            <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">표시할 팀이 없습니다.</p>
-          ) : (
-            <div className="space-y-3">
-              {/* 팀 탭 */}
-              <div className="flex gap-1 overflow-x-auto border-b border-gray-200 px-1 pb-px">
-                {teams.map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => setActiveTeamId(t.id)}
-                    className={cn(
-                      'shrink-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
-                      activeTeamId === t.id
-                        ? 'border-blue-600 text-blue-700'
-                        : 'border-transparent text-gray-500 hover:text-gray-800',
-                    )}
-                    title={teamPath(t)}
-                  >
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-
-              {activeTeam && (
-                <>
-                  <p className="text-xs text-gray-400">{teamPath(activeTeam)}</p>
-                  {teamMembers.length === 0 ? (
-                    <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">이 팀에 소속된 인원이 없습니다.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {teamMembers.map(member => {
-                        const wt = tasksByUser[member.id];
-                        const hdItems = wt?.hasDoneItems ?? [];
-                        const wdItems = wt?.willDoItems ?? [];
-                        const hasAny = hdItems.length > 0 || wdItems.length > 0;
-                        const isOpen = expanded[member.id] ?? true;
-                        const roleLabel = member.role === 'EXECUTIVE'
-                          ? (activeTeam?.type === 'HEADQUARTERS' && activeTeam?.leaderId === member.id ? '본부장' : '임원')
-                          : member.role === 'TEAM_LEAD'
-                            ? (activeTeam?.type === 'HEADQUARTERS' ? '본부장' : '팀장')
-                            : '팀원';
-                        return (
-                          <div key={member.id} className="rounded-xl border bg-white overflow-hidden shadow-sm">
-                            {/* 멤버 헤더 */}
-                            <button
-                              onClick={() => setExpanded(p => ({ ...p, [member.id]: !isOpen }))}
-                              className="w-full flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors"
-                            >
-                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-600">
-                                {member.name[0]}
-                              </div>
-                              <div className="flex-1 text-left">
-                                <span className="text-sm font-semibold text-gray-900">{member.name}</span>
-                                <span className="ml-2 text-xs text-gray-400">
-                                  {[orgs.find(o => o.id === member.organizationId)?.name, roleLabel, member.position]
-                                    .filter(Boolean)
-                                    .join(' · ')}
-                                </span>
-                              </div>
-                              {hasAny ? (
-                                <div className="flex items-center gap-4 text-xs shrink-0">
-                                  <span className="text-green-600 font-medium">실적 {hdItems.length}건</span>
-                                  <span className="text-gray-500">계획 {wdItems.length}건</span>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-gray-300 shrink-0">보고서 없음</span>
-                              )}
-                              <ChevronDown className={cn('h-4 w-4 text-gray-400 shrink-0 transition-transform', !isOpen && '-rotate-90')} />
-                            </button>
-
-                            {/* 상세 내용 */}
-                            {isOpen && (
-                              <div className="border-t">
-                                {!hasAny ? (
-                                  <p className="px-5 py-4 text-sm text-gray-400 text-center">이번 주 보고서가 없습니다.</p>
-                                ) : (
-                                  <div className="grid grid-cols-2">
-                                    {/* Has Done */}
-                                    <div className="border-r">
-                                      <div className="px-4 py-2 bg-green-50 border-b flex items-center gap-2">
-                                        <span className="text-xs font-bold text-green-700">Has Done — 이번 주 실적</span>
-                                        <span className="text-xs text-green-500">{hdItems.length}건</span>
-                                      </div>
-                                      {hdItems.length === 0 ? (
-                                        <p className="px-5 py-3 text-xs text-gray-300 italic">기록 없음</p>
-                                      ) : (
-                                        <div className="divide-y">
-                                          {hdItems.map(item => (
-                                            <div key={item.id} className="px-5 py-3 bg-green-50/20">
-                                              <p className="text-sm font-medium text-gray-800">{item.title}</p>
-                                              {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                    {/* Will Do */}
-                                    <div>
-                                      <div className="px-4 py-2 bg-gray-50 border-b flex items-center gap-2">
-                                        <span className="text-xs font-bold text-gray-700">Will Do — 다음 주 계획</span>
-                                        <span className="text-xs text-gray-400">{wdItems.length}건</span>
-                                      </div>
-                                      {wdItems.length === 0 ? (
-                                        <p className="px-5 py-3 text-xs text-gray-300 italic">기록 없음</p>
-                                      ) : (
-                                        <div className="divide-y">
-                                          {wdItems.map(item => (
-                                            <div key={item.id} className="px-5 py-3">
-                                              <p className="text-sm font-medium text-gray-800">{item.title}</p>
-                                              {item.content && <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">{item.content}</p>}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* 종합 의견 */}
-                                {wt?.summary && (
-                                  <div className="mx-4 my-3 rounded-lg bg-gray-50 px-4 py-3">
-                                    <p className="text-xs font-semibold text-gray-500 mb-1">종합 의견</p>
-                                    <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{wt.summary}</p>
-                                  </div>
-                                )}
-
-                                {/* 팀 코멘트 */}
-                                <div className="border-t bg-blue-50/40 px-4 py-3 space-y-3">
-                                  <p className="text-xs font-semibold text-blue-700">팀 코멘트</p>
-                                  {(wt?.leadComments ?? []).length > 0 && (
-                                    <div className="space-y-2">
-                                      {(wt!.leadComments).map(c => {
-                                        const isOwn = userProfile && c.authorId === userProfile.id;
-                                        const isEditing = editingCommentId === c.id;
-                                        return (
-                                          <div key={c.id} className="rounded-lg bg-white border border-blue-100 px-3 py-2.5 space-y-1 group">
-                                            <div className="flex items-center gap-2 text-xs text-gray-400">
-                                              <span className="font-medium text-blue-700">{c.authorName}</span>
-                                              <span>·</span>
-                                              <span>{c.createdAt.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                                              {c.editedAt && <span className="text-gray-300">(수정됨)</span>}
-                                              {isOwn && !isEditing && (
-                                                <span className="ml-auto opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
-                                                  <button onClick={() => { setEditingCommentId(c.id); setEditingText(c.text); }} className="text-blue-500 hover:text-blue-700">수정</button>
-                                                  <span>·</span>
-                                                  <button onClick={() => handleDeleteComment(member.id, c.id)} className="text-red-500 hover:text-red-700">삭제</button>
-                                                </span>
-                                              )}
-                                            </div>
-                                            {isEditing ? (
-                                              <div className="space-y-1.5">
-                                                <textarea
-                                                  rows={2}
-                                                  value={editingText}
-                                                  onChange={e => setEditingText(e.target.value)}
-                                                  className="w-full resize-none rounded-md border border-blue-300 bg-white px-2 py-1.5 text-sm"
-                                                />
-                                                <div className="flex justify-end gap-2 text-xs">
-                                                  <button onClick={() => { setEditingCommentId(null); setEditingText(''); }} className="text-gray-500 hover:text-gray-700">취소</button>
-                                                  <button onClick={() => handleEditComment(member.id, c.id)} className="text-blue-600 font-medium hover:text-blue-800">저장</button>
-                                                </div>
-                                              </div>
-                                            ) : (
-                                              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.text}</p>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                  {!wt ? (
-                                    <p className="text-xs text-gray-300 italic">이번 주 보고서가 없어 팀 코멘트를 작성할 수 없습니다.</p>
-                                  ) : (
-                                    <div className="space-y-2">
-                                      <textarea
-                                        rows={2}
-                                        value={commentDraft[member.id] ?? ''}
-                                        onChange={e => setCommentDraft(p => ({ ...p, [member.id]: e.target.value }))}
-                                        placeholder="이번 주 업무에 대한 팀 코멘트를 남겨주세요."
-                                        className="w-full resize-none rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-gray-300"
-                                      />
-                                      <div className="flex justify-end">
-                                        <Button size="sm" variant="outline"
-                                          onClick={() => handleSaveComment(member.id)}
-                                          disabled={savingComment === member.id || !(commentDraft[member.id] ?? '').trim()}
-                                          className="h-7 text-xs">
-                                          {savingComment === member.id ? '저장 중...' : '저장'}
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
+        <h4 className="text-sm font-semibold text-gray-700">{isAllOrgs ? '전체 조직' : '담당 조직'} 주간 업무 현황</h4>
+        {loading ? (
+          <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100" />)}</div>
+        ) : teams.length === 0 ? (
+          <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">표시할 팀이 없습니다.</p>
+        ) : (
+          <div className="space-y-3 max-w-6xl">
+            <div className="flex gap-1 overflow-x-auto border-b border-gray-200 px-1 pb-px">
+              {teams.map(t => (
+                <button key={t.id} onClick={() => setActiveTeamId(t.id)} title={teamPath(t)}
+                  className={cn('shrink-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
+                    activeTeamId === t.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-800')}>
+                  {t.name}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
+            {activeTeam && userProfile && (
+              <>
+                <p className="text-xs text-gray-400">{teamPath(activeTeam)}</p>
+                <TeamWeeklyForm orgId={activeTeam.id} year={year} week={week} editable={false} currentUser={{ id: userProfile.id, name: userProfile.name }} />
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -124,13 +124,14 @@ const navItems: NavItem[] = [
   },
 
   // ══ EGG Meeting ═════════════════════════════
-  {
-    label: '1on1',
-    href: '/oneon1',
-    icon: <Users className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
-    group: 'EGG Meeting',
-  },
+  // 1on1 — 현재 미사용으로 메뉴에서 숨김 (기능/페이지는 보존, 필요 시 주석 해제로 복구)
+  // {
+  //   label: '1on1',
+  //   href: '/oneon1',
+  //   icon: <Users className="h-5 w-5" />,
+  //   roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
+  //   group: 'EGG Meeting',
+  // },
   {
     label: '육성면담서',
     href: '/mentoring',

@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
     const json = JSON.stringify(payload);
 
     // Firebase Storage 업로드
-    const bucket = getStorage(app).bucket();
+    const bucket = getStorage(app).bucket(process.env.BACKUP_STORAGE_BUCKET ?? 'insung-pms-backups');
     const file = bucket.file(storagePath);
     await file.save(json, {
       contentType: 'application/json',
