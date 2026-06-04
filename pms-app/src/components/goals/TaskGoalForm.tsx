@@ -678,6 +678,7 @@ function CollaboratorPicker({ users, value, onChange, search, onSearchChange }: 
         value={search}
         onChange={e => onSearchChange(e.target.value)}
         onKeyDown={e => {
+          if (e.nativeEvent.isComposing) return; // 한글 조합 중 Enter 무시(잔여 글자 방지)
           if (e.key === 'Enter' && search.trim() && filtered.length === 1) {
             e.preventDefault();
             onChange([...value, filtered[0].id]);
@@ -753,6 +754,7 @@ function OwnerPicker({ users, value, onChange, search, onSearchChange, selfId }:
         value={search}
         onChange={e => onSearchChange(e.target.value)}
         onKeyDown={e => {
+          if (e.nativeEvent.isComposing) return; // 한글 조합 중 Enter 무시(잔여 글자 방지)
           if (e.key === 'Enter' && search.trim() && filtered.length === 1) {
             e.preventDefault();
             onChange(filtered[0].id);

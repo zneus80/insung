@@ -19,7 +19,7 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star,
+  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star, Printer, Save,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
@@ -437,7 +437,8 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     setActiveGoals([]);
     getGoalsByOrganization(orgId, year)
       // 진행 목표 + 완료 목표(완료 주차까지만 표시하기 위해 포함) — 주차별 가시성은 renderSection 에서 필터
-      .then(list => { if (alive) setActiveGoals(list.filter(g => WEEKLY_GOAL_STATUSES.has(g.status) || g.status === 'COMPLETED')); })
+      // organizationId 일치만: 공동과제(relatedOrgIds)로 다른 팀 목표가 잡혀 부모/타 팀 폼에 중복되는 것 방지
+      .then(list => { if (alive) setActiveGoals(list.filter(g => g.organizationId === orgId && (WEEKLY_GOAL_STATUSES.has(g.status) || g.status === 'COMPLETED'))); })
       .catch(() => {});
     return () => { alive = false; };
   }, [orgId, year]);
@@ -478,15 +479,15 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, year, week, editable]);
 
-  const saveBody = useCallback((hd: SimpleTaskItem[], wd: SimpleTaskItem[], gp?: Record<string, number>) => {
+  const saveBody = useCallback((hd: SimpleTaskItem[], wd: SimpleTaskItem[], gp?: Record<string, number>, syncGoals = false) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setSaveStatus('saving');
     timerRef.current = setTimeout(async () => {
       try {
         const gpEff = gp ?? gpRef.current;
         await upsertTeamWeeklyTask(orgId, year, week, start, end, hd, wd, gpEff);
-        // 진행률 역류 (공동과제 — 같은 팀 멤버 누구나)
-        if (gpEff && Object.keys(gpEff).length > 0) {
+        // 진행률 역류 (핵심목표 연동) — '저장' 버튼으로 수동 실행 시에만
+        if (syncGoals && gpEff && Object.keys(gpEff).length > 0) {
           const goalComments: Record<string, string> = {};
           for (const gid of Object.keys(gpEff)) {
             const titles = hd.filter(i => i.goalId === gid).map(i => (i.title || i.content).trim()).filter(Boolean);
@@ -722,6 +723,70 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     } catch { toast.error('삭제에 실패했습니다.'); }
   }
 
+  // 인쇄 — A4 세로, 표 형식(가로: Has Done/Will Do, 세로: 핵심업무/일반업무). 코멘트 제외.
+  function handlePrint() {
+    const esc = (s?: string) => (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const titleById = new Map(activeGoals.map(g => [g.id, g.title]));
+    const itemLi = (i: SimpleTaskItem) => {
+      const main = esc(i.title || i.content);
+      const sub = i.title && i.content ? `<div class="sub">${esc(i.content)}</div>` : '';
+      const au = i.authorName ? ` <span class="au">${esc(i.authorName)}</span>` : '';
+      return `<li>${main}${au}${sub}</li>`;
+    };
+    // 핵심업무 셀 — 목표별 그룹(진행률은 Has Done 만)
+    const coreCell = (items: SimpleTaskItem[], showPct: boolean) => {
+      const goalIds = [...new Set(items.filter(i => i.goalId).map(i => i.goalId!))];
+      if (!goalIds.length) return '<span class="empty">—</span>';
+      return goalIds.map(gid => {
+        const gItems = items.filter(i => i.goalId === gid);
+        const pct = showPct ? ` <span class="pct">(${goalProgress[gid] ?? 0}%)</span>` : '';
+        return `<div class="g"><div class="gt">${esc(titleById.get(gid) ?? '핵심목표')}${pct}</div><ul>${gItems.map(itemLi).join('')}</ul></div>`;
+      }).join('');
+    };
+    // 일반업무 셀
+    const genCell = (items: SimpleTaskItem[]) => {
+      const g = items.filter(i => !i.goalId);
+      return g.length ? `<ul>${g.map(itemLi).join('')}</ul>` : '<span class="empty">—</span>';
+    };
+    const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>주간업무보고 ${year}년 ${week}주차</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm; }
+  *{ box-sizing:border-box; }
+  body{ font-family:'Malgun Gothic','맑은 고딕',sans-serif; color:#111; margin:0; font-size:10.5px; }
+  h1{ font-size:16px; margin:0 0 2px; }
+  .period{ color:#555; font-size:11px; margin-bottom:10px; }
+  table{ width:100%; border-collapse:collapse; table-layout:fixed; }
+  th,td{ border:1px solid #333; padding:6px 7px; vertical-align:top; word-break:break-word; }
+  thead th{ background:#e5e7eb; text-align:center; font-size:12px; padding:6px; }
+  .rowlabel{ width:64px; background:#f1f5f9; text-align:center; font-weight:700; font-size:11px; vertical-align:middle; }
+  .colcell{ width:calc((100% - 64px)/2); }
+  .g{ margin-bottom:6px; }
+  .gt{ font-weight:700; background:#eef2ff; padding:2px 5px; border-radius:3px; }
+  .pct{ color:#2563eb; }
+  ul{ margin:3px 0 0; padding-left:16px; }
+  li{ margin:1.5px 0; line-height:1.35; }
+  .au{ color:#6b7280; font-size:9px; }
+  .sub{ color:#555; white-space:pre-wrap; }
+  .empty{ color:#bbb; }
+</style></head><body>
+  <h1>주간업무보고</h1>
+  <div class="period">${year}년 ${week}주차 (${fmtDate(start)} ~ ${fmtDate(end)})</div>
+  <table>
+    <thead><tr><th class="rowlabel"></th><th>Has Done (이번 주 실적)</th><th>Will Do (다음 주 계획)</th></tr></thead>
+    <tbody>
+      <tr><td class="rowlabel">핵심<br>업무</td><td class="colcell">${coreCell(hasDoneItems, true)}</td><td class="colcell">${coreCell(willDoItems, false)}</td></tr>
+      <tr><td class="rowlabel">일반<br>업무</td><td class="colcell">${genCell(hasDoneItems)}</td><td class="colcell">${genCell(willDoItems)}</td></tr>
+    </tbody>
+  </table>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=900,height=1000');
+    if (!w) { toast.error('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.'); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); }, 250);
+  }
+
   if (loading) {
     return <div className="space-y-3">{[1, 2].map(i => <div key={i} className="h-36 animate-pulse rounded-xl bg-gray-100" />)}</div>;
   }
@@ -737,6 +802,14 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
         <span className={cn('text-xs transition-opacity ml-auto', saveStatus === 'idle' ? 'opacity-0' : 'opacity-100', saveStatus === 'saving' ? 'text-gray-400' : 'text-green-600 font-medium')}>
           {saveStatus === 'saving' ? '저장 중...' : '✓ 저장됨'}
         </span>
+        {editable && !isBodyLocked && (
+          <Button size="sm" onClick={() => saveBody(hasDoneItems, willDoItems, goalProgress, true)} className="gap-1.5 shrink-0">
+            <Save className="h-4 w-4" /> 저장 · 목표연동
+          </Button>
+        )}
+        <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1.5 shrink-0">
+          <Printer className="h-4 w-4" /> 인쇄
+        </Button>
       </div>
 
       {editable && new Date() >= saturday && (
@@ -837,7 +910,8 @@ function ScopeTeamsView({ year, week, teams, orgs, currentUser }: {
       {active && (
         <>
           <p className="text-xs text-gray-400">{teamPath(active)}</p>
-          <TeamWeeklyForm orgId={active.id} year={year} week={week} editable={false} currentUser={currentUser} />
+          {/* 해당 산하 팀의 리더(팀장)면 업무추가 등 편집 가능, 아니면 읽기전용(코멘트만) */}
+          <TeamWeeklyForm orgId={active.id} year={year} week={week} editable={active.leaderId === currentUser.id} currentUser={currentUser} />
         </>
       )}
     </div>

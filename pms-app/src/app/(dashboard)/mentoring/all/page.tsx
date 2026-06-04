@@ -10,6 +10,7 @@ import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { ChevronDown, ChevronRight, MessageSquareHeart, AlertCircle, Pencil, Search } from 'lucide-react';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
+import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
 import { SearchInput } from '@/components/ui/search-input';
 import { cn } from '@/lib/utils';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
@@ -57,7 +58,8 @@ function MentoringAllContent() {
       setSelectedForm(null);
       try {
         const [allUsers, allOrgs] = await Promise.all([getAllUsers(), getOrganizations()]);
-        const active = allUsers.filter(u => u.isActive);
+        // 임원·CEO 는 육성면담서 작성 대상이 아니므로 전사 확인 목록에서 제외
+        const active = allUsers.filter(u => u.isActive && u.role !== 'EXECUTIVE' && u.role !== 'CEO');
         setUsers(active);
         setOrgs(allOrgs);
 
@@ -264,46 +266,14 @@ function MentoringAllContent() {
                 </div>
               )}
 
-              <Section title="직무 정보">
-                <Row label="직책" value={selectedForm.currentPosition} />
-                <Row label="주요담당업무" value={selectedForm.mainDuties} />
-                <Row label="현 직위 승진일" value={selectedForm.promotionDate} />
-                <Row label="보유자격증" value={selectedForm.certifications} />
-                <Row label="주요 업적" value={selectedForm.achievements} multiline />
-              </Section>
+              {/* 통합 육성면담서(신양식) — 직무정보·업무실적·경력·요청·종합의견 */}
+              <MentoringPerfBody form={selectedForm} />
 
-              <Section title="경력개발 계획">
-                <Row label="희망 Position" value={selectedForm.careerPlan} multiline />
-              </Section>
-
-              <Section title="직무 요청사항">
-                <Row label="요청 유형" value={JOB_REQUEST_LABELS[selectedForm.jobRequest] ?? selectedForm.jobRequest} />
-                {/* ①② 직무 확대/축소 이유 */}
-                {(selectedForm.jobRequest === 'EXPAND' || selectedForm.jobRequest === 'REDUCE') && (
-                  <Row label="이유" value={selectedForm.jobRequestReason} multiline />
-                )}
-                {/* ③ 직무 변경 — 희망 직무 1·2순위 + 변경 이유 */}
-                {selectedForm.jobRequest === 'CHANGE' && (
-                  <>
-                    <Row label="희망 직무 1순위" value={selectedForm.desiredJob1} />
-                    <Row label="희망 직무 2순위" value={selectedForm.desiredJob2} />
-                    <Row label="직무 변경 희망 이유" value={selectedForm.jobChangeReason} multiline />
-                  </>
-                )}
-                {/* ④ 근무지 이동 — 희망 근무지 1·2순위 + 변경 이유 */}
-                {selectedForm.jobRequest === 'RELOCATE' && (
-                  <>
-                    <Row label="희망 근무지 1순위" value={selectedForm.desiredLocation1} />
-                    <Row label="희망 근무지 2순위" value={selectedForm.desiredLocation2} />
-                    <Row label="근무지 변경 희망 이유" value={selectedForm.locationChangeReason} multiline />
-                  </>
-                )}
-              </Section>
-
-              <Section title="종합 의견">
-                <Row label="본인 종합의견" value={selectedForm.selfOpinion} multiline />
-                <Row label="면담자 의견" value={selectedForm.interviewerOpinion} multiline />
-              </Section>
+              {selectedForm.interviewerOpinion?.trim() && (
+                <Section title="면담자 의견">
+                  <Row label="면담자 의견" value={selectedForm.interviewerOpinion} multiline />
+                </Section>
+              )}
             </div>
           )}
         </div>
