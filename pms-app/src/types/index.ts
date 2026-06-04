@@ -593,7 +593,8 @@ export type AuditLogAction =
   | 'BACKUP_FAILED'      // 백업 실패 (자동 감지 — D-4)
   | 'USER_DELETE'        // 사용자 삭제
   | 'EVAL_GRADE_CHANGE'  // 평가 등급 변경 — 핵심 확정 이벤트 (D-3)
-  | 'READ_ANOMALY_DETECTED'; // 평가 데이터 대량 read 이상 탐지
+  | 'READ_ANOMALY_DETECTED'  // 평가 데이터 대량 read 이상 탐지
+  | 'AI_EVAL_SUMMARY';   // AI 성과 요약·순위 생성 (인사평가 데이터 AI 처리)
 
 export interface AuditLog {
   id: string;
@@ -724,12 +725,19 @@ export interface SimpleTaskItem {
   carriedFromId?: string;
   /** 핵심업무목표 연계 — 이 항목이 속한 Goal id. 없으면 '일반업무'. (주간↔목표 통합 v0.x) */
   goalId?: string;
+  /** 입력자 — 팀 공유 주간보고에서 이 항목을 작성한 사용자 (v0.9 팀공유 개편) */
+  authorId?: string;
+  /** 입력자 표시명 (denormalized) — 없으면 WeeklyTask.userId 를 작성자로 간주(레거시) */
+  authorName?: string;
 }
 
 export interface WeeklyTask {
-  id: string;                  // `${userId}_${year}_W${weekNumber}`
-  userId: string;
-  organizationId: string;
+  // v0.9 팀공유 개편: 문서 1개 = 팀(조직) 1주차. id = `${teamOrgId}_${year}_W${weekNumber}`.
+  //   레거시(개인별) 문서는 id = `${userId}_${year}_W${weekNumber}` 로 공존(읽기 폴백).
+  id: string;
+  userId: string;              // 레거시 개인 문서 식별자 / 팀 문서에서는 미사용(빈 값 가능)
+  organizationId: string;      // 팀 문서: 소유 팀(조직) id
+  teamOrgId?: string;          // = organizationId 명시 별칭(팀 문서 식별·마이그레이션용)
   year: number;
   weekNumber: number;
   weekStart: Date;

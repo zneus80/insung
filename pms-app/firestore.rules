@@ -30,6 +30,11 @@ service cloud.firestore {
     function isLead()    { return getRole() == 'TEAM_LEAD'; }
     function isMember()  { return getRole() == 'MEMBER'; }
 
+    // 본인 소속 조직(팀) id — 팀 공유 주간보고 권한 판정용
+    function userOrg() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.organizationId;
+    }
+
     // 사용자
     match /users/{uid} {
       allow read: if isAuthenticated();
@@ -49,6 +54,8 @@ service cloud.firestore {
         request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
+        // 공동과제: 같은 팀(조직) 멤버가 주간보고에서 진행률 역류 (v0.9 팀공유)
+        resource.data.organizationId == userOrg() ||
         isLead() || isExec() || isCeo() || isHrAdmin()
       );
     }
@@ -175,26 +182,36 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
-    // 주간 업무 (docId = userId_year_Wnn)
+    // 주간 업무 (v0.9: 팀 공유 문서 docId = teamOrgId_year_Wnn / 레거시 개인 문서 userId_year_Wnn 공존)
     match /weeklyTasks/{docId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && (
+        // 팀 공유 문서 — 본인 소속 팀의 문서 생성
+        request.resource.data.organizationId == userOrg()
+        ||
+        // 레거시 개인 문서
+        request.resource.data.userId == request.auth.uid
+      );
       allow update: if isAuthenticated() && (
-        // 본인 문서 수정
+        // 같은 팀(조직) 멤버 — 팀 공유 폼 편집(누구나)
+        resource.data.organizationId == userOrg()
+        ||
+        // 레거시 본인 문서
         resource.data.userId == request.auth.uid
         ||
-        // 팀장·임원이 leadComments 추가 — 소유권·업무 데이터 변경 불가
+        // 팀장·임원이 leadComments 만 추가 — 본문·소유권 불변
         (
-          request.resource.data.userId         == resource.data.userId         &&
           request.resource.data.organizationId == resource.data.organizationId &&
           request.resource.data.year           == resource.data.year           &&
           request.resource.data.weekNumber     == resource.data.weekNumber     &&
           request.resource.data.hasDoneItems   == resource.data.hasDoneItems   &&
-          request.resource.data.willDoItems    == resource.data.willDoItems    &&
-          request.resource.data.summary        == resource.data.summary
+          request.resource.data.willDoItems    == resource.data.willDoItems
         )
       );
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && (
+        resource.data.organizationId == userOrg() ||
+        resource.data.userId == request.auth.uid
+      );
     }
 
     // 연말 평가 (docId = userId_year) — read 잠금 (옵션 E Phase 3): 본인 + HR/CEO 만 직접.

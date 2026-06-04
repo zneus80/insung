@@ -29,6 +29,7 @@ const ACTION_LABEL: Record<AuditLogAction, string> = {
   USER_DELETE:       '사용자 삭제',
   EVAL_GRADE_CHANGE: '평가 등급 변경',
   READ_ANOMALY_DETECTED: '대량 조회 감지',
+  AI_EVAL_SUMMARY: 'AI 성과 요약',
 };
 
 const ACTION_COLOR: Record<AuditLogAction, string> = {
@@ -43,6 +44,7 @@ const ACTION_COLOR: Record<AuditLogAction, string> = {
   USER_DELETE:       'bg-red-100 text-red-700',
   EVAL_GRADE_CHANGE: 'bg-indigo-100 text-indigo-700',
   READ_ANOMALY_DETECTED: 'bg-red-100 text-red-700',
+  AI_EVAL_SUMMARY: 'bg-violet-100 text-violet-700',
 };
 
 export default function AuditLogPage() {

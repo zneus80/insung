@@ -24,6 +24,15 @@ if (
   process.env.NEXT_PUBLIC_USE_EMULATOR !== 'true'
 ) {
   try {
+    // 로컬/개발 환경 App Check 디버그 토큰 — reCAPTCHA 는 localhost 에서 유효 토큰을 못 만들어
+    // App Check 강제 검사(특히 Firebase AI Logic)가 401 로 막힌다. 개발 환경에서만 디버그 토큰 사용.
+    // (프로덕션 빌드에서는 NODE_ENV==='production' 이라 이 블록이 제거됨 → 운영 영향 없음)
+    //   · .env.local 에 NEXT_PUBLIC_APPCHECK_DEBUG_TOKEN=<고정 UUID> 를 넣으면 재등록 불필요
+    //   · 없으면 true → SDK 가 콘솔에 임시 토큰을 출력 → 그 값을 Firebase 콘솔 App Check 디버그 토큰에 등록
+    if (process.env.NODE_ENV !== 'production') {
+      (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: string | boolean }).FIREBASE_APPCHECK_DEBUG_TOKEN =
+        process.env.NEXT_PUBLIC_APPCHECK_DEBUG_TOKEN || true;
+    }
     initializeAppCheck(app, {
       provider: new ReCaptchaV3Provider(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY),
       isTokenAutoRefreshEnabled: true,

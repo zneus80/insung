@@ -15,7 +15,7 @@ import {
   getUsersByOrganization,
   getAllUsers,
   getOrganizations,
-  getWeeklyTasksByUsersAndYear,
+  getWeeklyTasksByMembersAndYear,
   listInnovationActivities,
   getOrgEvaluations,
 } from '@/lib/firestore';
@@ -30,6 +30,7 @@ import SelfEvalGoalList, { EVAL_RETURN_KEY } from '@/components/evaluation/SelfE
 import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
 import InnovationList from '@/components/evaluation/InnovationList';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
+import AiEvalPanel from '@/components/evaluation/AiEvalPanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -241,7 +242,7 @@ function TeamLeadEvalView() {
       const [seList, mfList, weeklyTasks, innovations] = await Promise.all([
         getSelfEvaluationsByUsers(active.map(m => m.id), year),
         getMentoringFormsByUsers(active.map(m => m.id), year),
-        getWeeklyTasksByUsersAndYear(active.map(m => m.id), year),
+        getWeeklyTasksByMembersAndYear(active.map(m => ({ id: m.id, organizationId: m.organizationId })), year),
         listInnovationActivities(year),
       ]);
 
@@ -498,6 +499,19 @@ function TeamLeadEvalView() {
           const activeMembers = membersByOrg[activeOrgTab] ?? [];
           return (
           <>
+            {/* AI 성과 요약 · 참고 순위 — 평가권자 스코프 전체 일괄 (팀 탭 무관) */}
+            {userProfile && (
+              <AiEvalPanel
+                members={members}
+                goalsByMember={goalsByMember}
+                weeklyTasksByMember={weeklyTasksByMember}
+                selfEvals={selfEvals}
+                mentoringForms={mentoringForms}
+                indivEvals={indivEvals}
+                actor={{ id: userProfile.id, name: userProfile.name }}
+                scopeLabel={isHQHead ? '본부 산하' : '팀원'}
+              />
+            )}
             {/* 팀 탭 바 */}
             <div className="flex gap-1 border-b bg-white px-1 pt-1 shrink-0 overflow-x-auto">
               {orgTabs.map(o => {
