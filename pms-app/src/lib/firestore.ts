@@ -2180,6 +2180,7 @@ function toWeeklyTask(snap: { id: string; data(): DocumentData }): WeeklyTask {
     willDoItems:  (d.willDoItems   ?? []) as SimpleTaskItem[],
     summary:      d.summary ?? '',
     leadComments,
+    goalProgress: (d.goalProgress ?? {}) as Record<string, number>,
     updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
   };
 }
@@ -2214,15 +2215,56 @@ export async function upsertWeeklyTaskSections(
   hasDoneItems: SimpleTaskItem[],
   willDoItems: SimpleTaskItem[],
   summary = '',
+  goalProgress?: Record<string, number>,
 ): Promise<void> {
   const docId = weeklyTaskDocId(userId, year, week);
-  await setDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, docId), {
+  const payload: DocumentData = {
     userId, organizationId: orgId, year, weekNumber: week,
     weekStart: Timestamp.fromDate(weekStart),
     weekEnd:   Timestamp.fromDate(weekEnd),
     hasDoneItems, willDoItems, summary,
     updatedAt: serverTimestamp(),
-  }, { merge: true });
+  };
+  if (goalProgress) payload.goalProgress = goalProgress;
+  await setDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, docId), payload, { merge: true });
+}
+
+/**
+ * 주간보고 → 핵심목표 진행률 역류.
+ * 주간에 입력한 목표별 진행률(%)을 해당 Goal.progress 로 반영하고,
+ * 변경된 목표에 progressUpdate(weekNumber 태그)를 1건 남긴다.
+ * comment 는 그 주 해당 목표의 Has Done 요약(호출 측 전달).
+ */
+export async function syncWeeklyGoalProgress(params: {
+  userId: string;
+  year: number;
+  week: number;
+  goalProgress: Record<string, number>;
+  goalComments?: Record<string, string>;
+}): Promise<void> {
+  const { userId, year, week, goalProgress, goalComments = {} } = params;
+  const entries = Object.entries(goalProgress);
+  for (const [goalId, pct] of entries) {
+    if (!goalId || typeof pct !== 'number' || pct < 0 || pct > 100) continue;
+    const goalSnap = await getDoc(doc(db, COLLECTIONS.GOALS, goalId));
+    if (!goalSnap.exists()) continue;
+    const g = goalSnap.data();
+    // 본인(owner/공동수행자) 목표만 역류 — 안전장치
+    const isOwner = g.userId === userId || (Array.isArray(g.collaboratorIds) && g.collaboratorIds.includes(userId));
+    if (!isOwner) continue;
+    if ((g.progress ?? 0) === pct) continue; // 변동 없으면 skip
+    await updateDoc(goalSnap.ref, {
+      progress: pct,
+      status: g.status === 'APPROVED' ? 'IN_PROGRESS' : g.status,
+      updatedAt: serverTimestamp(),
+    });
+    await addDoc(collection(db, COLLECTIONS.PROGRESS_UPDATES), {
+      goalId, userId, progress: pct,
+      comment: goalComments[goalId] ?? `${year}년 ${week}주차 주간보고`,
+      weekNumber: week, weekYear: year,
+      createdAt: serverTimestamp(),
+    });
+  }
 }
 
 export async function addLeadComment(

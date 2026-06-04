@@ -11,6 +11,8 @@ import {
   getAllUsers,
   getOrganizations,
   createNotification,
+  getGoalsByUser,
+  syncWeeklyGoalProgress,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -22,8 +24,11 @@ import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import type {
-  WeeklyTask, SimpleTaskItem, LeadCommentEntry, User, Organization,
+  WeeklyTask, SimpleTaskItem, LeadCommentEntry, User, Organization, Goal,
 } from '@/types';
+
+// 핵심업무목표 연계 대상 — 승인된 활성 목표
+const WEEKLY_GOAL_STATUSES = new Set(['APPROVED', 'IN_PROGRESS']);
 
 // ── 주차 유틸 ──────────────────────────────────────────────
 function getISOWeek(date: Date) {
@@ -298,17 +303,31 @@ function WeekNav({ year, week, start, end, isCurrentWeek, saveStatus, onPrev, on
 
 // ── 간단 업무 폼 ──────────────────────────────────────────
 function SimpleItemForm({
-  value, onChange, onSave, onCancel, isNew,
+  value, onChange, onSave, onCancel, isNew, goals = [],
 }: {
   value: Omit<SimpleTaskItem, 'id'>;
   onChange: (v: Omit<SimpleTaskItem, 'id'>) => void;
   onSave: () => void;
   onCancel: () => void;
   isNew: boolean;
+  goals?: Goal[];
 }) {
   return (
     <div className="rounded-xl border-2 border-blue-200 bg-blue-50/30 p-4 space-y-3">
       <p className="text-xs font-semibold text-blue-700">{isNew ? '업무 추가' : '업무 수정'}</p>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-gray-600">분류</label>
+        <select
+          value={value.goalId ?? ''}
+          onChange={e => onChange({ ...value, goalId: e.target.value || undefined })}
+          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">일반업무</option>
+          {goals.map(g => (
+            <option key={g.id} value={g.id}>[핵심목표] {g.title}</option>
+          ))}
+        </select>
+      </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-gray-600">업무명 <span className="text-red-400">*</span></label>
         <input
@@ -353,7 +372,11 @@ function WeeklyReport({ year, week, onWeekChange }: {
   const [summaryLocked, setSummaryLocked] = useState(false); // 저장 직후 시각적 고정 효과
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Omit<SimpleTaskItem, 'id'>>(EMPTY_SIMPLE());
+  const [activeGoals, setActiveGoals] = useState<Goal[]>([]);           // 핵심업무목표 연계 대상
+  const [goalProgress, setGoalProgress] = useState<Record<string, number>>({}); // 목표별 이번주 진행률
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const goalProgressRef = useRef(goalProgress);
+  useEffect(() => { goalProgressRef.current = goalProgress; }, [goalProgress]);
   const summaryRef = useRef<HTMLTextAreaElement | null>(null);
   const today = getISOWeek(new Date());
   const { start, end } = getWeekRange(year, week);
@@ -370,7 +393,16 @@ function WeeklyReport({ year, week, onWeekChange }: {
     setEditingKey(null);
     setSummaryLocked(false);
     (async () => {
-      const wt = await getWeeklyTask(userProfile.id, year, week);
+      const [wt, goalsList] = await Promise.all([
+        getWeeklyTask(userProfile.id, year, week),
+        getGoalsByUser(userProfile.id, year),
+      ]);
+      const actives = goalsList.filter(g => WEEKLY_GOAL_STATUSES.has(g.status));
+      setActiveGoals(actives);
+      // 목표별 진행률 초기값: 저장된 주간 값 우선, 없으면 목표 현재 진행률
+      const gp: Record<string, number> = {};
+      actives.forEach(g => { gp[g.id] = wt?.goalProgress?.[g.id] ?? g.progress ?? 0; });
+      setGoalProgress(gp);
       if (wt) {
         setHasDoneItems(wt.hasDoneItems ?? []);
         setWillDoItems(wt.willDoItems ?? []);
@@ -405,7 +437,7 @@ function WeeklyReport({ year, week, onWeekChange }: {
     })();
   }, [userProfile, year, week]);
 
-  const scheduleSave = useCallback((hd: SimpleTaskItem[], wd: SimpleTaskItem[], sum: string) => {
+  const scheduleSave = useCallback((hd: SimpleTaskItem[], wd: SimpleTaskItem[], sum: string, gp?: Record<string, number>) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setSaveStatus('saving');
     timerRef.current = setTimeout(async () => {
@@ -414,7 +446,7 @@ function WeeklyReport({ year, week, onWeekChange }: {
         await upsertWeeklyTaskSections(
           userProfile.id, year, week,
           userProfile.organizationId, start, end,
-          hd, wd, sum,
+          hd, wd, sum, gp ?? goalProgressRef.current,
         );
 
         // ── 차주 HAS DONE 동기화 (B1 수정) ─────────────────────
@@ -528,11 +560,32 @@ function WeeklyReport({ year, week, onWeekChange }: {
           </div>
         ) : (
           <div className="divide-y">
-            {items.map(item => {
+            {(() => {
+              const goalById = new Map(activeGoals.map(g => [g.id, g]));
+              const order = (it: SimpleTaskItem) => {
+                if (!it.goalId) return activeGoals.length; // 일반업무 맨 뒤
+                const idx = activeGoals.findIndex(g => g.id === it.goalId);
+                return idx < 0 ? activeGoals.length + 1 : idx; // 삭제된 목표 연계는 더 뒤
+              };
+              const ordered = [...items].sort((a, b) => order(a) - order(b));
+              let prevGroup: string | null = '__init__' as any;
+              return ordered.map(item => {
               const itemKey = `${section}-${item.id}`;
               const isEditing = editingKey === itemKey;
+              const gid = item.goalId ?? null;
+              const showHeader = gid !== prevGroup;
+              prevGroup = gid;
+              const headerLabel = gid
+                ? (goalById.get(gid)?.title ? `핵심목표 · ${goalById.get(gid)!.title}` : '핵심목표 (삭제됨)')
+                : '일반업무';
               return (
                 <div key={item.id}>
+                  {showHeader && (
+                    <div className={cn('px-4 py-1.5 text-[11px] font-semibold border-b',
+                      gid ? 'text-blue-700 bg-blue-50/60' : 'text-gray-500 bg-gray-50')}>
+                      {headerLabel}
+                    </div>
+                  )}
                   {!isEditing ? (
                     <div className={cn('flex items-start gap-3 px-4 py-3 group hover:bg-gray-50 transition-colors',
                       isGreen && 'bg-green-50/20',
@@ -567,15 +620,16 @@ function WeeklyReport({ year, week, onWeekChange }: {
                     </div>
                   ) : (
                     <div className="p-4">
-                      <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew={false} />
+                      <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew={false} goals={activeGoals} />
                     </div>
                   )}
                 </div>
               );
-            })}
+              });
+            })()}
             {isAdding && (
               <div className="p-4">
-                <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew />
+                <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew goals={activeGoals} />
               </div>
             )}
           </div>
@@ -610,6 +664,38 @@ function WeeklyReport({ year, week, onWeekChange }: {
           {isBodyLocked && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
               해당 주 토요일이 지나 본문(실적/계획/종합의견)은 읽기 전용입니다. 코멘트는 계속 가능합니다.
+            </div>
+          )}
+
+          {/* 핵심업무목표 진행률 — 승인된 활성 목표 자동 나열, 저장 시 핵심업무목표관리로 역류 */}
+          {activeGoals.length > 0 && (
+            <div className="rounded-xl border bg-white p-5 space-y-3">
+              <p className="text-sm font-semibold text-gray-800">
+                핵심업무목표 진행률
+                <span className="ml-1 text-xs font-normal text-gray-400">— 이번 주 기준. 종합의견 저장 시 핵심업무목표관리에 반영됩니다.</span>
+              </p>
+              <div className="space-y-2.5">
+                {activeGoals.map(g => {
+                  const pct = goalProgress[g.id] ?? 0;
+                  const setPct = (v: number) => {
+                    const next = { ...goalProgress, [g.id]: Math.max(0, Math.min(100, v)) };
+                    setGoalProgress(next);
+                    scheduleSave(hasDoneItems, willDoItems, summary, next);
+                  };
+                  return (
+                    <div key={g.id} className="flex items-center gap-3">
+                      <span className="flex-1 text-sm text-gray-700 truncate" title={g.title}>{g.title}</span>
+                      <input type="range" min={0} max={100} step={5} value={pct} disabled={isBodyLocked}
+                        onChange={e => setPct(Number(e.target.value))}
+                        className="w-36 accent-blue-600 disabled:opacity-50" />
+                      <input type="number" min={0} max={100} value={pct} disabled={isBodyLocked}
+                        onChange={e => setPct(Number(e.target.value) || 0)}
+                        className="w-16 rounded border border-gray-200 px-2 py-1 text-sm text-right disabled:bg-gray-50" />
+                      <span className="text-xs text-gray-400 w-3">%</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -655,12 +741,23 @@ function WeeklyReport({ year, week, onWeekChange }: {
                       await upsertWeeklyTaskSections(
                         userProfile.id, year, week,
                         userProfile.organizationId, start, end,
-                        hasDoneItems, willDoItems, summary,
+                        hasDoneItems, willDoItems, summary, goalProgress,
                       );
+                      // 핵심목표 진행률 역류 — 변경된 목표만 goal.progress + progressUpdate(주차)
+                      if (Object.keys(goalProgress).length > 0) {
+                        const goalComments: Record<string, string> = {};
+                        for (const gid of Object.keys(goalProgress)) {
+                          const titles = hasDoneItems.filter(i => i.goalId === gid).map(i => i.title).filter(Boolean);
+                          goalComments[gid] = titles.length
+                            ? `[${year}년 ${week}주차] ${titles.join(', ')}`
+                            : `${year}년 ${week}주차 주간보고`;
+                        }
+                        await syncWeeklyGoalProgress({ userId: userProfile.id, year, week, goalProgress, goalComments });
+                      }
                       setSaveStatus('saved');
                       setSummaryLocked(true);
                       summaryRef.current?.blur();
-                      toast.success('저장되었습니다.');
+                      toast.success('저장되었습니다. 핵심목표 진행률이 반영되었습니다.');
                       setTimeout(() => setSaveStatus('idle'), 2500);
                     } catch {
                       setSaveStatus('idle');
