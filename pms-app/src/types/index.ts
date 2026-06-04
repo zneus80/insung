@@ -225,6 +225,9 @@ export interface ProgressUpdate {
   progress: number;   // 0~100
   comment: string;
   createdAt: Date;
+  /** 주간업무보고에서 역류 생성된 진행 이력의 주차 태그 (주간↔목표 통합 v0.x) */
+  weekNumber?: number;
+  weekYear?: number;
 }
 
 // ─────────────────────────────────────────────
@@ -719,6 +722,8 @@ export interface SimpleTaskItem {
   important?: boolean;   // 중요(별표) 표시 — 인사평가 주간업무 카드에서 강조 (v0.76)
   /** 이월 마커 — 이전 주 willDo 에서 자동 이월된 hasDone 항목의 원본 item.id */
   carriedFromId?: string;
+  /** 핵심업무목표 연계 — 이 항목이 속한 Goal id. 없으면 '일반업무'. (주간↔목표 통합 v0.x) */
+  goalId?: string;
 }
 
 export interface WeeklyTask {
@@ -734,5 +739,7 @@ export interface WeeklyTask {
   willDoItems: SimpleTaskItem[];    // Will Do — 다음 주 계획
   summary: string;             // 이번 주 종합 의견
   leadComments: LeadCommentEntry[];  // 팀장 Comment (누적 스레드)
+  /** 핵심업무목표 그룹별 이번 주 진행률(%) — { goalId: 0~100 }. 저장 시 goal.progress 로 역류. */
+  goalProgress?: Record<string, number>;
   updatedAt: Date;
 }

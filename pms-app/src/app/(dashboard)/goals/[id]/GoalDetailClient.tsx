@@ -1450,6 +1450,11 @@ export default function GoalDetailPage() {
                             {!isOwnerUpdate && (
                               <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">코멘트</span>
                             )}
+                            {u.weekNumber && (
+                              <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
+                                주간보고 {u.weekNumber}주차
+                              </span>
+                            )}
                             <span className="text-gray-400">
                               {format(u.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })}
                             </span>
