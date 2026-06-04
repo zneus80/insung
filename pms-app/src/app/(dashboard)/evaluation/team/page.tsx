@@ -31,6 +31,7 @@ import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
 import InnovationList from '@/components/evaluation/InnovationList';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AiEvalPanel from '@/components/evaluation/AiEvalPanel';
+import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -107,8 +108,7 @@ function TeamLeadEvalView() {
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
   const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [innovationsByMember, setInnovationsByMember] = useState<Record<string, InnovationActivity[]>>({});
-  const [expanded, setExpanded]           = useState<Record<string, boolean>>({});
-  const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [opinions, setOpinions]           = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
   const [loading, setLoading]             = useState(true);
   const [saving, setSaving]               = useState<string | null>(null);
@@ -303,7 +303,7 @@ function TeamLeadEvalView() {
       const raw = sessionStorage.getItem(EVAL_RETURN_KEY);
       if (!raw) return;
       const st = JSON.parse(raw) as { memberId?: string };
-      if (st.memberId) setExpanded(p => ({ ...p, [st.memberId!]: true }));
+      if (st.memberId) setSelectedMemberId(st.memberId);
     } catch { /* 무시 */ }
   }, []);
 
@@ -538,271 +538,152 @@ function TeamLeadEvalView() {
                 );
               })}
             </div>
-            {activeMembers.map(member => {
+            {(() => {
+            const selected = activeMembers.find(m => m.id === selectedMemberId) ?? null;
+            return (
+            <div className="space-y-4">
+              {/* 팀장·팀원 병렬 카드 (이전 의견 미표시) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {activeMembers.map(member => {
+                  const se = selfEvals[member.id];
+                  const goals = goalsByMember[member.id] ?? [];
+                  const summary = goalCountSummary(goals);
+                  const isLead = member.role === 'TEAM_LEAD';
+                  const isSel = selectedMemberId === member.id;
+                  const submitted = se?.status === 'SUBMITTED' || !!mentoringForms[member.id];
+                  const myDone = isHQHead && member.role === 'MEMBER'
+                    ? !!indivEvals[member.id]?.hqReviewedBy
+                    : !!indivEvals[member.id]?.leadSubmittedBy;
+                  return (
+                    <button key={member.id}
+                      onClick={() => setSelectedMemberId(isSel ? null : member.id)}
+                      className={cn('text-left rounded-xl border bg-white p-4 transition-all hover:shadow-sm',
+                        isSel ? 'border-indigo-400 ring-1 ring-indigo-200' : isLead ? 'border-amber-200' : 'border-gray-200')}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-gray-900 truncate">
+                          {member.name}
+                          <span className="ml-1 text-xs font-normal text-gray-400">{isLead ? '팀장' : '팀원'}{member.position ? ` · ${member.position}` : ''}</span>
+                        </p>
+                        {myDone && <span className="text-[11px] rounded-full bg-green-100 text-green-700 px-2 py-0.5 shrink-0">의견 제출</span>}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                        <span>완료 <b className="text-green-600">{summary.completed}</b></span>
+                        <span>진행 {summary.inProgress}</span>
+                        {submitted
+                          ? <span className="text-blue-600">· 자기평가 제출</span>
+                          : <span className="text-gray-300">· 미제출</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 선택 멤버 상세 — 등급 의견 제출 + 육성면담 및 업무실적 */}
+              {selected && (() => {
+            const member = selected;
             const ie = indivEvals[member.id];
             const se = selfEvals[member.id];
-            const goals = goalsByMember[member.id] ?? [];
             const weeklyTasks = weeklyTasksByMember[member.id] ?? [];
-            const summary = goalCountSummary(goals);
-            const isOpen = expanded[member.id] ?? false;
             // 본부장이 팀원 평가 시 → 2차 의견(HQ_REVIEWED) / 팀장 평가 시 → 1차 의견(LEAD_REVIEWED)
             const isHQ2ndOpinion = isHQHead && member.role === 'MEMBER';   // 본부장 2차 의견 케이스
             const isHQ1stOpinion = isHQHead && member.role === 'TEAM_LEAD'; // 본부장 1차 의견 케이스 (팀장 평가)
-            // 잠금 조건: 다음 단계가 시작됐을 때만. 본인이 제출한 단계는 같은 단계 안에서 수정 가능
-            //  - 일반 팀장 1차(leadGrade) → 다음 단계(HQ_REVIEWED/EXEC_CONFIRMED/PUBLISHED) 진입 시 잠금
-            //  - 본부장 1차(팀장 평가) → 다음 단계(EXEC_CONFIRMED/PUBLISHED) 진입 시 잠금 (HQ 단계 없음)
-            //  - 본부장 2차(hqGrade) → 다음 단계(EXEC_CONFIRMED/PUBLISHED) 진입 시 잠금
             const isReviewed = isHQ2ndOpinion
               ? ['EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '')
               : isHQ1stOpinion
                 ? ['EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '')
                 : ['HQ_REVIEWED', 'EXEC_CONFIRMED', 'PUBLISHED'].includes(ie?.status ?? '');
-            // 본인이 이미 제출했는지 (수정 모드 안내용)
             const alreadySubmittedByMe = isHQ2ndOpinion ? !!ie?.hqReviewedBy : !!ie?.leadSubmittedBy;
-            // 본부장 2차 의견은 팀장 1차 의견 선행 필요 / 본부장 1차 의견(팀장 평가)은 즉시 입력 가능
             const canHQInput = isHQ2ndOpinion ? !!ie?.leadSubmittedBy : true;
             const op = opinions[member.id] ?? { grade: '', comment: '' };
             const leadOp = leadOpinionByMember[member.id];
-
             return (
-              <div key={member.id} className="rounded-xl border bg-white overflow-hidden">
-                {/* 헤더 */}
-                <button
-                  className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition-colors"
-                  onClick={() => setExpanded(p => ({ ...p, [member.id]: !isOpen }))}
-                >
-                  <div className="flex items-center gap-4">
-                    <div>
-                      <MemberInfoModal userId={member.id} userName={member.name} targetRole={member.role} />
-                      <p className="text-xs text-gray-400">{member.position}</p>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <span>전체 {summary.total}</span>
-                      <span className="text-green-600 font-medium">완료 {summary.completed}</span>
-                      {summary.abandoned > 0 && <span className="text-gray-400">포기 {summary.abandoned}</span>}
-                      {summary.inProgress > 0 && <span className="text-indigo-500">진행중 {summary.inProgress}</span>}
-                    </div>
-                    {se?.status === 'SUBMITTED' ? (
-                      <span className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 rounded-full px-2.5 py-0.5 font-medium">
-                        <CheckCircle2 className="h-3 w-3" /> 자기평가 제출
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2.5 py-0.5">자기평가 미제출</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {ie?.leadGrade && (
-                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLOR[ie.leadGrade]}`}>
-                        팀장 {ie.leadGrade}
-                      </span>
-                    )}
-                    {ie?.hqGrade && (
-                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLOR[ie.hqGrade]}`}>
-                        본부 {ie.hqGrade}
-                      </span>
-                    )}
-                    {isOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
-                  </div>
-                </button>
+              <div className="rounded-xl border bg-white p-5 space-y-5">
+                <div className="flex items-center gap-2 border-b pb-3">
+                  <MemberInfoModal userId={member.id} userName={member.name} targetRole={member.role} />
+                  <span className="text-xs text-gray-400">{member.role === 'TEAM_LEAD' ? '팀장' : '팀원'}{member.position ? ` · ${member.position}` : ''}</span>
+                  {se?.status === 'SUBMITTED'
+                    ? <span className="ml-auto flex items-center gap-1 text-xs text-blue-600"><CheckCircle2 className="h-3 w-3" /> 자기평가 제출</span>
+                    : <span className="ml-auto text-xs text-gray-400">자기평가 미제출</span>}
+                </div>
 
-                {/* 펼친 내용 */}
-                {isOpen && (
-                  <div className="border-t px-5 py-5 space-y-5">
-
-                    {/* 자기평가 : 핵심업무 — 완료 + 포기 요청/확정 */}
-                    {(() => {
-                      const evalGoals = goals.filter(g => (
-                        g.status === 'COMPLETED' ||
-                        g.status === 'PENDING_ABANDON' ||
-                        (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange)
-                      ));
-                      return (
-                        <div>
-                          <p className="text-sm font-bold text-gray-800 mb-2">자기평가 : 핵심업무 (팀원 작성)</p>
-                          <SelfEvalGoalList
-                            memberId={member.id}
-                            goals={evalGoals}
-                            goalEvals={se?.goalEvals ?? []}
-                            usersById={Object.fromEntries(allUsersCache.map(u => [u.id, u]))}
-                          />
+                {/* 본부장 2차 평가 시 — 팀장 1차 의견 (읽기 전용) */}
+                {isHQ2ndOpinion && (
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
+                    <p className="text-sm font-bold text-gray-800">{approverTitle(ie?.leadSubmittedBy, allUsersCache, '팀장')} 의견 (1차)</p>
+                    {leadOp ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          {leadOp.grade && <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLOR[leadOp.grade]}`}>{leadOp.grade}등급</span>}
+                          <span className="text-xs text-gray-500">{leadOp.name}</span>
+                          {leadOp.at && <span className="text-xs text-gray-400">{leadOp.at.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}</span>}
                         </div>
-                      );
-                    })()}
-
-                    {/* 주간업무보고 내역 — 52주 카드 그리드 */}
-                    <div>
-                      <p className="text-sm font-bold text-gray-800 mb-2">주간업무보고 내역 ({year}년)</p>
-                      <WeeklyTasksGrid tasks={weeklyTasks} year={year} />
-                    </div>
-
-                    {/* 혁신활동 실적 ({year}년) */}
-                    {(innovationsByMember[member.id]?.length ?? 0) > 0 && (
-                      <div>
-                        <p className="text-sm font-bold text-gray-800 mb-2">
-                          혁신활동 실적 ({year}년) · {innovationsByMember[member.id].length}건
-                        </p>
-                        <InnovationList items={innovationsByMember[member.id]} memberId={member.id} revealConfidential />
-                      </div>
-                    )}
-
-                    {/* 육성면담서 요약 */}
-                    {mentoringForms[member.id] && (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-bold text-gray-800">육성면담서 (팀원 작성)</p>
-                          <MentoringFormModal
-                            form={mentoringForms[member.id]}
-                            memberName={member.name}
-                          />
-                        </div>
-                        <div className="rounded-lg border bg-gray-50 p-4 space-y-2 text-sm text-gray-600">
-                          {mentoringForms[member.id].jobRequest !== 'SATISFIED' && (
-                            <div>
-                              <span className="text-xs font-semibold text-gray-500">직무 요청: </span>
-                              {{
-                                EXPAND: '직무 확대',
-                                REDUCE: '직무 축소',
-                                CHANGE: '직무 변경',
-                                RELOCATE: '근무지 이동',
-                                SATISFIED: '만족',
-                              }[mentoringForms[member.id].jobRequest]}
-                              {mentoringForms[member.id].jobRequestReason && ` — ${mentoringForms[member.id].jobRequestReason}`}
-                            </div>
-                          )}
-                          {mentoringForms[member.id].careerPlan && (
-                            <div>
-                              <span className="text-xs font-semibold text-gray-500">경력개발 방향: </span>
-                              {mentoringForms[member.id].careerPlan}
-                            </div>
-                          )}
-                          {mentoringForms[member.id].selfOpinion && (
-                            <div>
-                              <span className="text-xs font-semibold text-gray-500">본인 종합의견: </span>
-                              {mentoringForms[member.id].selfOpinion}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 본부장이 팀원 평가 시에만 — 팀장 1차 의견 표시 (읽기 전용) */}
-                    {isHQ2ndOpinion && (
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
-                        <p className="text-sm font-bold text-gray-800">{approverTitle(ie?.leadSubmittedBy, allUsersCache, '팀장')} 의견 (1차)</p>
-                        {leadOp ? (
-                          <>
-                            <div className="flex items-center gap-2">
-                              {leadOp.grade && (
-                                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLOR[leadOp.grade]}`}>
-                                  {leadOp.grade}등급
-                                </span>
-                              )}
-                              <span className="text-xs text-gray-500">{leadOp.name}</span>
-                              {leadOp.at && (
-                                <span className="text-xs text-gray-400">
-                                  {leadOp.at.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
-                                </span>
-                              )}
-                            </div>
-                            {leadOp.comment && (
-                              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{leadOp.comment}</p>
-                            )}
-                          </>
-                        ) : (
-                          <p className="text-xs text-gray-400 italic">팀장 의견이 아직 제출되지 않았습니다.</p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* 등급 의견 입력
-                        - 일반 팀장: 1차 의견(blue)
-                        - 본부장 + 팀원 평가: 2차 의견(indigo), 팀장 의견 선행 필요
-                        - 본부장 + 팀장 평가: 1차 의견(indigo), 즉시 입력 가능 */}
-                    {canHQInput ? (
-                      <div className={`rounded-lg border p-4 space-y-3 ${isHQHead ? 'border-indigo-100 bg-indigo-50' : 'border-blue-100 bg-blue-50'}`}>
-                        <p className={`text-sm font-bold ${isHQHead ? 'text-indigo-700' : 'text-blue-700'}`}>
-                          {(() => {
-                            const myTitle = userProfile?.position || (isHQHead ? '본부장' : '팀장');
-                            if (isHQ2ndOpinion) return `${myTitle} 2차 의견`;
-                            if (isHQ1stOpinion) return `${myTitle} 1차 의견 (팀장 평가)`;
-                            return `${myTitle} 등급 의견`;
-                          })()}
-                        </p>
-                        <div>
-                          <p className="text-xs text-gray-500 mb-2">등급 선택</p>
-                          <div className="flex gap-2">
-                            {GRADES.map(g => (
-                              <button
-                                key={g}
-                                disabled={isReviewed || saving === member.id}
-                                onClick={() => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], grade: g } }))}
-                                className={`w-10 h-10 rounded-lg text-sm font-bold border-2 transition-all ${
-                                  op.grade === g
-                                    ? `${GRADE_COLOR[g]} border-current`
-                                    : 'bg-white border-gray-200 text-gray-400 hover:border-gray-400'
-                                } disabled:opacity-50 disabled:cursor-not-allowed`}
-                              >
-                                {g}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500 mb-1.5">
-                            의견 <span className="text-[11px] font-normal text-gray-400">— 육성면담서와 인사평가 등급에 대한 종합의견을 작성하십시오 (필수)</span>
-                          </p>
-                          <textarea
-                            value={op.comment}
-                            onChange={e => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
-                            disabled={isReviewed || saving === member.id}
-                            rows={2}
-                            placeholder="등급 의견의 이유를 작성해주세요"
-                            className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-                          />
-                        </div>
-                        <div className="flex justify-end items-center gap-2 flex-wrap">
-                          {isReviewed ? (
-                            <span className="text-xs text-green-600 font-medium">제출 완료 (상위 검토 진행됨)</span>
-                          ) : alreadySubmittedByMe ? (
-                            <>
-                              <span className="text-xs text-blue-600 mr-auto">제출됨 · 상위 확정 전</span>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={saving === member.id}
-                                onClick={() => handleWithdrawOpinion(member.id)}
-                              >
-                                의견 회수
-                              </Button>
-                              <Button
-                                size="sm"
-                                disabled={saving === member.id || !op.grade}
-                                onClick={() => handleSubmitOpinion(member.id)}
-                              >
-                                {saving === member.id ? '저장 중...' : '의견 수정'}
-                              </Button>
-                            </>
-                          ) : (
-                            <Button
-                              size="sm"
-                              disabled={saving === member.id || !op.grade}
-                              onClick={() => handleSubmitOpinion(member.id)}
-                            >
-                              {saving === member.id ? '제출 중...' : '의견 제출'}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center">
-                        <p className="text-xs text-gray-400">팀장 의견 제출 후에 {userProfile?.position || '본부장'} 2차 의견을 입력할 수 있습니다.</p>
-                      </div>
-                    )}
+                        {leadOp.comment && <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{leadOp.comment}</p>}
+                      </>
+                    ) : <p className="text-xs text-gray-400 italic">팀장 의견이 아직 제출되지 않았습니다.</p>}
                   </div>
                 )}
+
+                {/* 등급 의견 입력 */}
+                {canHQInput ? (
+                  <div className={`rounded-lg border p-4 space-y-3 ${isHQHead ? 'border-indigo-100 bg-indigo-50' : 'border-blue-100 bg-blue-50'}`}>
+                    <p className={`text-sm font-bold ${isHQHead ? 'text-indigo-700' : 'text-blue-700'}`}>
+                      {(() => {
+                        const myTitle = userProfile?.position || (isHQHead ? '본부장' : '팀장');
+                        if (isHQ2ndOpinion) return `${myTitle} 2차 의견`;
+                        if (isHQ1stOpinion) return `${myTitle} 1차 의견 (팀장 평가)`;
+                        return `${myTitle} 등급 의견`;
+                      })()}
+                    </p>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-2">등급 선택</p>
+                      <div className="flex gap-2">
+                        {GRADES.map(g => (
+                          <button key={g} disabled={isReviewed || saving === member.id}
+                            onClick={() => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], grade: g } }))}
+                            className={`w-10 h-10 rounded-lg text-sm font-bold border-2 transition-all ${op.grade === g ? `${GRADE_COLOR[g]} border-current` : 'bg-white border-gray-200 text-gray-400 hover:border-gray-400'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+                            {g}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1.5">의견 <span className="text-[11px] font-normal text-gray-400">— 육성면담서와 인사평가 등급에 대한 종합의견을 작성하십시오 (필수)</span></p>
+                      <textarea value={op.comment}
+                        onChange={e => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
+                        disabled={isReviewed || saving === member.id} rows={2} placeholder="등급 의견의 이유를 작성해주세요"
+                        className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                    </div>
+                    <div className="flex justify-end items-center gap-2 flex-wrap">
+                      {isReviewed ? (
+                        <span className="text-xs text-green-600 font-medium">제출 완료 (상위 검토 진행됨)</span>
+                      ) : alreadySubmittedByMe ? (
+                        <>
+                          <span className="text-xs text-blue-600 mr-auto">제출됨 · 상위 확정 전</span>
+                          <Button variant="outline" size="sm" disabled={saving === member.id} onClick={() => handleWithdrawOpinion(member.id)}>의견 회수</Button>
+                          <Button size="sm" disabled={saving === member.id || !op.grade} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '저장 중...' : '의견 수정'}</Button>
+                        </>
+                      ) : (
+                        <Button size="sm" disabled={saving === member.id || !op.grade} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '제출 중...' : '의견 제출'}</Button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center">
+                    <p className="text-xs text-gray-400">팀장 의견 제출 후에 {userProfile?.position || '본부장'} 2차 의견을 입력할 수 있습니다.</p>
+                  </div>
+                )}
+
+                {/* 육성면담 및 업무실적 (통합 육성면담서 — 핵심목표·일반업무·혁신 자기평가 포함) */}
+                <div>
+                  <p className="text-sm font-bold text-gray-800 mb-2">육성면담 및 업무실적</p>
+                  <MentoringPerfBody form={mentoringForms[member.id] ?? null} />
+                </div>
               </div>
             );
-          })}
+              })()}
+            </div>
+          );
+          })()}
           </>
           );
         })()}

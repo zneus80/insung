@@ -24,7 +24,7 @@ export default function RootLayout({
       <body className={`${notoSansKr.className} h-full bg-gray-50 antialiased`}>
         <AuthProvider>
           {children}
-          <Toaster richColors position="top-right" />
+          <Toaster richColors closeButton position="top-right" />
         </AuthProvider>
       </body>
     </html>

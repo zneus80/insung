@@ -18,6 +18,7 @@ import {
   getMileage,
   getAwardsByUser,
   listInnovationActivities,
+  getIndividualEvaluation,
 } from '@/lib/firestore';
 import { getPmIds } from '@/lib/innovation';
 import { roleRank } from '@/lib/user-sort';
@@ -25,6 +26,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import type { User, Organization, Mileage, Award } from '@/types';
+
+// 인사평가 등급 칩 색상
+const GRADE_CHIP: Record<string, string> = {
+  S: 'bg-purple-100 text-purple-700',
+  A: 'bg-blue-100 text-blue-700',
+  B: 'bg-green-100 text-green-700',
+  C: 'bg-gray-100 text-gray-700',
+  D: 'bg-orange-100 text-orange-700',
+  E: 'bg-red-100 text-red-600',
+};
 
 interface RowData {
   user: User;
@@ -37,11 +48,19 @@ interface RowData {
   // 임원 승진: SMART_PROJECT 1건 이상 PM 으로 수행
   qualifyLead: boolean;
   qualifyExec: boolean;
+  grades: Record<number, string | undefined>;  // 연도별 확정 등급 (3개년)
 }
 
 export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
   const { userProfile } = useAuth();
   const { activeYear } = useActiveYear();
+  // 3개년 인사평가 등급 — 관리자(팀장·임원·CEO·HR)에게만 노출. 데이터는 ACL(viewableBy) 경로로만 읽어
+  // 권한 없는 타인 등급은 자동 차단(§6-1 가시성 원칙 준수, 원칙 자체는 불변).
+  const gradeYears = [activeYear, activeYear - 1, activeYear - 2];
+  const canSeeGrades = !!userProfile && (
+    userProfile.role === 'TEAM_LEAD' || userProfile.role === 'EXECUTIVE' ||
+    userProfile.role === 'CEO' || !!userProfile.isHrAdmin || !!userProfile.isHrMaster
+  );
   const [rows, setRows] = useState<RowData[]>([]);
   const [orgsById, setOrgsById] = useState<Map<string, Organization>>(new Map());
   const [scopeLabel, setScopeLabel] = useState('');
@@ -120,10 +139,23 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
 
         // 마일리지·포상·혁신활동 병렬 조회
         //  · SMART_PROJECT 참여 횟수는 innovationActivities 직접 집계 (마일리지 entries 아님)
-        const [mileages, awardLists, innovations] = await Promise.all([
+        const [mileages, awardLists, innovations, gradeLists] = await Promise.all([
           Promise.all(scopeUsers.map(u => getMileage(u.id))),
           Promise.all(scopeUsers.map(u => getAwardsByUser(u.id))),
           listInnovationActivities(activeYear),
+          // 3개년 등급 — 관리자만, ACL 경로(getIndividualEvaluation)로만 조회 → 권한 없으면 자동 미표시
+          canSeeGrades
+            ? Promise.all(scopeUsers.map(async u => {
+                const perYear: Record<number, string | undefined> = {};
+                await Promise.all(gradeYears.map(async y => {
+                  try {
+                    const ie = await getIndividualEvaluation(u.id, y);
+                    perYear[y] = ie?.execGrade ?? ie?.hqGrade ?? ie?.leadGrade ?? undefined;
+                  } catch { /* 권한 없음 → 미표시 */ }
+                }));
+                return perYear;
+              }))
+            : Promise.resolve([] as Record<number, string | undefined>[]),
         ]);
         // 사용자별 스마트프로젝트 PM/멤버 카운트
         const spByUser = new Map<string, { pm: number; member: number }>();
@@ -156,6 +188,7 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
             smartMember,
             qualifyLead,
             qualifyExec,
+            grades: gradeLists[i] ?? {},
           };
         });
         // 1차: 팀(조직) displayOrder 우선, 2차: 직책(팀장→책임→주임→그 외), 3차: 이름 가나다순
@@ -230,6 +263,9 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
                   <th className="px-4 py-3 text-right font-semibold">마일리지</th>
                   <th className="px-4 py-3 text-center font-semibold">스마트프로젝트<br />(PM / 팀원)</th>
                   <th className="px-4 py-3 text-right font-semibold">포상</th>
+                  {canSeeGrades && (
+                    <th className="px-4 py-3 text-center font-semibold">인사평가 등급<br />({gradeYears.join(' / ')})</th>
+                  )}
                   <th className="px-4 py-3 text-center font-semibold">승진요건 충족<br />(팀장 / 임원)</th>
                 </tr>
               </thead>
@@ -258,6 +294,21 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
                       <span className="font-semibold text-amber-600">{r.awardCount}</span>
                       <span className="text-xs text-gray-400 ml-1">건</span>
                     </td>
+                    {canSeeGrades && (
+                      <td className="px-4 py-3 text-center">
+                        <span className="inline-flex items-center gap-1 text-xs">
+                          {gradeYears.map(y => {
+                            const g = r.grades?.[y];
+                            return (
+                              <span key={y} title={`${y}년`}
+                                className={`rounded px-1.5 py-0.5 font-semibold ${g ? (GRADE_CHIP[g] ?? 'bg-gray-100 text-gray-600') : 'bg-gray-50 text-gray-300'}`}>
+                                {g ?? '-'}
+                              </span>
+                            );
+                          })}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-center">
                       <span className="inline-flex items-center gap-1 text-xs">
                         {/* 정식 팀장은 팀장 승진조건 표시 안 함 — 팀장 대행(isActingLead)·팀원만 표시 */}

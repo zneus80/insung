@@ -133,9 +133,9 @@ function MemberDashboard() {
         ]);
 
         setGoals(goalList);
-        // 팀 목표 — 본인 제외 + 휴지통·소프트삭제 제외
+        // 팀 목표 — 팀 전체(본인 포함) + 휴지통·소프트삭제 제외
         setTeamGoals(teamScopeGoals.filter(g =>
-          g.userId !== userProfile!.id && !g.trashedAt && !g.softDeletedAt,
+          !g.trashedAt && !g.softDeletedAt,
         ));
         setPendingCount(pendingCount);
         setUpcomingMeetings(meetings.slice(0, 3));
@@ -166,15 +166,8 @@ function MemberDashboard() {
 
   // 반려확정·포기확정 등은 제외하고 카운트
   const EXCLUDE_FROM_TOTAL = ['REJECTED', 'ABANDONED', 'PENDING_ABANDON'];
-  const activeGoals = goals.filter(g => !EXCLUDE_FROM_TOTAL.includes(g.status) && !g.trashedAt && !g.softDeletedAt);
-  const totalGoals = activeGoals.length;
-  const inProgressGoals = activeGoals.filter(g => ['APPROVED', 'IN_PROGRESS'].includes(g.status));
-  const completedGoals = activeGoals.filter(g => g.status === 'COMPLETED');
-  const avgProgress = inProgressGoals.length
-    ? Math.round(inProgressGoals.reduce((s, g) => s + g.progress, 0) / inProgressGoals.length)
-    : 0;
 
-  // 팀(본인 제외) 목표 통계 — 반려/포기 제외
+  // 팀 전체(본인 포함) 목표 통계 — 반려/포기 제외
   const activeTeamGoals = teamGoals.filter(g => !EXCLUDE_FROM_TOTAL.includes(g.status));
   const teamTotal = activeTeamGoals.length;
   const teamInProgress = activeTeamGoals.filter(g => ['APPROVED', 'IN_PROGRESS'].includes(g.status));
@@ -182,10 +175,6 @@ function MemberDashboard() {
     ? Math.round(teamInProgress.reduce((s, g) => s + g.progress, 0) / teamInProgress.length)
     : 0;
   const teamCompleted = activeTeamGoals.filter(g => g.status === 'COMPLETED').length;
-
-  const recentGoals = goals
-    .filter(g => ['APPROVED', 'IN_PROGRESS', 'DRAFT', 'REJECTED'].includes(g.status))
-    .slice(0, 3);
 
   return (
     <div className="flex flex-col h-full">
@@ -279,47 +268,27 @@ function MemberDashboard() {
         {/* 마일리지 카드 — 회사 목표 바로 다음 (v0.75) */}
         <MileageCard points={myMileage?.points ?? 0} />
 
-        {/* 요약 카드 — 내 목표 / 팀 목표 / 완료된 내 목표 / 완료된 팀 목표 */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <SummaryCard
-            title="내 전체목표"
-            value={String(totalGoals)}
-            sub={`평균 진행률 ${avgProgress}%`}
-            icon={<Target className="h-5 w-5 text-blue-600" />}
-            color="bg-blue-50"
-            href="/goals"
-          />
+        {/* 요약 카드 — 팀 목표 / 완료된 팀 목표 / 승인대기(팀장) / 조직현황 (한 줄, 폭 꽉 채움) */}
+        <div className={`grid grid-cols-2 gap-4 ${userProfile?.role === 'TEAM_LEAD' ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
           <SummaryCard
             title="팀 전체목표"
             value={String(teamTotal)}
-            sub={`평균 진행률 ${teamAvgProgress}%  ·  본인 제외`}
+            sub={`평균 진행률 ${teamAvgProgress}%`}
             icon={<Users className="h-5 w-5 text-indigo-600" />}
             color="bg-indigo-50"
             href="/goals?tab=team"
           />
           <SummaryCard
-            title="완료된 내 목표"
-            value={String(completedGoals.length)}
-            sub="달성한 내 목표"
-            icon={<CheckCircle className="h-5 w-5 text-purple-600" />}
-            color="bg-purple-50"
-            href="/goals?status=COMPLETED"
-          />
-          <SummaryCard
             title="완료된 팀 목표"
             value={String(teamCompleted)}
-            sub="본인 제외"
+            sub="달성한 팀 목표"
             icon={<CheckCircle className="h-5 w-5 text-emerald-600" />}
             color="bg-emerald-50"
             href="/goals?tab=team&status=COMPLETED"
           />
-        </div>
-
-        {/* 추가 카드 — 승인대기 / 예정 1on1 / 조직현황 */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
           {userProfile?.role === 'TEAM_LEAD' && (
             <Link href="/approvals">
-              <Card className={`cursor-pointer hover:shadow-md transition-shadow ${pendingCount > 0 ? 'border-orange-200 bg-orange-50' : ''}`}>
+              <Card className={`cursor-pointer hover:shadow-md transition-shadow h-full ${pendingCount > 0 ? 'border-orange-200 bg-orange-50' : ''}`}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className={`text-sm font-medium ${pendingCount > 0 ? 'text-orange-700' : 'text-gray-500'}`}>승인 대기</CardTitle>
                   <div className={`rounded-lg p-2 ${pendingCount > 0 ? 'bg-orange-100' : 'bg-orange-50'}`}>
@@ -333,29 +302,9 @@ function MemberDashboard() {
               </Card>
             </Link>
           )}
-          {(() => {
-            const oneOnOneCount = upcomingMeetings.length;
-            const highlight = oneOnOneCount > 0;
-            return (
-              <Link href="/oneon1">
-                <Card className={`cursor-pointer hover:shadow-md transition-shadow ${highlight ? 'border-orange-200 bg-orange-50' : ''}`}>
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className={`text-sm font-medium ${highlight ? 'text-orange-700' : 'text-gray-500'}`}>요청된 1on1</CardTitle>
-                    <div className={`rounded-lg p-2 ${highlight ? 'bg-orange-100' : 'bg-orange-50'}`}>
-                      <Clock className={`h-5 w-5 ${highlight ? 'text-orange-600' : 'text-orange-400'}`} />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className={`text-3xl font-bold ${highlight ? 'text-orange-700' : 'text-gray-400'}`}>{oneOnOneCount}</div>
-                    <p className="text-xs text-gray-500 mt-1">다가오는 미팅</p>
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })()}
           <button
             onClick={() => setOrgStatusOpen(true)}
-            className="text-left rounded-xl border bg-white p-4 hover:shadow-md transition-shadow"
+            className="text-left rounded-xl border bg-white p-4 hover:shadow-md transition-shadow h-full"
           >
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-gray-500">조직현황</span>
@@ -613,18 +562,6 @@ function ExecDashboard() {
                     {execPendingCount}<span className="text-sm font-normal ml-1">건</span>
                   </p>
                   <p className={`text-xs mt-1 ${execPendingCount > 0 ? 'text-orange-500' : 'text-gray-400'}`}>처리 필요한 목표</p>
-                </div>
-              </Link>
-              <Link href="/oneon1">
-                <div className={`rounded-xl border px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer ${upcomingMeetings.length > 0 ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-white'}`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Users className={`h-4 w-4 ${upcomingMeetings.length > 0 ? 'text-orange-500' : 'text-blue-500'}`} />
-                    <span className={`text-sm font-semibold ${upcomingMeetings.length > 0 ? 'text-orange-700' : 'text-gray-600'}`}>예정된 1on1</span>
-                  </div>
-                  <p className={`text-2xl font-bold ${upcomingMeetings.length > 0 ? 'text-orange-700' : 'text-gray-400'}`}>
-                    {upcomingMeetings.length}<span className="text-sm font-normal ml-1">건</span>
-                  </p>
-                  <p className={`text-xs mt-1 ${upcomingMeetings.length > 0 ? 'text-orange-500' : 'text-gray-400'}`}>진행 중인 면담</p>
                 </div>
               </Link>
           <button

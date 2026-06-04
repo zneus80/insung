@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
@@ -31,6 +32,7 @@ import InnovationList from '@/components/evaluation/InnovationList';
 import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AiEvalPanel from '@/components/evaluation/AiEvalPanel';
+import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
@@ -86,399 +88,21 @@ export default function EvaluationPage() {
   const { userProfile, effectiveEvalRole } = useAuth();
 
   if (!userProfile) return null;
-  const { role } = userProfile;
-  // 자기평가는 본인이 평가 대상이면 모두(팀원·팀장·본부장·차순위임원) 진입 가능
-  // → MEMBER / TEAM_LEAD / HQ_HEAD / EXEC_SUB
-  if (
-    role === 'MEMBER' ||
-    role === 'TEAM_LEAD' ||
-    effectiveEvalRole === 'HQ_HEAD' ||
-    effectiveEvalRole === 'EXEC_SUB'
-  ) return <MemberEvalView />;
-  // 평가등급확정은 EXEC_TOP(최상위 임원) 만 — 차순위 임원·본부장은 인사평가로 이동
+  // 평가등급확정은 EXEC_TOP(최상위 임원) 만
   if (effectiveEvalRole === 'EXEC_TOP') return <ExecutiveEvalView />;
-  return (
-    <div className="flex flex-col h-full">
-      <Header title="평가 관리" />
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-gray-400">접근 권한이 없습니다.</p>
-      </div>
-    </div>
-  );
+  // 자기평가는 육성면담서로 통합(v0.9) — 작성 대상자는 /mentoring 으로 이동
+  return <RedirectToMentoring />;
 }
 
-// ─── 팀원: 자기평가 ──────────────────────────────────────
-function MemberEvalView() {
-  const { userProfile } = useAuth();
-  const { activeYear: year } = useActiveYear();
-
-  const [cycle, setCycle]               = useState<EvaluationCycle | null>(null);
-  const [completedGoals, setCompleted]  = useState<Goal[]>([]);
-  const [selfEval, setSelfEval]         = useState<SelfEvaluation | null>(null);
-  const [myEval, setMyEval]             = useState<IndividualEvaluation | null>(null);
-  const [goalEvals, setGoalEvals]       = useState<Record<string, { comment: string }>>({});
-  const [loading, setLoading]           = useState(true);
-  const [saving, setSaving]             = useState(false);
-  const [orgChainHasHQ, setOrgChainHasHQ] = useState(false); // 본부장 단계 포함 여부
-  const [editMode, setEditMode] = useState(false);            // SUBMITTED 상태에서 수정 모드
-
-  async function load() {
-    if (!userProfile) return;
-    setLoading(true);
-    try {
-      const [cyc, goals, se, ie, allOrgs] = await Promise.all([
-        getActiveCycle(year),  // v0.76: 활성 연도를 명시 — 안내문이 activeYear 와 어긋나지 않도록
-        getGoalsByUser(userProfile.id, year),
-        getSelfEvaluation(userProfile.id, year),
-        getIndividualEvaluation(userProfile.id, year),
-        getOrganizations(),
-      ]);
-      setEditMode(false); // 재로드 시 수정 모드 해제
-      setCycle(cyc);
-      const done = goals.filter(g => g.status === 'COMPLETED');
-      setCompleted(done);
-      setSelfEval(se);
-      setMyEval(ie);
-      // 본부장 단계 포함 여부 — 본인 조직에서 부모 체인 따라가며 HEADQUARTERS 가 있고
-      // 그 본부의 위에 DIVISION 도 존재할 때만 본부장 단계가 의미 있음
-      let cur = allOrgs.find(o => o.id === userProfile.organizationId);
-      let hasHQ = false;
-      let hasDiv = false;
-      while (cur) {
-        if (cur.type === 'HEADQUARTERS') hasHQ = true;
-        if (cur.type === 'DIVISION') hasDiv = true;
-        cur = cur.parentId ? allOrgs.find(o => o.id === cur!.parentId) : undefined;
-      }
-      setOrgChainHasHQ(hasHQ && hasDiv);
-
-      if (se?.goalEvals?.length) {
-        const map: Record<string, { comment: string }> = {};
-        se.goalEvals.forEach(ge => {
-          // 구버전(good/regret) 데이터를 종합 의견으로 합치기
-          const legacy = [
-            ge.good ? `[잘된 점]\n${ge.good}` : '',
-            ge.regret ? `[아쉬운 점]\n${ge.regret}` : '',
-          ].filter(Boolean).join('\n\n');
-          map[ge.goalId] = { comment: ge.comment || legacy || '' };
-        });
-        setGoalEvals(map);
-      } else {
-        const map: Record<string, { comment: string }> = {};
-        done.forEach(g => { map[g.id] = { comment: '' }; });
-        setGoalEvals(map);
-      }
-    } catch (e: any) {
-      console.error('평가 화면 로드 실패:', e);
-      toast.error('평가 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
-    } finally { setLoading(false); }
-  }
-
-  // userProfile 또는 activeYear(year) 변경 시 재로드 — 연도 전환에 즉시 반응
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [userProfile, year]);
-
-  const now = new Date();
-  const isInEvalPeriod = cycle
-    ? (now >= cycle.evalStartDate && now <= cycle.evalEndDate)
-    : false;
-  const isSubmitted = selfEval?.status === 'SUBMITTED';
-  // 상위 권한자가 검토를 시작했는지 — LEAD_REVIEWED 이상이면 수정 불가
-  const upperReviewStarted = !!myEval && myEval.status !== 'NOT_STARTED' && myEval.status !== 'SELF_SUBMITTED';
-  // 회수/수정 가능: SUBMITTED 인데 상위 단계 미진행
-  const canEditSubmitted = isSubmitted && !upperReviewStarted;
-
-  async function handleSave() {
-    if (!userProfile) return;
-    setSaving(true);
-    try {
-      await upsertSelfEvaluation(userProfile.id, year, {
-        goalEvals: completedGoals.map(g => ({
-          goalId: g.id, goalTitle: g.title,
-          comment: goalEvals[g.id]?.comment ?? '',
-        })),
-        status: 'DRAFT',
-      });
-      toast.success('임시 저장되었습니다.');
-      await load();
-    } finally { setSaving(false); }
-  }
-
-  async function handleSubmit() {
-    if (!userProfile) return;
-    setSaving(true);
-    try {
-      await upsertSelfEvaluation(userProfile.id, year, {
-        goalEvals: completedGoals.map(g => ({
-          goalId: g.id, goalTitle: g.title,
-          comment: goalEvals[g.id]?.comment ?? '',
-        })),
-        status: 'SUBMITTED',
-        submittedAt: new Date(),
-      });
-      await upsertIndividualEvaluation(userProfile.id, year, {
-        organizationId: userProfile.organizationId,
-        status: 'SELF_SUBMITTED',
-      });
-
-      // 상위 검토자(팀장/본부장/임원) 에게 알림 — subject 의 role 에 따라 stage 결정
-      try {
-        const [allOrgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
-        const stage = userProfile.role === 'MEMBER' ? 'LEAD'
-                    : userProfile.role === 'TEAM_LEAD' ? 'HQ'   // 팀장 → 본부장(없으면 EXEC 폴백)
-                    : 'EXEC';                                    // 본부장 등 → 임원
-        const subject = allUsers.find(u => u.id === userProfile.id) ?? userProfile;
-        const res = await notifyEvalReviewer({
-          subject,
-          fromUserId: userProfile.id,
-          fromUserName: userProfile.name,
-          stage,
-          type: 'SELF_EVAL_SUBMITTED',
-          category: 'EVALUATION',
-          title: `${userProfile.name}님 자기평가 제출`,
-          message: `${userProfile.name}님이 ${year}년 자기평가를 제출했습니다. 검토 후 의견을 작성해주세요.`,
-          link: '/evaluation/team',
-          allOrgs,
-          allUsers,
-        });
-        // HQ 스테이지에 본부장이 없으면 EXEC 로 한 번 더 시도
-        if (!res.notified && stage === 'HQ') {
-          await notifyEvalReviewer({
-            subject, fromUserId: userProfile.id, fromUserName: userProfile.name,
-            stage: 'EXEC',
-            type: 'SELF_EVAL_SUBMITTED',
-            category: 'EVALUATION',
-            title: `${userProfile.name}님 자기평가 제출`,
-            message: `${userProfile.name}님이 ${year}년 자기평가를 제출했습니다.`,
-            link: '/evaluation',
-            allOrgs, allUsers,
-          });
-        }
-      } catch (err) {
-        console.error('[자기평가 알림] 실패:', err);
-      }
-
-      toast.success('자기평가를 제출했습니다.');
-      await load();
-    } finally { setSaving(false); }
-  }
-
-  // 제출 회수 — 상위 단계 미진행 시에만 가능
-  async function handleWithdraw() {
-    if (!userProfile) return;
-    if (!confirm('제출한 자기평가를 회수하고 수정 가능 상태로 전환합니다. 계속하시겠습니까?')) return;
-    setSaving(true);
-    try {
-      await upsertSelfEvaluation(userProfile.id, year, {
-        goalEvals: completedGoals.map(g => ({
-          goalId: g.id, goalTitle: g.title,
-          comment: goalEvals[g.id]?.comment ?? '',
-        })),
-        status: 'DRAFT',
-      });
-      await upsertIndividualEvaluation(userProfile.id, year, {
-        organizationId: userProfile.organizationId,
-        status: 'NOT_STARTED',
-      });
-      toast.success('자기평가를 회수했습니다. 다시 수정 후 제출할 수 있습니다.');
-      await load();
-    } catch (err) {
-      console.error('[자기평가 회수] 실패:', err);
-      toast.error('회수에 실패했습니다.');
-    } finally { setSaving(false); }
-  }
-
+// 자기평가 → 육성면담서 통합: /evaluation 진입 시 /mentoring 으로 이동
+function RedirectToMentoring() {
+  const router = useRouter();
+  useEffect(() => { router.replace('/mentoring'); }, [router]);
   return (
     <div className="flex flex-col h-full">
-      <Header title="내 업무 성과 평가" />
-      <div className="flex-1 overflow-y-auto p-6 space-y-5">
-
-        {/* 평가 기간 배너 */}
-        {cycle && (
-          <div className={`rounded-xl border px-5 py-3.5 flex items-center gap-4 ${
-            isInEvalPeriod ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50'
-          }`}>
-            <div className="flex-1">
-              <p className={`text-xs font-semibold ${isInEvalPeriod ? 'text-blue-600' : 'text-gray-500'}`}>
-                {year}년 성과 평가 기간
-              </p>
-              <p className="text-sm text-gray-700 mt-0.5">
-                {cycle.evalStartDate.toLocaleDateString('ko-KR')} ~ {cycle.evalEndDate.toLocaleDateString('ko-KR')}
-                {isInEvalPeriod && <span className="ml-2 font-semibold text-blue-600">진행 중</span>}
-              </p>
-            </div>
-            {isSubmitted && (
-              <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-100 rounded-full px-3 py-1">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> 제출 완료
-                </span>
-                {canEditSubmitted && (
-                  <Button variant="outline" size="sm" onClick={handleWithdraw} disabled={saving}>
-                    회수 후 수정
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 현재 처리 상태 — 사용자 역할·조직 체인에 따라 단계 동적 구성 */}
-        {myEval && myEval.status !== 'NOT_STARTED' && (() => {
-          // 팀장 본인의 자기평가는 팀장 검토(LEAD_REVIEWED) 단계 불필요
-          // 본부장이 있는 조직(본부+부문 모두 존재)이면 HQ_REVIEWED 단계 추가
-          const isSelfTeamLead = userProfile?.role === 'TEAM_LEAD';
-          // 본부장(임원 role + HQ 산하)이 본인 자기평가 작성 — 별도 분기 (HQ_REVIEWED 도 불필요)
-          // 일단 임원 role 은 MemberEvalView 진입 안 함이라 여기서는 신경 X
-          type StageKey = 'SELF_SUBMITTED' | 'LEAD_REVIEWED' | 'HQ_REVIEWED' | 'EXEC_CONFIRMED' | 'PUBLISHED';
-          const stages: { key: StageKey; label: string }[] = [{ key: 'SELF_SUBMITTED', label: '자기평가 제출' }];
-          if (!isSelfTeamLead) stages.push({ key: 'LEAD_REVIEWED', label: '팀장 검토 완료' });
-          if (orgChainHasHQ) stages.push({ key: 'HQ_REVIEWED', label: '본부장 검토 완료' });
-          stages.push({ key: 'EXEC_CONFIRMED', label: '임원 등급 확정' });
-          stages.push({ key: 'PUBLISHED', label: '결과 공개' });
-
-          // 현재 상태가 어디까지 진행됐는지 판정
-          // SELF_SUBMITTED < LEAD_REVIEWED < HQ_REVIEWED < EXEC_CONFIRMED < PUBLISHED 의 자연 순서 따름
-          const rank: Record<string, number> = {
-            NOT_STARTED: -1,
-            SELF_SUBMITTED: 0,
-            LEAD_REVIEWED: 1,
-            HQ_REVIEWED: 2,
-            EXEC_CONFIRMED: 3,
-            PUBLISHED: 4,
-          };
-          const currentRank = rank[myEval.status] ?? -1;
-
-          return (
-          <div className="rounded-xl border bg-white px-5 py-4">
-            <p className="text-xs text-gray-500 mb-1">평가 진행 상태</p>
-            <div className="flex items-center gap-2 flex-wrap">
-              {stages.map((s, i) => {
-                const isDone = currentRank >= rank[s.key];
-                return (
-                  <span key={s.key} className={`rounded-full px-3 py-1 text-xs font-medium ${
-                    isDone ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'
-                  }`}>
-                    {i + 1}. {s.label}
-                  </span>
-                );
-              })}
-            </div>
-            {myEval.status === 'PUBLISHED' && myEval.execGrade && (
-              <div className="mt-3 flex items-center gap-3">
-                <span className="text-sm text-gray-600">최종 등급</span>
-                <span className={`rounded-full px-4 py-1.5 text-xl font-bold ${GRADE_COLOR[myEval.execGrade]}`}>
-                  {myEval.execGrade}
-                </span>
-                {myEval.execComment && (
-                  <p className="text-sm text-gray-500">{myEval.execComment}</p>
-                )}
-              </div>
-            )}
-          </div>
-          );
-        })()}
-
-        {/* 평가 기간 아님 */}
-        {!isInEvalPeriod && !isSubmitted && (
-          <div className="rounded-xl border border-dashed p-10 text-center space-y-2">
-            <Clock className="h-8 w-8 mx-auto text-gray-300" />
-            <p className="text-gray-500 font-medium">아직 평가 기간이 아닙니다.</p>
-            {cycle && (
-              <p className="text-sm text-gray-400">
-                {cycle.evalStartDate.toLocaleDateString('ko-KR')}부터 성과를 입력할 수 있습니다.
-              </p>
-            )}
-            {!cycle && (
-              <p className="text-sm text-gray-400">HR 관리자에게 평가 사이클 설정을 요청해주세요.</p>
-            )}
-          </div>
-        )}
-
-        {/* 제출 완료: 읽기 전용 */}
-        {isSubmitted && selfEval && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900">제출한 성과 내용</h3>
-              {canEditSubmitted && (
-                <p className="text-xs text-blue-600">상위 검토 전이라 회수 후 수정이 가능합니다.</p>
-              )}
-              {!canEditSubmitted && upperReviewStarted && (
-                <p className="text-xs text-gray-400">상위 검토가 시작되어 수정할 수 없습니다.</p>
-              )}
-            </div>
-            {selfEval.goalEvals.length === 0 ? (
-              <p className="text-sm text-gray-400 py-4">완료된 목표가 없었습니다.</p>
-            ) : (
-              selfEval.goalEvals.map(ge => {
-                // 구버전(잘된 점/아쉬운 점) 데이터는 합쳐서 표시
-                const legacyCombined = [
-                  ge.good ? `[잘된 점]\n${ge.good}` : '',
-                  ge.regret ? `[아쉬운 점]\n${ge.regret}` : '',
-                ].filter(Boolean).join('\n\n');
-                const displayText = ge.comment || legacyCombined || '—';
-                return (
-                  <div key={ge.goalId} className="rounded-xl border bg-white p-5 space-y-3">
-                    <p className="font-medium text-gray-900">{ge.goalTitle}</p>
-                    <div>
-                      <p className="text-xs font-semibold text-blue-600 mb-1.5">종합 의견</p>
-                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{displayText}</p>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
-
-        {/* 평가 입력 폼 */}
-        {(isInEvalPeriod || !cycle) && !isSubmitted && (
-          <div className="space-y-4">
-            <div>
-              <h3 className="font-semibold text-gray-900">완료된 업무 성과 입력</h3>
-              <p className="text-xs text-gray-500 mt-0.5">완료된 목표별로 종합 의견을 작성하고 제출하세요.</p>
-            </div>
-
-            {loading ? <LoadingSpinner /> : completedGoals.length === 0 ? (
-              <div className="rounded-xl border border-dashed p-10 text-center">
-                <AlertCircle className="h-7 w-7 mx-auto text-gray-300 mb-2" />
-                <p className="text-gray-400">완료된 목표가 없습니다.</p>
-                <p className="text-xs text-gray-400 mt-1">진행 중인 목표를 완료 처리 후 성과를 입력할 수 있습니다.</p>
-              </div>
-            ) : (
-              completedGoals.map(goal => (
-                <div key={goal.id} className="rounded-xl border bg-white p-5 space-y-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-gray-900">{goal.title}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        기한: {goal.dueDate.toLocaleDateString('ko-KR')} · 진행률: {goal.progress}%
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">완료</span>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-blue-600 block mb-1.5">종합 의견</label>
-                    <textarea
-                      value={goalEvals[goal.id]?.comment ?? ''}
-                      onChange={e => setGoalEvals(p => ({ ...p, [goal.id]: { ...p[goal.id], comment: e.target.value } }))}
-                      rows={4}
-                      placeholder="이 업무에서의 종합 의견(잘된 점·아쉬운 점·개선 방향 등)을 자유롭게 작성해주세요"
-                      className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              ))
-            )}
-
-            {!loading && completedGoals.length > 0 && (
-              <div className="flex justify-end gap-3 pt-2">
-                <Button variant="outline" onClick={handleSave} disabled={saving}>임시 저장</Button>
-                <Button onClick={handleSubmit} disabled={saving}>
-                  {saving ? '제출 중...' : '제출'}
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-
+      <Header title="평가" />
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-gray-400 text-sm">육성면담서로 이동 중…</p>
       </div>
     </div>
   );
@@ -499,8 +123,7 @@ function ExecutiveEvalView() {
   const [innovationsByMember, setInnovationsByMember] = useState<Record<string, InnovationActivity[]>>({});
   const [quotas, setQuotas]           = useState<DivisionGradeQuota | null>(null);
   const [confirmInputs, setConfirm]   = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
-  const [expanded, setExpanded]       = useState<Record<string, boolean>>({});
-  const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null); // 선택된 멤버(하단 상세)
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState<string | null>(null);
   const [execUsersCache, setExecUsersCache] = useState<User[]>([]); // 공동수행자 이름 조회용
@@ -634,7 +257,7 @@ function ExecutiveEvalView() {
       const raw = sessionStorage.getItem(EVAL_RETURN_KEY);
       if (!raw) return;
       const st = JSON.parse(raw) as { memberId?: string };
-      if (st.memberId) setExpanded(p => ({ ...p, [st.memberId!]: true }));
+      if (st.memberId) setSelectedMemberId(st.memberId);
     } catch { /* 무시 */ }
   }, []);
 
@@ -802,135 +425,60 @@ function ExecutiveEvalView() {
             </div>
             {(() => {
               const orgMembers = membersByOrg[activeOrgTab] ?? [];
+              const selected = orgMembers.find(m => m.id === selectedMemberId) ?? null;
               return (
-            <div className="space-y-2 pt-3">
-              {orgMembers.map(member => {
-                const ie = indivEvals[member.id];
-                const se = selfEvals[member.id];
-                const isConfirmed = ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
-                const input = confirmInputs[member.id] ?? { grade: '', comment: '' };
-                const isOpen = expanded[member.id] ?? false;
-
-                return (
-                  <div key={member.id} className="rounded-xl border bg-white overflow-hidden">
-                    {/* 헤더 */}
-                    <button
-                      className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-gray-50 transition-colors"
-                      onClick={() => setExpanded(p => ({ ...p, [member.id]: !isOpen }))}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div>
-                          <MemberInfoModal userId={member.id} userName={member.name} targetRole={member.role} />
-                          <p className="text-xs text-gray-400">
-                            {member.role === 'TEAM_LEAD' ? '팀장' : '팀원'} {member.position && `· ${member.position}`}
-                          </p>
-                        </div>
-                        {ie?.leadGrade && (
-                          <span className={`text-xs rounded-full px-2.5 py-0.5 font-medium ${GRADE_COLOR[ie.leadGrade]}`}>
-                            팀장 {ie.leadGrade}
-                          </span>
-                        )}
-                        {ie?.hqGrade && (
-                          <span className={`text-xs rounded-full px-2.5 py-0.5 font-medium ${GRADE_COLOR[ie.hqGrade]}`}>
-                            본부 {ie.hqGrade}
-                          </span>
-                        )}
-                        {!ie?.leadGrade && !ie?.hqGrade && (
-                          <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2.5 py-0.5">의견 없음</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {isConfirmed && ie.execGrade && (
-                          <span className={`rounded-full px-3 py-0.5 text-sm font-bold ${GRADE_COLOR[ie.execGrade]}`}>
-                            확정 {ie.execGrade}
-                          </span>
-                        )}
-                        {isOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
-                      </div>
-                    </button>
-
-                    {/* 펼친 내용 */}
-                    {isOpen && (
-                      <div className="border-t px-5 py-5 space-y-5">
-                        {/* 자기평가 : 핵심업무 — 완료 + 포기 요청/확정 */}
-                        {(() => {
-                          const memberGoals = goalsByMember[member.id] ?? [];
-                          const evalGoals = memberGoals.filter(g => (
-                            g.status === 'COMPLETED' ||
-                            g.status === 'PENDING_ABANDON' ||
-                            (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange)
-                          ));
-                          return (
-                            <div>
-                              <p className="text-sm font-bold text-gray-800 mb-2">자기평가 : 핵심업무 (팀원 작성)</p>
-                              <SelfEvalGoalList
-                                memberId={member.id}
-                                goals={evalGoals}
-                                goalEvals={se?.goalEvals ?? []}
-                                usersById={Object.fromEntries(execUsersCache.map(u => [u.id, u]))}
-                              />
-                            </div>
-                          );
-                        })()}
-
-                        {/* 주간업무보고 내역 — 52주 카드 그리드 */}
-                        <div>
-                          <p className="text-sm font-bold text-gray-800 mb-2">주간업무보고 내역 ({year}년)</p>
-                          <WeeklyTasksGrid tasks={weeklyTasksByMember[member.id] ?? []} year={year} />
-                        </div>
-
-                        {/* 혁신활동 실적 ({year}년) */}
-                        {(innovationsByMember[member.id]?.length ?? 0) > 0 && (
-                          <div>
-                            <p className="text-sm font-bold text-gray-800 mb-2">
-                              혁신활동 실적 ({year}년) · {innovationsByMember[member.id].length}건
+                <div className="space-y-4 pt-3">
+                  {/* 팀장·팀원 병렬 카드 */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {orgMembers.map(member => {
+                      const ie = indivEvals[member.id];
+                      const se = selfEvals[member.id];
+                      const isConfirmed = ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
+                      const isLead = member.role === 'TEAM_LEAD';
+                      const isSel = selectedMemberId === member.id;
+                      const submitted = se?.status === 'SUBMITTED' || !!mentoringForms[member.id];
+                      return (
+                        <button key={member.id}
+                          onClick={() => setSelectedMemberId(isSel ? null : member.id)}
+                          className={cn('text-left rounded-xl border bg-white p-4 transition-all hover:shadow-sm',
+                            isSel ? 'border-indigo-400 ring-1 ring-indigo-200' : isLead ? 'border-amber-200' : 'border-gray-200')}>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
+                              {member.name}
+                              <span className="ml-1 text-xs font-normal text-gray-400">{isLead ? '팀장' : '팀원'}{member.position ? ` · ${member.position}` : ''}</span>
                             </p>
-                            <InnovationList items={innovationsByMember[member.id]} memberId={member.id} revealConfidential />
+                            {isConfirmed && ie?.execGrade && (
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold shrink-0 ${GRADE_COLOR[ie.execGrade]}`}>확정 {ie.execGrade}</span>
+                            )}
                           </div>
-                        )}
-
-                        {/* 육성면담서 */}
-                        {mentoringForms[member.id] && (
-                          <div>
-                            <div className="flex items-center justify-between mb-2">
-                              <p className="text-sm font-bold text-gray-800">육성면담서 (팀원 작성)</p>
-                              <MentoringFormModal
-                                form={mentoringForms[member.id]}
-                                memberName={member.name}
-                                leadOpinion={ie?.leadComment}
-                              />
-                            </div>
-                            <div className="rounded-lg border bg-gray-50 p-4 space-y-2 text-sm text-gray-600">
-                              {mentoringForms[member.id].jobRequest !== 'SATISFIED' && (
-                                <div>
-                                  <span className="text-xs font-semibold text-gray-500">직무 요청: </span>
-                                  {{
-                                    EXPAND: '직무 확대',
-                                    REDUCE: '직무 축소',
-                                    CHANGE: '직무 변경',
-                                    RELOCATE: '근무지 이동',
-                                    SATISFIED: '만족',
-                                  }[mentoringForms[member.id].jobRequest]}
-                                  {mentoringForms[member.id].jobRequestReason && ` — ${mentoringForms[member.id].jobRequestReason}`}
-                                </div>
-                              )}
-                              {mentoringForms[member.id].careerPlan && (
-                                <div>
-                                  <span className="text-xs font-semibold text-gray-500">경력개발 방향: </span>
-                                  {mentoringForms[member.id].careerPlan}
-                                </div>
-                              )}
-                              {mentoringForms[member.id].selfOpinion && (
-                                <div>
-                                  <span className="text-xs font-semibold text-gray-500">본인 종합의견: </span>
-                                  {mentoringForms[member.id].selfOpinion}
-                                </div>
-                              )}
-                            </div>
+                          {/* 이전 평가등급 의견(임원 화면) — 팀장·본부 의견을 검토중으로 표시 */}
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            {ie?.leadGrade && <span className={`text-[11px] rounded-full px-2 py-0.5 ${GRADE_COLOR[ie.leadGrade]}`}>팀장 {ie.leadGrade}</span>}
+                            {ie?.hqGrade && <span className={`text-[11px] rounded-full px-2 py-0.5 ${GRADE_COLOR[ie.hqGrade]}`}>본부 {ie.hqGrade}</span>}
+                            {(ie?.leadGrade || ie?.hqGrade)
+                              ? (!isConfirmed && <span className="text-[11px] text-amber-600">· 검토중</span>)
+                              : <span className="text-[11px] text-gray-400">이전 의견 없음</span>}
+                            {!submitted && <span className="text-[11px] text-gray-300">· 미제출</span>}
                           </div>
-                        )}
+                        </button>
+                      );
+                    })}
+                  </div>
 
-                        {/* 팀장 의견 — 작성자 직책으로 라벨 */}
+                  {/* 선택 멤버 상세 — 등급 확정 + 육성면담 및 업무실적 */}
+                  {selected && (() => {
+                    const member = selected;
+                    const ie = indivEvals[member.id];
+                    const isConfirmed = ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
+                    const input = confirmInputs[member.id] ?? { grade: '', comment: '' };
+                    return (
+                      <div className="rounded-xl border bg-white p-5 space-y-5">
+                        <div className="flex items-center gap-2 border-b pb-3">
+                          <MemberInfoModal userId={member.id} userName={member.name} targetRole={member.role} />
+                          <span className="text-xs text-gray-400">{member.role === 'TEAM_LEAD' ? '팀장' : '팀원'}{member.position ? ` · ${member.position}` : ''}</span>
+                        </div>
+
+                        {/* 팀장 의견 (1차) */}
                         {ie?.leadGrade && (
                           <div className="rounded-lg bg-gray-50 px-4 py-3">
                             <p className="text-sm font-bold text-gray-800 mb-1.5">{approverTitle(ie.leadSubmittedBy, execUsersCache, '팀장')} 의견 (1차)</p>
@@ -940,8 +488,7 @@ function ExecutiveEvalView() {
                             </div>
                           </div>
                         )}
-
-                        {/* 본부장 의견 (2차) — 작성자 직책으로 라벨 */}
+                        {/* 본부장 의견 (2차) */}
                         {ie?.hqGrade && (
                           <div className="rounded-lg bg-indigo-50/50 border border-indigo-100 px-4 py-3">
                             <p className="text-sm font-bold text-indigo-700 mb-1.5">{approverTitle(ie.hqReviewedBy, execUsersCache, '본부장')} 의견 (2차)</p>
@@ -952,7 +499,7 @@ function ExecutiveEvalView() {
                           </div>
                         )}
 
-                        {/* 등급 확정 입력 — 본인 직책 표시 */}
+                        {/* 등급 확정 입력 */}
                         <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-3">
                           <p className="text-sm font-bold text-indigo-700">{userProfile?.position || '임원'} 등급 확정</p>
                           <div>
@@ -968,60 +515,48 @@ function ExecutiveEvalView() {
                                       disabled={isConfirmed || saving === member.id || isFull}
                                       onClick={() => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], grade: g } }))}
                                       className={`w-10 h-10 rounded-lg text-sm font-bold border-2 transition-all ${
-                                        isSelected
-                                          ? `${GRADE_COLOR[g]} border-current`
-                                          : isFull
-                                            ? 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed'
-                                            : 'bg-white border-gray-200 text-gray-400 hover:border-gray-400'
-                                      } disabled:opacity-50`}
-                                    >
+                                        isSelected ? `${GRADE_COLOR[g]} border-current`
+                                          : isFull ? 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed'
+                                          : 'bg-white border-gray-200 text-gray-400 hover:border-gray-400'
+                                      } disabled:opacity-50`}>
                                       {g}
                                     </button>
-                                    {quotas && (
-                                      <p className={`text-[10px] mt-0.5 ${remaining <= 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                                        잔여{remaining}
-                                      </p>
-                                    )}
+                                    {quotas && <p className={`text-[10px] mt-0.5 ${remaining <= 0 ? 'text-red-400' : 'text-gray-400'}`}>잔여{remaining}</p>}
                                   </div>
                                 );
                               })}
                             </div>
                           </div>
                           <div>
-                            <p className="text-xs text-gray-500 mb-1.5">
-                              의견 <span className="text-[11px] font-normal text-gray-400">— 육성면담서와 인사평가 등급에 대한 종합의견을 작성하십시오 (필수)</span>
-                            </p>
+                            <p className="text-xs text-gray-500 mb-1.5">의견 <span className="text-[11px] font-normal text-gray-400">— 육성면담서와 인사평가 등급에 대한 종합의견 (필수)</span></p>
                             <textarea
                               value={input.comment}
                               onChange={e => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
                               disabled={isConfirmed || saving === member.id}
                               rows={2}
                               placeholder="등급 부여 이유 또는 의견을 작성해주세요"
-                              className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50"
-                            />
+                              className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50" />
                           </div>
                           <div className="flex justify-end">
                             {isConfirmed ? (
-                              <span className="text-xs text-green-600 font-medium flex items-center gap-1">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> 확정 완료
-                              </span>
+                              <span className="text-xs text-green-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> 확정 완료</span>
                             ) : (
-                              <Button
-                                size="sm"
-                                disabled={saving === member.id || !input.grade}
-                                onClick={() => handleConfirm(member.id)}
-                              >
+                              <Button size="sm" disabled={saving === member.id || !input.grade} onClick={() => handleConfirm(member.id)}>
                                 {saving === member.id ? '확정 중...' : '등급 확정'}
                               </Button>
                             )}
                           </div>
                         </div>
+
+                        {/* 육성면담 및 업무실적 (통합 육성면담서 — 핵심목표·일반업무·혁신 자기평가 포함) */}
+                        <div>
+                          <p className="text-sm font-bold text-gray-800 mb-2">육성면담 및 업무실적</p>
+                          <MentoringPerfBody form={mentoringForms[member.id] ?? null} />
+                        </div>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    );
+                  })()}
+                </div>
               );
             })()}
           </>

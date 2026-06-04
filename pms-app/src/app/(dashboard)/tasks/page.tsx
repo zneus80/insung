@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getTeamWeeklyTask,
+  getWeeklyTasksByMembersAndYear,
   upsertTeamWeeklyTask,
   subscribeTeamWeeklyTask,
   addLeadComment,
@@ -435,7 +436,8 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     let alive = true;
     setActiveGoals([]);
     getGoalsByOrganization(orgId, year)
-      .then(list => { if (alive) setActiveGoals(list.filter(g => WEEKLY_GOAL_STATUSES.has(g.status))); })
+      // 진행 목표 + 완료 목표(완료 주차까지만 표시하기 위해 포함) — 주차별 가시성은 renderSection 에서 필터
+      .then(list => { if (alive) setActiveGoals(list.filter(g => WEEKLY_GOAL_STATUSES.has(g.status) || g.status === 'COMPLETED')); })
       .catch(() => {});
     return () => { alive = false; };
   }, [orgId, year]);
@@ -544,9 +546,28 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     if (section === 'hd') { const n = hasDoneItems.filter(i => i.id !== id); setHasDoneItems(n); saveBody(n, willDoItems); }
     else { const n = willDoItems.filter(i => i.id !== id); setWillDoItems(n); saveBody(hasDoneItems, n); }
   }
-  function toggleImportant(section: 'hd' | 'wd', id: string) {
-    if (section === 'hd') { const n = hasDoneItems.map(i => i.id === id ? { ...i, important: !i.important } : i); setHasDoneItems(n); saveBody(n, willDoItems); }
-    else { const n = willDoItems.map(i => i.id === id ? { ...i, important: !i.important } : i); setWillDoItems(n); saveBody(hasDoneItems, n); }
+  async function toggleImportant(section: 'hd' | 'wd', id: string) {
+    const list = section === 'hd' ? hasDoneItems : willDoItems;
+    const item = list.find(i => i.id === id);
+    if (!item) return;
+    const turningOn = !item.important;
+    // 주요 일반업무(goalId 없는 항목) 별표를 켤 때만 — 작성자 1인당 연간 5개 제한
+    if (turningOn && !item.goalId) {
+      const authorId = item.authorId ?? currentUser.id;
+      try {
+        const yearDocs = await getWeeklyTasksByMembersAndYear([{ id: authorId, organizationId: orgId }], year);
+        const starred = yearDocs
+          .flatMap(t => (t.hasDoneItems ?? []).map(i => ({ i, owner: i.authorId ?? t.userId })))
+          .filter(x => x.i.important && !x.i.goalId && x.owner === authorId);
+        if (starred.length >= 5) {
+          toast.error('주요 일반업무 별표는 1인당 연간 5개까지만 지정할 수 있습니다.');
+          return;
+        }
+      } catch { /* 집계 실패 시 통과 */ }
+    }
+    const n = list.map(i => i.id === id ? { ...i, important: !i.important } : i);
+    if (section === 'hd') { setHasDoneItems(n); saveBody(n, willDoItems); }
+    else { setWillDoItems(n); saveBody(hasDoneItems, n); }
   }
 
   function renderItemRow(section: 'hd' | 'wd', item: SimpleTaskItem, isGreen: boolean) {
@@ -560,13 +581,14 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     const hasTitle = !!item.title?.trim();
     return (
       <div key={item.id} className={cn('flex items-start gap-2.5 px-3 py-2.5 group hover:bg-gray-50 transition-colors', item.important && 'bg-amber-50/60')}>
-        {isGreen && !isBodyLocked && (
-          <button onClick={() => toggleImportant(section, item.id)} title={item.important ? '중요 해제' : '중요 표시'}
+        {/* 별표(주요 일반업무실적)는 일반업무 항목에만 — 핵심업무는 목표로 평가되므로 제외 */}
+        {isGreen && !isBodyLocked && !item.goalId && (
+          <button onClick={() => toggleImportant(section, item.id)} title={item.important ? '중요 해제' : '중요 표시 (육성면담서 주요 일반업무실적 연동, 연 5개)'}
             className={cn('shrink-0 mt-0.5 rounded p-0.5 transition-colors', item.important ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400')}>
             <Star className={cn('h-4 w-4', item.important && 'fill-amber-400')} />
           </button>
         )}
-        {isGreen && isBodyLocked && item.important && (
+        {isGreen && isBodyLocked && item.important && !item.goalId && (
           <Star className="h-4 w-4 shrink-0 mt-0.5 text-amber-500 fill-amber-400" />
         )}
         <div className="flex-1 min-w-0">
@@ -608,7 +630,15 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
 
   function renderSection(section: 'hd' | 'wd', items: SimpleTaskItem[], isGreen: boolean) {
     const general = items.filter(i => !i.goalId);
-    const orphan = items.filter(i => i.goalId && !activeGoals.some(g => g.id === i.goalId));
+    // 핵심업무에 표시할 목표 — 완료 목표는 완료한 주차까지만(차주부터 미표시). 그 외 종료/이전 목표는 미표시.
+    const viewedKey = year * 100 + week;
+    const goalsToShow = activeGoals.filter(g => {
+      if (g.status !== 'COMPLETED') return true;
+      const at = g.completionExecApprovedAt ?? g.updatedAt;
+      if (!at) return false;
+      const w = getISOWeek(at instanceof Date ? at : new Date(at));
+      return viewedKey <= (w.year * 100 + w.week);
+    });
     return (
       <div className="rounded-xl border bg-white overflow-hidden">
         <div className={cn('px-4 py-2.5 border-b flex items-center gap-2', isGreen ? 'bg-green-50' : 'bg-gray-50')}>
@@ -618,10 +648,10 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
           <span className={cn('text-xs', isGreen ? 'text-green-500' : 'text-gray-400')}>{items.length}건</span>
         </div>
 
-        {(activeGoals.length > 0 || orphan.length > 0) && (
+        {goalsToShow.length > 0 && (
           <div>
             <div className="px-4 py-1.5 bg-blue-50/70 border-b text-[11px] font-bold text-blue-700">핵심업무</div>
-            {activeGoals.map(g => {
+            {goalsToShow.map(g => {
               const gItems = items.filter(i => i.goalId === g.id);
               const pct = goalProgress[g.id] ?? g.progress ?? 0;
               return (
@@ -654,12 +684,6 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
                 </div>
               );
             })}
-            {orphan.length > 0 && (
-              <div className="border-b last:border-b-0">
-                <div className="px-3 py-2 bg-gray-50/60 text-sm font-semibold text-gray-400">기타(종료/이전 목표)</div>
-                <div className="divide-y">{orphan.map(it => renderItemRow(section, it, isGreen))}</div>
-              </div>
-            )}
           </div>
         )}
 

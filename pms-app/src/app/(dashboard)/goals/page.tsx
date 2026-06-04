@@ -54,6 +54,7 @@ function MyGoalsView() {
   const [teamScopeOrgs, setTeamScopeOrgs] = useState<Organization[]>([]);
   const [activeTeamOrgId, setActiveTeamOrgId] = useState<string>(''); // 다중 팀 겸직 시 활성 팀
   const [orgsMap, setOrgsMap] = useState<Record<string, string>>({}); // orgId → 조직명
+  const [nameById, setNameById] = useState<Record<string, string>>({}); // userId → 이름 (공동수행자 표시용)
 
   const [loading, setLoading] = useState(true);
   const [teamLoading, setTeamLoading] = useState(false);
@@ -101,6 +102,7 @@ function MyGoalsView() {
       // 같은 조직 구성원 전체 조회 (팀장 포함)
       const [orgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
       setOrgsMap(Object.fromEntries(orgs.map(o => [o.id, o.name])));
+      setNameById(Object.fromEntries(allUsers.map(u => [u.id, u.name])));
       const myOrg = orgs.find(o => o.id === userProfile!.organizationId);
 
       // 다중 팀·본부 겸직 지원 — home org descendants ∪ 본인이 leaderId 인 모든 조직 descendants
@@ -163,26 +165,26 @@ function MyGoalsView() {
       });
       setTeamGoals(active);
 
-      // 팀원 프로필 조회
+      // 팀원 프로필 조회 (본인 포함 — 통합 팀 뷰)
       const uniqueIds = [...new Set(active.map(g => g.userId))];
       const map: Record<string, User> = {};
       uniqueIds.forEach(uid => {
         const u = allUsers.find(u => u.id === uid);
         if (u) map[uid] = u;
       });
+      const selfUser = allUsers.find(u => u.id === userProfile!.id);
+      if (selfUser) map[selfUser.id] = selfUser;
       setTeamUsers(map);
 
-      // 첫 번째 멤버 기본 펼침
-      if (uniqueIds.length > 0) setExpandedMembers(new Set([uniqueIds[0]]));
+      // 첫 번째 멤버 기본 펼침 — 본인 우선
+      setExpandedMembers(new Set([userProfile!.id]));
     } finally {
       setTeamLoading(false);
     }
   }, [userProfile, year]);
 
   useEffect(() => { loadMy(); }, [loadMy]);
-  useEffect(() => {
-    if (activeTab === 'team' && teamGoals.length === 0 && !teamLoading) loadTeam();
-  }, [activeTab]);
+  useEffect(() => { loadTeam(); }, [loadTeam]);
 
   // 소프트 삭제된 목표는 본인 화면(휴지통 포함)에서 완전히 숨김 (평가 페이지에서는 계속 표시)
   const visibleMyGoals = myGoals.filter(g => !g.softDeletedAt);
@@ -215,6 +217,20 @@ function MyGoalsView() {
     (acc[g.userId] ??= []).push(g);
     return acc;
   }, {});
+  // 통합 뷰: 본인 목표(초안·반려 등 전체 상태)를 본인 팀 그룹에 포함
+  if (userProfile && myActive.length > 0) {
+    teamByMember[userProfile.id] = myActive;
+  }
+
+  // 공동업무 참가자 이름(수행자+공동수행자, 구분 없이 차례대로)
+  function participantNamesOf(g: Goal): string[] {
+    const ids = [g.userId, ...(g.collaboratorIds ?? [])];
+    const seen = new Set<string>();
+    return ids
+      .filter(id => id && !seen.has(id) && (seen.add(id), true))
+      .map(id => nameById[id] ?? (id === userProfile?.id ? (userProfile?.name ?? '') : ''))
+      .filter(Boolean);
+  }
 
   function toggleMember(uid: string) {
     setExpandedMembers(prev => {
@@ -226,7 +242,7 @@ function MyGoalsView() {
 
   function handleEdit(goal: Goal) { setEditGoal(goal); setFormOpen(true); }
   function handleAdd() { setEditGoal(undefined); setFormOpen(true); }
-  function handleSave() { loadMy(); if (activeTab === 'team') loadTeam(); }
+  function handleSave() { loadMy(); loadTeam(); }
 
   async function handleTrash(goal: Goal) {
     const isFinalAbandoned = goal.status === 'ABANDONED' && !!goal.approvedBy;
@@ -348,28 +364,15 @@ function MyGoalsView() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
 
-          {/* 탭 버튼 + 액션 버튼 (같은 줄) */}
-          <div className="flex items-center justify-between">
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-              {(['my', 'team'] as const).map(t => (
-                <button key={t} onClick={() => setActiveTab(t)}
-                  className={cn('px-5 py-1.5 rounded-md text-sm font-medium transition-colors',
-                    activeTab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
-                  {t === 'my' ? '내 목표' : '팀 목표'}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              {activeTab === 'my' && (
-                <Button size="sm" onClick={handleAdd} className="gap-1.5">
-                  <Plus className="h-4 w-4" /> 목표 추가
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setTrashOpen(true)} className="gap-1.5 text-gray-500">
-                <Trash2 className="h-4 w-4" />
-                휴지통{trashGoals.length > 0 && ` (${trashGoals.length})`}
-              </Button>
-            </div>
+          {/* 액션 버튼 (내목표/팀목표 통합 — 팀명 탭으로 구분) */}
+          <div className="flex items-center justify-end gap-2">
+            <Button size="sm" onClick={handleAdd} className="gap-1.5">
+              <Plus className="h-4 w-4" /> 목표 추가
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setTrashOpen(true)} className="gap-1.5 text-gray-500">
+              <Trash2 className="h-4 w-4" />
+              휴지통{trashGoals.length > 0 && ` (${trashGoals.length})`}
+            </Button>
           </div>
 
             {/* 상태 필터 표시 */}
@@ -377,7 +380,7 @@ function MyGoalsView() {
               <div className="flex items-center justify-between rounded-lg border border-purple-200 bg-purple-50 px-4 py-2 text-sm">
                 <span className="text-purple-700 font-medium">완료된 목표만 표시 중</span>
                 <button
-                  onClick={() => router.replace(`/goals${activeTab === 'team' ? '?tab=team' : ''}`)}
+                  onClick={() => router.replace('/goals')}
                   className="text-purple-700 hover:underline"
                 >
                   전체 보기
@@ -385,56 +388,10 @@ function MyGoalsView() {
               </div>
             )}
 
-            {/* ── 내 목표 ── */}
-            {activeTab === 'my' && <div className="mt-4 space-y-4">
-              {/* 내 전체 진행률 */}
-              {!loading && myActive.length > 0 && (
-                <div className="rounded-xl border bg-white px-5 py-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 font-medium">전체 목표 진행률</span>
-                    <span className="font-bold text-blue-600">{myAvgProgress}%</span>
-                  </div>
-                  <Progress value={myAvgProgress} className="h-2" />
-                  <p className="text-xs text-gray-400">목표 {myProgressGoals.length}개 평균{myActive.length > myProgressGoals.length ? ` (포기됨 ${myActive.length - myProgressGoals.length}개 제외)` : ''}</p>
-                </div>
-              )}
-
-              {loading ? (
-                <div className="space-y-3">
-                  {[1, 2, 3].map(i => <div key={i} className="h-32 animate-pulse rounded-xl bg-gray-100" />)}
-                </div>
-              ) : myActive.length === 0 ? (
-                <EmptyState icon={<Target className="h-10 w-10" />} label="등록된 목표가 없습니다." />
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {myActive.map(g => {
-                    // 휴지통 이동 가능 상태: 임시저장 / 반려 / 포기 확정 (ABANDONED + approvedBy)
-                    const canTrash =
-                      g.status === 'DRAFT' ||
-                      g.status === 'REJECTED' ||
-                      (g.status === 'ABANDONED' && !!g.approvedBy);
-                    // 수행자명: 본인 owner 면 본인, 아니면 teamUsers 조회 (공동 수행자로 보이는 경우)
-                    const ownerName = g.userId === userProfile?.id
-                      ? userProfile?.name
-                      : (teamUsers[g.userId]?.name ?? undefined);
-                    return (
-                      <GoalCard key={g.id} goal={g}
-                        ownerName={ownerName}
-                        onEdit={['DRAFT', 'REJECTED'].includes(g.status) ? handleEdit : undefined}
-                        onTrash={canTrash ? handleTrash : undefined}
-                        onWithdraw={g.status === 'PENDING_APPROVAL' ? handleWithdraw : undefined}
-                        onResubmit={g.status === 'REJECTED' ? handleResubmit : undefined}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>}
-
-            {/* ── 팀 목표 ── */}
-            {activeTab === 'team' && <div className="mt-4 space-y-4">
-              {/* 팀 탭 (다중 팀 겸직 시 분리) */}
-              {teamScopeOrgs.length > 1 && (
+            {/* ── 팀 목표 (내목표·팀목표 통합, 팀명 탭) ── */}
+            <div className="mt-4 space-y-4">
+              {/* 팀 탭 (본인 팀 + 산하 팀) */}
+              {teamScopeOrgs.length > 0 && (
                 <div className="flex gap-1 border-b bg-white px-1 pt-1 overflow-x-auto">
                   {teamScopeOrgs.map(o => (
                     <button
@@ -453,7 +410,7 @@ function MyGoalsView() {
 
               {/* 활성 팀 필터링 */}
               {(() => {
-                const useTabFilter = teamScopeOrgs.length > 1 && !!activeTeamOrgId;
+                const useTabFilter = teamScopeOrgs.length > 0 && !!activeTeamOrgId;
                 const filteredTeamByMember = useTabFilter
                   ? Object.fromEntries(
                       Object.entries(teamByMember).filter(([uid]) => teamUsers[uid]?.organizationId === activeTeamOrgId)
@@ -539,14 +496,23 @@ function MyGoalsView() {
                         {isExpanded && (
                           <div className="border-t px-4 py-4">
                             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                              {goals.map(g => (
-                                <GoalCard
-                                  key={g.id}
-                                  goal={g}
-                                  ownerName={teamUsers[g.userId]?.name ?? (g.userId === userProfile?.id ? userProfile?.name : undefined)}
-                                  onEdit={g.userId === userProfile?.id && ['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined}
-                                />
-                              ))}
+                              {goals.map(g => {
+                                const isMine = g.userId === userProfile?.id;
+                                const names = participantNamesOf(g);
+                                const canTrash = isMine && (g.status === 'DRAFT' || g.status === 'REJECTED' || (g.status === 'ABANDONED' && !!g.approvedBy));
+                                return (
+                                  <GoalCard
+                                    key={g.id}
+                                    goal={g}
+                                    ownerName={teamUsers[g.userId]?.name ?? (isMine ? userProfile?.name : undefined)}
+                                    participantNames={names.length > 1 ? names : undefined}
+                                    onEdit={isMine && ['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined}
+                                    onTrash={canTrash ? handleTrash : undefined}
+                                    onWithdraw={isMine && g.status === 'PENDING_APPROVAL' ? handleWithdraw : undefined}
+                                    onResubmit={isMine && g.status === 'REJECTED' ? handleResubmit : undefined}
+                                  />
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -558,7 +524,7 @@ function MyGoalsView() {
                   </>
                 );
               })()}
-            </div>}
+            </div>
 
         </div>
       </div>

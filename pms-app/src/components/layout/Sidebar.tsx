@@ -15,7 +15,6 @@ import {
   Star,
   Flag,
   LogOut,
-  FileText,
   MessageSquareHeart,
   Bell,
   BellRing,
@@ -31,9 +30,22 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { signOut } from '@/lib/auth';
-import { getUnreadNotificationCount } from '@/lib/firestore';
+import {
+  getUnreadNotificationCount,
+  getOrganizations, getAllUsers, getPendingGoalsByOrganizations,
+  getAnnouncements, getTeamWeeklyTask,
+} from '@/lib/firestore';
 import type { UserRole } from '@/types';
-import type { EffectiveEvalRole } from '@/lib/approval-filters';
+import { filterMyActionableGoals, type EffectiveEvalRole } from '@/lib/approval-filters';
+
+// 사이드바 배지용 ISO 주차 (tasks 페이지와 동일 규칙)
+function sidebarISOWeek(date: Date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return { year: d.getUTCFullYear(), week: Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7) };
+}
 
 interface NavItem {
   label: string;
@@ -156,14 +168,15 @@ const navItems: NavItem[] = [
   },
 
   // ══ 인사고과 ════════════════════════════════
-  {
-    label: '자기평가',
-    href: '/evaluation',
-    icon: <FileText className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-    exact: true,
-    group: '인사고과',
-  },
+  // 자기평가 — v0.9 육성면담서로 통합되어 메뉴 제거. (/evaluation 진입 시 작성자 역할은 /mentoring 으로 이동)
+  // {
+  //   label: '자기평가',
+  //   href: '/evaluation',
+  //   icon: <FileText className="h-5 w-5" />,
+  //   roles: ['MEMBER', 'TEAM_LEAD'],
+  //   exact: true,
+  //   group: '인사고과',
+  // },
   {
     label: '인사평가',
     href: '/evaluation/team',
@@ -347,6 +360,9 @@ export default function Sidebar() {
   const { userProfile, effectiveEvalRole } = useAuth();
   const { activeYear, calendarYear } = useActiveYear();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [approvalsCount, setApprovalsCount] = useState(0);
+  const [announcementsNew, setAnnouncementsNew] = useState(false);
+  const [weeklyNew, setWeeklyNew] = useState(false);
 
   // 알림 미읽음 카운트 — 페이지 변경마다 갱신 (가벼운 query)
   useEffect(() => {
@@ -355,6 +371,63 @@ export default function Sidebar() {
     getUnreadNotificationCount(userProfile.id).then(n => {
       if (!cancelled) setUnreadCount(n);
     }).catch(() => { /* 무시 */ });
+    return () => { cancelled = true; };
+  }, [userProfile, pathname]);
+
+  // 사이드바 배지 — 승인대기 카운트 / 공지·주간보고 신규 여부 (localStorage last-seen 비교)
+  useEffect(() => {
+    if (!userProfile) return;
+    let cancelled = false;
+    const uid = userProfile.id;
+    const role = userProfile.role;
+    const orgId = userProfile.organizationId;
+    (async () => {
+      // 1) 승인 대기 (팀장·임원) — 내가 처리할 단계인 목표 수
+      if (role === 'TEAM_LEAD' || role === 'EXECUTIVE') {
+        try {
+          const allOrgs = await getOrganizations();
+          const descIds = (root: string): string[] => {
+            const ids = [root];
+            allOrgs.filter(o => o.parentId === root).forEach(c => ids.push(...descIds(c.id)));
+            return ids;
+          };
+          const rootSet = new Set<string>([orgId]);
+          allOrgs.filter(o => o.leaderId === uid).forEach(o => rootSet.add(o.id));
+          const scopeOrgIds = [...new Set([...rootSet].flatMap(id => descIds(id)))];
+          const [pending, allUsers] = await Promise.all([
+            getPendingGoalsByOrganizations(scopeOrgIds),
+            getAllUsers(),
+          ]);
+          const usersMap = Object.fromEntries(allUsers.map(u => [u.id, u]));
+          const cnt = filterMyActionableGoals(pending, allOrgs, usersMap, uid, role).length;
+          if (!cancelled) setApprovalsCount(cnt);
+        } catch { /* 무시 */ }
+      }
+      // 2) 공지사항 신규
+      try {
+        const anns = await getAnnouncements();
+        const latest = anns.reduce((m, a) => {
+          const t = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
+          return Math.max(m, t);
+        }, 0);
+        if (typeof window !== 'undefined' && !cancelled) {
+          const key = `seenAnn_${uid}`;
+          if (pathname.startsWith('/announcements')) { localStorage.setItem(key, String(latest)); setAnnouncementsNew(false); }
+          else setAnnouncementsNew(latest > Number(localStorage.getItem(key) ?? 0));
+        }
+      } catch { /* 무시 */ }
+      // 3) 주간업무보고 신규 — 우리 팀 이번 주 문서 updatedAt 비교
+      try {
+        const { year, week } = sidebarISOWeek(new Date());
+        const wt = orgId ? await getTeamWeeklyTask(orgId, year, week) : null;
+        const upd = wt?.updatedAt instanceof Date ? wt.updatedAt.getTime() : 0;
+        if (typeof window !== 'undefined' && !cancelled) {
+          const key = `seenWeekly_${uid}`;
+          if (pathname.startsWith('/tasks')) { localStorage.setItem(key, String(upd)); setWeeklyNew(false); }
+          else setWeeklyNew(upd > 0 && upd > Number(localStorage.getItem(key) ?? 0));
+        }
+      } catch { /* 무시 */ }
+    })();
     return () => { cancelled = true; };
   }, [userProfile, pathname]);
 
@@ -452,6 +525,17 @@ export default function Sidebar() {
                     <span className="rounded-full bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] inline-flex items-center justify-center px-1.5">
                       {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
+                  )}
+                  {item.href === '/approvals' && approvalsCount > 0 && (
+                    <span className="rounded-full bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] inline-flex items-center justify-center px-1.5">
+                      {approvalsCount > 99 ? '99+' : approvalsCount}
+                    </span>
+                  )}
+                  {item.href === '/announcements' && announcementsNew && (
+                    <span className="h-2 w-2 rounded-full bg-red-500" title="새 공지" />
+                  )}
+                  {item.href === '/tasks' && weeklyNew && (
+                    <span className="h-2 w-2 rounded-full bg-red-500" title="새 작성 내용" />
                   )}
                 </Link>
               </div>
