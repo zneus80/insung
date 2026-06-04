@@ -2,7 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator, initializeFirestore } from 'firebase/firestore';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
-import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 
 export const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? 'demo-api-key',
@@ -15,9 +15,9 @@ export const firebaseConfig = {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-// App Check (reCAPTCHA v3) — 브라우저 환경 + site key 가 있을 때만 활성화
-// 콘솔: Firebase Console → App Check → Web app → reCAPTCHA v3 site key 등록 후
-// 환경변수 NEXT_PUBLIC_RECAPTCHA_SITE_KEY 에 site key 입력
+// App Check (reCAPTCHA Enterprise) — 브라우저 환경 + site key 가 있을 때만 활성화
+// 콘솔 등록 키가 reCAPTCHA Enterprise 이므로 ReCaptchaEnterpriseProvider 사용(V3 와 혼용 시 토큰 교환 400 실패).
+// 환경변수 NEXT_PUBLIC_RECAPTCHA_SITE_KEY 에 Enterprise site key 입력
 if (
   typeof window !== 'undefined' &&
   process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY &&
@@ -34,7 +34,7 @@ if (
         process.env.NEXT_PUBLIC_APPCHECK_DEBUG_TOKEN || true;
     }
     initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY),
+      provider: new ReCaptchaEnterpriseProvider(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY),
       isTokenAutoRefreshEnabled: true,
     });
   } catch (e) {
