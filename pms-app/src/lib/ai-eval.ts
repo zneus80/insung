@@ -60,6 +60,17 @@ export interface AiEvalResult {
 }
 
 function buildPrompt(members: AiMemberInput[]): string {
+  // AI 가 긴 userId 를 그대로 못 받아쓰는 문제 방지 — idx(번호)로만 식별. userId 는 프롬프트에서 제외.
+  const data = members.map((m, idx) => ({
+    idx,
+    name: m.name,
+    position: m.position,
+    currentGrade: m.currentGrade,
+    goals: m.goals,
+    weeklyHighlights: m.weeklyHighlights,
+    selfEvalComments: m.selfEvalComments,
+    mentoringOpinion: m.mentoringOpinion,
+  }));
   return [
     '당신은 인사평가를 돕는 보조자입니다. 아래 구성원들의 한 해 업무 근거(핵심목표 진행, 주간 실적, 자기평가, 육성면담서)를 바탕으로,',
     '각 개인의 성과를 객관적으로 요약하고, 성과 기준 참고 순위를 제안하세요.',
@@ -67,15 +78,16 @@ function buildPrompt(members: AiMemberInput[]): string {
     '- 사실(완료 목표 수, 진행률, 실적 항목)에 근거하고, 표현의 화려함이 아니라 실제 성과 중심으로 평가하세요.',
     '- 추측·과장 금지. 근거가 부족하면 그렇게 표기하세요.',
     '- 이것은 사람(임원)의 최종 결정을 돕는 참고 자료입니다. 단정적 판정 금지.',
+    '- 각 항목은 반드시 입력 구성원의 idx 번호를 그대로 사용하세요(이름·식별자 임의 생성 금지).',
     '- 반드시 아래 JSON 스키마로만 응답하세요(설명 텍스트 없이).',
     '',
     'JSON 스키마:',
-    '{"summaries":[{"userId":"...","summary":"2~3문장","strengths":["..."],"issues":["..."],"suggestedGrade":"A|B|C|D|E"}],',
-    ' "ranking":[{"userId":"...","rank":1,"reason":"근거 한 문장"}],',
+    '{"summaries":[{"idx":0,"summary":"2~3문장","strengths":["..."],"issues":["..."],"suggestedGrade":"A|B|C|D|E"}],',
+    ' "ranking":[{"idx":0,"rank":1,"reason":"근거 한 문장"}],',
     ' "disclaimer":"본 결과는 AI 참고 자료이며 최종 평가는 평가권자가 결정합니다."}',
     '',
-    '구성원 데이터:',
-    JSON.stringify(members, null, 0),
+    '구성원 데이터(각 항목의 idx 로 식별):',
+    JSON.stringify(data, null, 0),
   ].join('\n');
 }
 
@@ -85,10 +97,28 @@ export async function summarizeAndRankMembers(members: AiMemberInput[]): Promise
   const text = res.response.text();
   // JSON 파싱 (혹시 코드펜스로 감싸오면 제거)
   const clean = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-  const parsed = JSON.parse(clean) as AiEvalResult;
+  const parsed = JSON.parse(clean) as {
+    summaries?: (Omit<AiMemberSummary, 'userId'> & { idx: number })[];
+    ranking?: (Omit<AiRankItem, 'userId'> & { idx: number })[];
+    disclaimer?: string;
+  };
+  // idx → 실제 userId 로 복원 (AI 가 idx 를 잘못 주면 해당 항목은 버림)
+  const summaries: AiMemberSummary[] = (parsed.summaries ?? [])
+    .filter(s => members[s.idx])
+    .map(s => ({
+      userId: members[s.idx].userId,
+      summary: s.summary ?? '',
+      strengths: s.strengths ?? [],
+      issues: s.issues ?? [],
+      suggestedGrade: s.suggestedGrade,
+    }));
+  const ranking: AiRankItem[] = (parsed.ranking ?? [])
+    .filter(r => members[r.idx])
+    .map(r => ({ userId: members[r.idx].userId, rank: r.rank, reason: r.reason ?? '' }))
+    .sort((a, b) => a.rank - b.rank);
   return {
-    summaries: parsed.summaries ?? [],
-    ranking: (parsed.ranking ?? []).sort((a, b) => a.rank - b.rank),
+    summaries,
+    ranking,
     disclaimer: parsed.disclaimer ?? '본 결과는 AI 참고 자료이며 최종 평가는 평가권자가 결정합니다.',
   };
 }
