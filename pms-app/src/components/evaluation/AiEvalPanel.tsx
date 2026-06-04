@@ -51,6 +51,13 @@ export default function AiEvalPanel({
       const { summarizeAndRankMembers } = await import('@/lib/ai-eval');
       const input = members.map(m => {
         const ie = indivEvals[m.id];
+        const mf = mentoringForms[m.id];
+        // 근거 = ①핵심목표관리 ②주간업무보고 본인 작성분(authorId 로 이미 분해됨) ③본인 육성면담서(자기평가 통합)
+        const mentoringSelfEvals: string[] = [
+          ...(mf?.goalEvals ?? []).map(e => `[핵심목표] ${e.goalTitle}: ${e.comment}`),
+          ...(mf?.generalEvals ?? []).map(e => `[일반업무] ${e.title}: ${e.comment}`),
+          ...(mf?.innovationEvals ?? []).map(e => `[혁신] ${e.name}: ${e.comment}`),
+        ].filter(s => s.split(': ').slice(1).join(': ').trim());
         return {
           userId: m.id,
           name: m.name,
@@ -60,8 +67,8 @@ export default function AiEvalPanel({
           weeklyHighlights: (weeklyTasksByMember[m.id] ?? [])
             .flatMap(wt => (wt.hasDoneItems ?? []).map(i => (i.title || i.content)))
             .filter(Boolean).slice(0, 30),
-          selfEvalComments: (selfEvals[m.id]?.goalEvals ?? []).map(ge => ge.comment).filter(Boolean),
-          mentoringOpinion: mentoringForms[m.id]?.selfOpinion,
+          selfEvalComments: mentoringSelfEvals,        // 본인 육성면담서의 업무실적 자기평가
+          mentoringOpinion: mf?.selfOpinion,           // 본인 육성면담서 종합의견
         };
       });
       const res = await summarizeAndRankMembers(input);

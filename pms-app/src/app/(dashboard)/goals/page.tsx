@@ -55,6 +55,7 @@ function MyGoalsView() {
   const [activeTeamOrgId, setActiveTeamOrgId] = useState<string>(''); // 다중 팀 겸직 시 활성 팀
   const [orgsMap, setOrgsMap] = useState<Record<string, string>>({}); // orgId → 조직명
   const [nameById, setNameById] = useState<Record<string, string>>({}); // userId → 이름 (공동수행자 표시용)
+  const [goalKind, setGoalKind] = useState<'joint' | 'solo'>('joint'); // 공동업무 / 단독업무 탭
 
   const [loading, setLoading] = useState(true);
   const [teamLoading, setTeamLoading] = useState(false);
@@ -176,8 +177,8 @@ function MyGoalsView() {
       if (selfUser) map[selfUser.id] = selfUser;
       setTeamUsers(map);
 
-      // 첫 번째 멤버 기본 펼침 — 본인 우선
-      setExpandedMembers(new Set([userProfile!.id]));
+      // 기본 펼침 — 본인 + 산하 팀원 전체(접힘으로 인한 '목표 안 보임' 방지)
+      setExpandedMembers(new Set([userProfile!.id, ...uniqueIds]));
     } finally {
       setTeamLoading(false);
     }
@@ -388,53 +389,46 @@ function MyGoalsView() {
               </div>
             )}
 
-            {/* ── 팀 목표 (내목표·팀목표 통합, 팀명 탭) ── */}
+            {/* ── 핵심목표 (공동업무 / 단독업무 탭) ── */}
             <div className="mt-4 space-y-4">
-              {/* 팀 탭 (본인 팀 + 산하 팀) */}
-              {teamScopeOrgs.length > 0 && (
-                <div className="flex gap-1 border-b bg-white px-1 pt-1 overflow-x-auto">
-                  {teamScopeOrgs.map(o => (
-                    <button
-                      key={o.id}
-                      onClick={() => setActiveTeamOrgId(o.id)}
-                      className={cn(
-                        'px-4 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition-colors whitespace-nowrap',
-                        activeTeamOrgId === o.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700',
-                      )}
-                    >
-                      {o.name}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* 공동업무 / 단독업무 탭 */}
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                {([['joint', '공동업무'], ['solo', '단독업무']] as const).map(([k, label]) => (
+                  <button key={k} onClick={() => setGoalKind(k)}
+                    className={cn('px-5 py-1.5 rounded-md text-sm font-medium transition-colors',
+                      goalKind === k ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+                    {label}
+                  </button>
+                ))}
+              </div>
 
-              {/* 활성 팀 필터링 */}
+              {/* 공동/단독 필터링 (공동 = collaboratorIds 있음) */}
               {(() => {
-                const useTabFilter = teamScopeOrgs.length > 0 && !!activeTeamOrgId;
-                const filteredTeamByMember = useTabFilter
-                  ? Object.fromEntries(
-                      Object.entries(teamByMember).filter(([uid]) => teamUsers[uid]?.organizationId === activeTeamOrgId)
-                    )
-                  : teamByMember;
-                const filteredTeamGoals = useTabFilter
-                  ? teamGoals.filter(g => teamUsers[g.userId]?.organizationId === activeTeamOrgId)
-                  : teamGoals;
+                const matchKind = (g: Goal) => goalKind === 'joint'
+                  ? (g.collaboratorIds?.length ?? 0) > 0
+                  : (g.collaboratorIds?.length ?? 0) === 0;
+                const filteredTeamByMember = Object.fromEntries(
+                  Object.entries(teamByMember)
+                    .map(([uid, gs]) => [uid, gs.filter(matchKind)] as const)
+                    .filter(([, gs]) => gs.length > 0)
+                );
+                const filteredTeamGoals = Object.values(filteredTeamByMember).flat();
                 const filteredProgressGoals = filteredTeamGoals.filter(g => g.status !== 'ABANDONED');
                 const filteredAvgProgress = filteredProgressGoals.length > 0
                   ? Math.round(filteredProgressGoals.reduce((s, g) => s + g.progress, 0) / filteredProgressGoals.length)
                   : 0;
                 return (
                   <>
-                    {/* 팀 전체 진행률 */}
+                    {/* 전체 진행률 */}
                     {!teamLoading && filteredTeamGoals.length > 0 && (
                       <div className="rounded-xl border bg-white px-5 py-4 space-y-2">
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-500 font-medium">팀 전체 진행률</span>
+                          <span className="text-gray-500 font-medium">{goalKind === 'joint' ? '공동업무' : '단독업무'} 진행률</span>
                           <span className="font-bold text-blue-600">{filteredAvgProgress}%</span>
                         </div>
                         <Progress value={filteredAvgProgress} className="h-2" />
                         <p className="text-xs text-gray-400">
-                          팀원 {Object.keys(filteredTeamByMember).length}명 · 목표 {filteredProgressGoals.length}개 평균{filteredTeamGoals.length > filteredProgressGoals.length ? ` (포기됨 ${filteredTeamGoals.length - filteredProgressGoals.length}개 제외)` : ''}
+                          {Object.keys(filteredTeamByMember).length}명 · 목표 {filteredProgressGoals.length}개 평균{filteredTeamGoals.length > filteredProgressGoals.length ? ` (포기됨 ${filteredTeamGoals.length - filteredProgressGoals.length}개 제외)` : ''}
                         </p>
                       </div>
                     )}

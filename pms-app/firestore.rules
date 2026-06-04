@@ -34,6 +34,10 @@ service cloud.firestore {
     function userOrg() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.organizationId;
     }
+    // 해당 조직의 리더(팀장/본부장)인지 — 산하 팀 주간보고 편집 허용용
+    function isOrgLeader(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)).data.leaderId == request.auth.uid;
+    }
 
     // 사용자
     match /users/{uid} {
@@ -189,12 +193,18 @@ service cloud.firestore {
         // 팀 공유 문서 — 본인 소속 팀의 문서 생성
         request.resource.data.organizationId == userOrg()
         ||
+        // 해당 팀의 리더(산하 팀을 거느린 팀장)
+        isOrgLeader(request.resource.data.organizationId)
+        ||
         // 레거시 개인 문서
         request.resource.data.userId == request.auth.uid
       );
       allow update: if isAuthenticated() && (
         // 같은 팀(조직) 멤버 — 팀 공유 폼 편집(누구나)
         resource.data.organizationId == userOrg()
+        ||
+        // 해당 팀의 리더(산하 팀을 거느린 팀장) — 산하 팀 주간보고 편집
+        isOrgLeader(resource.data.organizationId)
         ||
         // 레거시 본인 문서
         resource.data.userId == request.auth.uid
