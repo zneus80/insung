@@ -501,6 +501,18 @@ export interface DivisionGradeQuota {
 export type JobRequestType = 'EXPAND' | 'REDUCE' | 'CHANGE' | 'RELOCATE' | 'SATISFIED';
 export type MentoringFormStatus = 'DRAFT' | 'SUBMITTED';
 
+// 육성면담서 ↔ 자기평가 통합(v0.9): '당해년도 주요 업무실적' 자기평가 항목
+export interface GeneralWorkEval {
+  id: string;       // 주간보고 별표 항목 id (또는 uuid)
+  title: string;    // 일반업무 제목 (주간 별표에서 가져옴)
+  comment: string;  // 본인 자기평가 (자유 서술)
+}
+export interface InnovationEval {
+  activityId: string;
+  name: string;
+  comment: string;  // 본인 자기평가 (자유 서술)
+}
+
 export interface MentoringForm {
   id: string;               // `${userId}_${year}`
   userId: string;
@@ -516,10 +528,15 @@ export interface MentoringForm {
   mainDuties: string;       // 주요담당업무
   promotionDate: string;    // 현 직위 승진일
   certifications: string;   // 직무관련 보유자격증
-  achievements: string;     // 주요 업적
+  achievements: string;     // (deprecated v0.9) 당해년도 주요업적 — 폼 UI 제거, 하위호환 위해 필드 보존
 
   // 경력개발 계획
   careerPlan: string;       // 희망 Position 및 경력개발 방향
+
+  // 당해년도 주요 업무실적 (자기평가 통합 v0.9) — 작성자 자기평가
+  goalEvals?: SelfEvalGoalEntry[];      // 완료 핵심목표
+  generalEvals?: GeneralWorkEval[];     // 주요 일반업무(주간 별표)
+  innovationEvals?: InnovationEval[];   // 참여 혁신업무
 
   // 직무 요청사항
   jobRequest: JobRequestType;

@@ -146,3 +146,7 @@
   .exec-larger-text select,
   .exec-larger-text button { font-size: inherit; }
 }
+/* 토스트 닫기(X) 버튼 항상 표시 — sonner 기본은 hover 시에만 노출 */
+[data-sonner-toast] [data-close-button] {
+  opacity: 1 !important;
+}

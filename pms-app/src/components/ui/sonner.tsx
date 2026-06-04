@@ -39,6 +39,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast: "cn-toast",
+          // 닫기(X) 버튼 — 기본은 hover 시에만 보이므로 항상 보이도록 강제
+          closeButton: "!opacity-100 !bg-white !border !border-gray-200 !text-gray-500 hover:!text-gray-800",
         },
       }}
       {...props}

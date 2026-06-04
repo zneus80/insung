@@ -18,13 +18,13 @@ import { cn } from '@/lib/utils';
 const CARD_STYLES = {
   default:    { border: 'border-l-blue-500',   badge: 'bg-blue-50 text-blue-700',     bg: 'bg-white',         label: '과제업무' },
   collaborate:{ border: 'border-l-purple-500', badge: 'bg-purple-50 text-purple-700', bg: 'bg-purple-50/30',  label: '공동과제업무' },
-  transferred:{ border: 'border-l-amber-500',  badge: 'bg-amber-50 text-amber-700',   bg: 'bg-amber-50/30',   label: '이관업무' },
 } as const;
 
 // ── 컴포넌트 ─────────────────────────────────────────────────
 interface GoalCardProps {
   goal: Goal;
   ownerName?: string;             // 수행자 이름 — 외부에서 usersMap 으로 조회해 전달
+  participantNames?: string[];    // 공동업무: 수행자+공동수행자 이름을 차례대로(구분 없이) — 강조 표시
   onEdit?: (goal: Goal) => void;
   onTrash?: (goal: Goal) => void;
   onWithdraw?: (goal: Goal) => void;
@@ -32,16 +32,14 @@ interface GoalCardProps {
   onClick?: (goal: Goal) => void; // 휴지통 다이얼로그 등에서 Link 대신 사용
 }
 
-export default function GoalCard({ goal, ownerName, onEdit, onTrash, onWithdraw, onResubmit, onClick }: GoalCardProps) {
+export default function GoalCard({ goal, ownerName, participantNames, onEdit, onTrash, onWithdraw, onResubmit, onClick }: GoalCardProps) {
   const router = useRouter();
   const { userProfile } = useAuth();
 
-  // 카드 분류 — 이관업무 우선 > 공동과제업무(공동 수행자가 한 명이라도 있으면) > 기본 과제업무
-  // v0.76: 본인이 owner 든 collaborator 든 collaboratorIds 가 비어있지 않으면 모두 "공동과제업무" 로 표시
-  const isTransferred = !!goal.previousOwnerId;
+  // 카드 분류 — 공동과제 여부만 (이관업무 유형 표시 제거)
+  // 본인이 owner 든 collaborator 든 collaboratorIds 가 비어있지 않으면 "공동과제업무"
   const hasCollaborators = (goal.collaboratorIds ?? []).length > 0;
-  const styleKey: keyof typeof CARD_STYLES =
-    isTransferred ? 'transferred' : hasCollaborators ? 'collaborate' : 'default';
+  const styleKey: keyof typeof CARD_STYLES = hasCollaborators ? 'collaborate' : 'default';
   const { border, badge, bg, label } = CARD_STYLES[styleKey];
 
   const hasActions = onEdit || onTrash || onWithdraw || onResubmit;
@@ -124,21 +122,23 @@ export default function GoalCard({ goal, ownerName, onEdit, onTrash, onWithdraw,
             {format(goal.dueDate, 'MM/dd', { locale: ko })}까지
           </span>
 
-          {/* 수행자 표시 */}
-          {ownerName && (
+          {/* 수행자 표시 — 공동업무는 수행자/공동수행자 구분 없이 이름 차례대로 강조 */}
+          {(participantNames && participantNames.length > 0) ? (
+            <span className="flex items-center gap-1.5">
+              {participantNames.length > 1
+                ? <Users className="h-3.5 w-3.5 text-purple-500" />
+                : <UserCircle2 className="h-3.5 w-3.5" />}
+              <span className="text-sm font-semibold text-gray-800">{participantNames.join(', ')}</span>
+              {participantNames.length > 1 && (
+                <span className="text-[11px] font-medium text-purple-600">· 공동 {participantNames.length}명</span>
+              )}
+            </span>
+          ) : ownerName ? (
             <span className="flex items-center gap-1">
               <UserCircle2 className="h-3.5 w-3.5" />
-              수행자: <span className="font-medium text-gray-600">{ownerName}</span>
+              <span className="text-sm font-semibold text-gray-800">{ownerName}</span>
             </span>
-          )}
-
-          {/* 공동 수행자 존재 시 배지 */}
-          {(goal.collaboratorIds?.length ?? 0) > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-[11px] font-semibold">
-              <Users className="h-3 w-3" />
-              공동 {goal.collaboratorIds!.length}명
-            </span>
-          )}
+          ) : null}
 
           {/* 가중치 (설정된 경우만 표시) */}
           {goal.weight !== undefined && (

@@ -2,14 +2,7 @@
 
 import { useState } from 'react';
 import type { MentoringForm } from '@/types';
-
-const JOB_REQUEST_LABEL: Record<string, string> = {
-  EXPAND:    '직무 확대',
-  REDUCE:    '직무 축소',
-  CHANGE:    '직무 변경',
-  RELOCATE:  '근무지 이동',
-  SATISFIED: '현재 만족',
-};
+import MentoringPerfBody from './MentoringPerfBody';
 
 interface Props {
   form: MentoringForm;
@@ -68,49 +61,15 @@ export default function MentoringFormModal({ form, memberName, leadOpinion, exec
             </div>
 
             <div className="p-6 space-y-6">
-              {/* 직무 정보 */}
-              <Section title="직무 정보">
-                <Row label="직위/직책"       value={form.currentPosition} />
-                <Row label="주요담당업무"    value={form.mainDuties} multiline />
-                <Row label="현 직위 승진일"  value={form.promotionDate} />
-                <Row label="보유 자격증"     value={form.certifications} />
-                <Row label="주요 업적"       value={form.achievements} multiline />
-              </Section>
+              {/* 통합 육성면담서(직무정보·업무실적·경력·요청·종합의견) — 신양식 */}
+              <MentoringPerfBody form={form} />
 
-              {/* 직무 요청사항 */}
-              <Section title="직무 요청사항">
-                <Row label="직무 요청" value={JOB_REQUEST_LABEL[form.jobRequest] ?? form.jobRequest} />
-                {form.jobRequest !== 'SATISFIED' && (
-                  <>
-                    <Row label="요청 이유"         value={form.jobRequestReason} multiline />
-                    {form.jobRequest === 'CHANGE' && (
-                      <>
-                        <Row label="희망 직무 1순위"   value={form.desiredJob1} />
-                        <Row label="희망 직무 2순위"   value={form.desiredJob2} />
-                        <Row label="변경 희망 이유"    value={form.jobChangeReason} multiline />
-                      </>
-                    )}
-                    {form.jobRequest === 'RELOCATE' && (
-                      <>
-                        <Row label="희망 근무지 1순위" value={form.desiredLocation1} />
-                        <Row label="희망 근무지 2순위" value={form.desiredLocation2} />
-                        <Row label="근무지 변경 이유"  value={form.locationChangeReason} multiline />
-                      </>
-                    )}
-                  </>
-                )}
-              </Section>
-
-              {/* 경력개발 방향 */}
-              <Section title="경력개발 방향">
-                <Row label="희망 Position 및 경력개발 방향" value={form.careerPlan} multiline />
-              </Section>
-
-              {/* 종합의견 */}
-              <Section title="종합의견">
-                <Row label="본인 종합의견"  value={form.selfOpinion}        multiline />
-                <Row label="면담자 의견"    value={form.interviewerOpinion} multiline />
-              </Section>
+              {/* 면담자 의견 */}
+              {form.interviewerOpinion?.trim() && (
+                <Section title="면담자 의견">
+                  <Row label="면담자 의견" value={form.interviewerOpinion} multiline />
+                </Section>
+              )}
 
               {/* 평가 의견 (팀장/임원) */}
               {(leadOpinion || execOpinion) && (
