@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
-import { getAllUsers, getOrganizations, createUser, updateUser, deleteUser, createInvitation, abandonActiveGoalsForUser, migrateActiveGoalsToNewOrg, transferActiveGoalsToUpstreamLeader, createAuditLog, migrateCurrentYearEvalOrg } from '@/lib/firestore';
+import { getAllUsers, getActiveOrganizations, createUser, updateUser, deleteUser, createInvitation, abandonActiveGoalsForUser, migrateActiveGoalsToNewOrg, transferActiveGoalsToUpstreamLeader, createAuditLog, migrateCurrentYearEvalOrg } from '@/lib/firestore';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -60,7 +60,7 @@ export default function UsersPage() {
 
 function UsersContent() {
   const { userProfile } = useAuth();
-  const { activeYear } = useActiveYear();
+  const { activeYear, activeYearLocked } = useActiveYear();
   const [users, setUsers] = useState<User[]>([]);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [search, setSearch] = useState('');
@@ -111,7 +111,7 @@ function UsersContent() {
 
   async function load() {
     try {
-      const [u, o] = await Promise.all([getAllUsers(), getOrganizations()]);
+      const [u, o] = await Promise.all([getAllUsers(), getActiveOrganizations()]);
       setUsers(u);
       setOrgs(o);
     } catch (e: any) {
@@ -264,6 +264,8 @@ function UsersContent() {
     // 사용자 조직 변경 시 기존 목표 처리 방식 묻기 (v0.75 B14)
     let goalsAction: 'transfer' | 'migrate' | 'abandon' | null = null;
     if (editing && form.organizationId && editing.organizationId !== form.organizationId) {
+      // 확정 연도에는 조직 이동(목표·평가 마이그레이션)을 막는다 — 확정 데이터 변경 방지
+      if (activeYearLocked) { toast.error(`${activeYear}년은 확정된 연도입니다. 확정 해제 후 조직을 이동하세요.`); return; }
       const fromName = orgs.find(o => o.id === editing.organizationId)?.name ?? '(이전 조직)';
       const toName = orgs.find(o => o.id === form.organizationId)?.name ?? '(새 조직)';
       // 3-way prompt: 숫자 입력 (기본 1)

@@ -19,6 +19,12 @@ export interface Organization {
   leaderId: string | null;   // 팀장 또는 임원 userId
   /** 표시 순서 (작은 값이 먼저). 부문/공장(DIVISION)에 주로 사용. 미설정 시 0 또는 무한대로 취급. */
   displayOrder?: number;
+  /**
+   * 보관(soft-archive) 시각. 과거 연도 데이터(목표·평가 등)가 참조하는 조직은
+   * 삭제해도 doc 을 보존하여 과거 화면에서 조직명이 깨지지 않게 한다.
+   * 설정되면 활성 조직 목록·트리·배정 드롭다운에서는 제외하되, 이름 해석에는 계속 사용.
+   */
+  archivedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -611,7 +617,9 @@ export type AuditLogAction =
   | 'USER_DELETE'        // 사용자 삭제
   | 'EVAL_GRADE_CHANGE'  // 평가 등급 변경 — 핵심 확정 이벤트 (D-3)
   | 'READ_ANOMALY_DETECTED'  // 평가 데이터 대량 read 이상 탐지
-  | 'AI_EVAL_SUMMARY';   // AI 성과 요약·순위 생성 (인사평가 데이터 AI 처리)
+  | 'AI_EVAL_SUMMARY'    // AI 성과 요약·순위 생성 (인사평가 데이터 AI 처리)
+  | 'YEAR_LOCK'          // 연도 확정(읽기 전용 전환)
+  | 'YEAR_UNLOCK';       // 연도 확정 해제(편집 재개방)
 
 export interface AuditLog {
   id: string;

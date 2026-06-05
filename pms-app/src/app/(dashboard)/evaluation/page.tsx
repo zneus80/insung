@@ -26,6 +26,7 @@ import { approverTitle } from '@/lib/approval-filters';
 import { compareUserByRoleHire } from '@/lib/user-sort';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
+import YearLockBanner from '@/components/layout/YearLockBanner';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
 import SelfEvalGoalList, { EVAL_RETURN_KEY } from '@/components/evaluation/SelfEvalGoalList';
 import InnovationList from '@/components/evaluation/InnovationList';
@@ -111,7 +112,8 @@ function RedirectToMentoring() {
 // ─── 임원: 최종 등급 확정 ────────────────────────────────
 function ExecutiveEvalView() {
   const { userProfile } = useAuth();
-  const { activeYear: year } = useActiveYear();
+  const { activeYear: year, isYearLocked } = useActiveYear();
+  const locked = isYearLocked(year);
 
   const [allOrgs, setAllOrgs]         = useState<Organization[]>([]);
   const [members, setMembers]         = useState<User[]>([]);
@@ -278,6 +280,7 @@ function ExecutiveEvalView() {
 
   async function handleConfirm(memberId: string) {
     if (!userProfile) return;
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다. 등급 확정/변경이 불가합니다.`); return; }
     const input = confirmInputs[memberId];
     if (!input?.grade) { toast.error('등급을 선택해주세요.'); return; }
 
@@ -346,6 +349,8 @@ function ExecutiveEvalView() {
     <div className="flex flex-col h-full">
       <Header title="평가 등급 확정" />
       <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+        <YearLockBanner />
 
         {/* 쿼터 현황 */}
         {quotas ? (
@@ -512,7 +517,7 @@ function ExecutiveEvalView() {
                                 return (
                                   <div key={g} className="text-center">
                                     <button
-                                      disabled={isConfirmed || saving === member.id || isFull}
+                                      disabled={isConfirmed || saving === member.id || isFull || locked}
                                       onClick={() => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], grade: g } }))}
                                       className={`w-10 h-10 rounded-lg text-sm font-bold border-2 transition-all ${
                                         isSelected ? `${GRADE_COLOR[g]} border-current`
@@ -532,7 +537,7 @@ function ExecutiveEvalView() {
                             <textarea
                               value={input.comment}
                               onChange={e => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
-                              disabled={isConfirmed || saving === member.id}
+                              disabled={isConfirmed || saving === member.id || locked}
                               rows={2}
                               placeholder="등급 부여 이유 또는 의견을 작성해주세요"
                               className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50" />
@@ -541,7 +546,7 @@ function ExecutiveEvalView() {
                             {isConfirmed ? (
                               <span className="text-xs text-green-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> 확정 완료</span>
                             ) : (
-                              <Button size="sm" disabled={saving === member.id || !input.grade} onClick={() => handleConfirm(member.id)}>
+                              <Button size="sm" disabled={saving === member.id || !input.grade || locked} onClick={() => handleConfirm(member.id)}>
                                 {saving === member.id ? '확정 중...' : '등급 확정'}
                               </Button>
                             )}

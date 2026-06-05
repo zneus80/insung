@@ -148,9 +148,15 @@ export async function getOrganizations(): Promise<Organization[]> {
   return snap.docs.map(d => ({
     ...d.data(),
     id: d.id,
+    archivedAt: fromTimestamp(d.data().archivedAt) ?? null,
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
   } as Organization));
+}
+
+/** 활성 조직만 (보관/아카이브 제외) — 조직 선택·배정·트리 관리에서 사용. */
+export async function getActiveOrganizations(): Promise<Organization[]> {
+  return (await getOrganizations()).filter(o => !o.archivedAt);
 }
 
 export async function createOrganization(data: Omit<Organization, 'id' | 'createdAt' | 'updatedAt'>) {
@@ -199,7 +205,22 @@ export async function deleteOrganization(id: string) {
   if (!childSnap.empty) {
     throw new Error(`조직 삭제 불가: 하위 조직 ${childSnap.size}개가 남아 있습니다. 먼저 정리하세요.`);
   }
+  // 과거 연도 데이터(목표·평가 등)가 이 조직을 참조하면 doc 을 삭제하지 않고 보관(soft-archive).
+  // → 과거 화면에서 조직명이 깨지지 않도록 이름 해석용으로 doc 을 보존. (연도 무관 트리, 경량 보정안)
+  const refs = await countOrgReferences(id);
+  const historicalRefs = refs.goals + refs.weeklyTasks + refs.annualGoals + refs.orgEvaluations
+    + refs.individualEvals + refs.selfEvals + refs.mentoringForms + refs.yearEndEvals
+    + refs.oneOnOnes + refs.orgGradeHistories + refs.divisionGradeQuotas;
+  if (historicalRefs > 0) {
+    await updateDoc(doc(db, COLLECTIONS.ORGANIZATIONS, id), {
+      archivedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return { archived: true, references: historicalRefs };
+  }
+  // 참조가 전혀 없는 빈 조직만 완전 삭제
   await deleteDoc(doc(db, COLLECTIONS.ORGANIZATIONS, id));
+  return { archived: false, references: 0 };
 }
 
 /**
@@ -222,36 +243,48 @@ export async function countOrgReferences(orgId: string): Promise<{
   orgGradeHistories: number;
   divisionGradeQuotas: number;
 }> {
-  const [goalsSnap, wtSnap, agSnap, oeSnap, usersSnap, childSnap, ieSnap, seSnap, mfSnap,
-         yeSnap, ooSnap, oghSnap, dgqSnap] = await Promise.all([
-    getDocs(query(collection(db, COLLECTIONS.GOALS), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.WEEKLY_TASKS), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.ANNUAL_GOALS), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.ORG_EVALUATIONS), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.USERS), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.ORGANIZATIONS), where('parentId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.INDIVIDUAL_EVALUATIONS), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.SELF_EVALUATIONS), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.MENTORING_FORMS), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.YEAR_END_EVALS), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.ONE_ON_ONES), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.ORG_GRADE_HISTORIES), where('organizationId', '==', orgId))),
-    getDocs(query(collection(db, COLLECTIONS.DIVISION_GRADE_QUOTAS), where('organizationId', '==', orgId))),
+  // 컬렉션별 권한 규칙이 달라(예: oneOnOnes 는 당사자만 list 가능) 일부 쿼리가
+  // permission-denied 로 거부될 수 있다. 한 컬렉션이 막혀도 전체 카운트가 실패하지 않도록
+  // 쿼리별로 안전하게 size 를 집계(거부/오류 시 0). 조직 삭제 가드는 users/childOrgs 가 핵심.
+  const safeCount = async (col: string): Promise<number> => {
+    try {
+      const field = col === COLLECTIONS.ORGANIZATIONS ? 'parentId' : 'organizationId';
+      return (await getDocs(query(collection(db, col), where(field, '==', orgId)))).size;
+    } catch {
+      return 0;
+    }
+  };
+  const [goals, weeklyTasks, annualGoals, orgEvaluations, users, childOrgs,
+         individualEvals, selfEvals, mentoringForms, yearEndEvals, oneOnOnes,
+         orgGradeHistories, divisionGradeQuotas] = await Promise.all([
+    safeCount(COLLECTIONS.GOALS),
+    safeCount(COLLECTIONS.WEEKLY_TASKS),
+    safeCount(COLLECTIONS.ANNUAL_GOALS),
+    safeCount(COLLECTIONS.ORG_EVALUATIONS),
+    safeCount(COLLECTIONS.USERS),
+    safeCount(COLLECTIONS.ORGANIZATIONS),
+    safeCount(COLLECTIONS.INDIVIDUAL_EVALUATIONS),
+    safeCount(COLLECTIONS.SELF_EVALUATIONS),
+    safeCount(COLLECTIONS.MENTORING_FORMS),
+    safeCount(COLLECTIONS.YEAR_END_EVALS),
+    safeCount(COLLECTIONS.ONE_ON_ONES),
+    safeCount(COLLECTIONS.ORG_GRADE_HISTORIES),
+    safeCount(COLLECTIONS.DIVISION_GRADE_QUOTAS),
   ]);
   return {
-    goals: goalsSnap.size,
-    weeklyTasks: wtSnap.size,
-    annualGoals: agSnap.size,
-    orgEvaluations: oeSnap.size,
-    users: usersSnap.size,
-    childOrgs: childSnap.size,
-    individualEvals: ieSnap.size,
-    selfEvals: seSnap.size,
-    mentoringForms: mfSnap.size,
-    yearEndEvals: yeSnap.size,
-    oneOnOnes: ooSnap.size,
-    orgGradeHistories: oghSnap.size,
-    divisionGradeQuotas: dgqSnap.size,
+    goals,
+    weeklyTasks,
+    annualGoals,
+    orgEvaluations,
+    users,
+    childOrgs,
+    individualEvals,
+    selfEvals,
+    mentoringForms,
+    yearEndEvals,
+    oneOnOnes,
+    orgGradeHistories,
+    divisionGradeQuotas,
   };
 }
 
@@ -2068,8 +2101,39 @@ export async function deleteAward(id: string): Promise<void> {
 // ─── 시스템 설정 ──────────────────────────────
 export interface SystemSettings {
   activeYear: number;
+  /** 확정(잠금)된 연도 목록 — 해당 연도 데이터는 전 화면 읽기 전용. */
+  lockedYears?: number[];
   updatedBy?: string;
   updatedAt?: Date;
+}
+
+/**
+ * 연도 확정(잠금) — 해당 연도의 모든 연도별 데이터를 읽기 전용으로 전환(UI 게이팅).
+ * HR 관리자 이상이 호출. 잠금 해제는 unlockEvaluationYear (HR 마스터 전용 UI).
+ */
+export async function lockEvaluationYear(year: number, by: { id: string; name?: string }): Promise<void> {
+  const cur = await getSystemSettings();
+  const set = new Set(cur?.lockedYears ?? []);
+  set.add(year);
+  await updateSystemSettings({ lockedYears: [...set].sort((a, b) => a - b), updatedBy: by.id });
+  await createAuditLog({
+    action: 'YEAR_LOCK',
+    actorId: by.id,
+    actorName: by.name ?? '',
+    details: `${year}년 평가/데이터 확정(읽기 전용 전환)`,
+  }).catch(() => { /* 무시 */ });
+}
+
+export async function unlockEvaluationYear(year: number, by: { id: string; name?: string }): Promise<void> {
+  const cur = await getSystemSettings();
+  const next = (cur?.lockedYears ?? []).filter(y => y !== year);
+  await updateSystemSettings({ lockedYears: next, updatedBy: by.id });
+  await createAuditLog({
+    action: 'YEAR_UNLOCK',
+    actorId: by.id,
+    actorName: by.name ?? '',
+    details: `${year}년 확정 해제(편집 재개방)`,
+  }).catch(() => { /* 무시 */ });
 }
 
 export async function getSystemSettings(): Promise<SystemSettings | null> {
@@ -2078,6 +2142,7 @@ export async function getSystemSettings(): Promise<SystemSettings | null> {
   const d = snap.data();
   return {
     activeYear: d.activeYear ?? new Date().getFullYear(),
+    lockedYears: Array.isArray(d.lockedYears) ? d.lockedYears : [],
     updatedBy: d.updatedBy,
     updatedAt: d.updatedAt ? (d.updatedAt as Timestamp).toDate() : undefined,
   };

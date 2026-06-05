@@ -63,11 +63,12 @@ export default function MentoringPage() {
 
 function MentoringContent() {
   const { userProfile } = useAuth();
-  const { activeYear } = useActiveYear();
+  const { activeYear, isYearLocked } = useActiveYear();
   const YEAR_OPTIONS = [activeYear, activeYear - 1, activeYear - 2];
   const [selectedYear, setSelectedYear] = useState(activeYear);
   const year = selectedYear;
-  const isPastYear = selectedYear < activeYear;
+  // 과거 연도 OR 확정(잠금)된 연도는 읽기 전용
+  const isPastYear = selectedYear < activeYear || isYearLocked(selectedYear);
 
   const [form, setForm] = useState(EMPTY_FORM);
   const [status, setStatus] = useState<MentoringForm['status']>('DRAFT');
