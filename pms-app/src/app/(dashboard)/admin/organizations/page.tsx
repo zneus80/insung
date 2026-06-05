@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { getOrganizations, createOrganization, updateOrganization, deleteOrganization, getAllUsers, countOrgReferences, abandonGoalsForOrg } from '@/lib/firestore';
+import { getActiveOrganizations, createOrganization, updateOrganization, deleteOrganization, getAllUsers, countOrgReferences, abandonGoalsForOrg } from '@/lib/firestore';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Plus, Pencil, Trash2, Users, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import type { Organization, User } from '@/types';
@@ -97,6 +98,7 @@ export default function OrganizationsPage() {
 
 function OrganizationsContent() {
   const { userProfile } = useAuth();
+  const { activeYear, activeYearLocked } = useActiveYear();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,7 +114,7 @@ function OrganizationsContent() {
 
   async function load() {
     try {
-      const [o, u] = await Promise.all([getOrganizations(), getAllUsers()]);
+      const [o, u] = await Promise.all([getActiveOrganizations(), getAllUsers()]);
       setOrgs(o);
       setUsers(u);
     } catch (e: any) {
@@ -144,6 +146,7 @@ function OrganizationsContent() {
   }
 
   async function handleSave() {
+    if (activeYearLocked) { toast.error(`${activeYear}년은 확정된 연도입니다. 확정 해제 후 조직을 변경하세요.`); return; }
     if (!form.name) { toast.error('조직명을 입력하세요.'); return; }
     // 조직 부모/타입 변경 시 — 기존 목표 처리 옵션 제공 (v0.75 B14)
     let shouldAbandonGoals = false;
@@ -206,6 +209,7 @@ function OrganizationsContent() {
 
   async function handleDelete() {
     if (!deleteTarget) return;
+    if (activeYearLocked) { toast.error(`${activeYear}년은 확정된 연도입니다. 확정 해제 후 삭제하세요.`); setDeleteTarget(null); return; }
     const assigned = users.filter(u => u.organizationId === deleteTarget.id);
     if (assigned.length > 0) {
       toast.error(`소속 사용자 ${assigned.length}명이 있어 삭제할 수 없습니다.`);
@@ -242,15 +246,17 @@ function OrganizationsContent() {
         ].filter(Boolean).join(', ');
         if (!confirm(
           `이 조직에 연결된 이력 데이터가 있습니다.\n  ${details}\n\n` +
-          `삭제 시 해당 데이터는 보존되지만 조직 정보를 잃습니다.\n` +
-          `(인사평가·이력 관리에 영향이 있을 수 있습니다)\n\n그래도 삭제하시겠습니까?`
+          `삭제하면 조직은 '보관' 처리되어 목록·트리에서는 사라지지만,\n` +
+          `과거 연도 화면에서는 조직명이 그대로 유지됩니다.\n\n계속하시겠습니까?`
         )) {
           setDeleting(false);
           return;
         }
       }
-      await deleteOrganization(deleteTarget.id);
-      toast.success(`${deleteTarget.name} 조직이 삭제되었습니다.`);
+      const res = await deleteOrganization(deleteTarget.id);
+      toast.success(res.archived
+        ? `${deleteTarget.name} 조직이 보관 처리되었습니다. (과거 데이터의 조직명은 유지)`
+        : `${deleteTarget.name} 조직이 삭제되었습니다.`);
       setDeleteTarget(null);
       await load();
     } catch (e: any) {
@@ -279,16 +285,25 @@ function OrganizationsContent() {
       <Header title="조직 관리" />
       <div className="flex-1 min-h-0 flex flex-col gap-4 p-6 overflow-hidden">
 
+        {activeYearLocked && (
+          <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-gray-100 px-4 py-2.5 text-sm text-gray-600 shrink-0">
+            <Lock className="h-4 w-4 shrink-0 text-gray-500" />
+            <span><b>{activeYear}년</b>은 확정된 연도입니다. 조직 추가·수정·삭제는 확정 해제 후 가능합니다. (조회만 가능)</span>
+          </div>
+        )}
+
         {/* 안내 */}
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shrink-0">
           <strong>권장 등록 순서:</strong> 조직 등록 (책임자 없이) → 사용자 등록 (소속 지정) → 조직 수정으로 책임자 지정
         </div>
 
-        <div className="flex justify-end shrink-0">
-          <Button onClick={openNew} size="sm" className="gap-1.5">
-            <Plus className="h-4 w-4" /> 조직 추가
-          </Button>
-        </div>
+        {!activeYearLocked && (
+          <div className="flex justify-end shrink-0">
+            <Button onClick={openNew} size="sm" className="gap-1.5">
+              <Plus className="h-4 w-4" /> 조직 추가
+            </Button>
+          </div>
+        )}
 
         {/* 조직도 테이블 */}
         <div className="flex-1 min-h-0 rounded-xl border bg-white overflow-y-auto">
@@ -380,12 +395,16 @@ function OrganizationsContent() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1 justify-end">
+                          {activeYearLocked ? (
+                            <span className="text-xs text-gray-300">확정됨</span>
+                          ) : (<>
                           <button onClick={() => openEdit(org)} className="p-1.5 rounded hover:bg-gray-100" title="수정">
                             <Pencil className="h-3.5 w-3.5 text-gray-400" />
                           </button>
                           <button onClick={() => setDeleteTarget(org)} className="p-1.5 rounded hover:bg-gray-100" title="삭제">
                             <Trash2 className="h-3.5 w-3.5 text-red-400" />
                           </button>
+                          </>)}
                         </div>
                       </td>
                     </tr>

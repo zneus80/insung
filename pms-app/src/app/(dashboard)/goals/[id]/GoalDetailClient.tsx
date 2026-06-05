@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { ArrowLeft, Calendar, Weight, Send, XCircle, CheckCircle2, Flag, CheckCheck, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   updateGoal,
   addGoalHistory,
@@ -104,10 +105,17 @@ const IMPORTANCE_LABEL: Record<string, string> = {
 export default function GoalDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { userProfile } = useAuth();
+  const { isYearLocked } = useActiveYear();
   const router = useRouter();
 
   const [goal, setGoal] = useState<Goal | null>(null);
   const [goalOwner, setGoalOwner] = useState<User | null>(null);
+  // 확정(잠금) 연도 목표는 모든 변경(상신·진행·완료·포기·회수·삭제·승인) 차단 — 읽기 전용
+  const goalLocked = !!goal && isYearLocked(goal.cycleYear);
+  function blockIfLocked(): boolean {
+    if (goalLocked) { toast.error(`${goal?.cycleYear}년은 확정된 연도입니다. 변경할 수 없습니다.`); return true; }
+    return false;
+  }
   const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
   const [histories, setHistories] = useState<GoalHistory[]>([]);
   const [updates, setUpdates] = useState<ProgressUpdate[]>([]);
@@ -191,6 +199,7 @@ export default function GoalDetailPage() {
   // ── 팀원 액션 ──────────────────────────────────────────
   async function requestApproval() {
     if (!goal || !userProfile) return;
+    if (blockIfLocked()) return;
     setActionLoading(true);
     try {
       await updateGoal(id, { status: 'PENDING_APPROVAL' });
@@ -224,6 +233,7 @@ export default function GoalDetailPage() {
 
   async function requestCompletion() {
     if (!goal || !userProfile) return;
+    if (blockIfLocked()) return;
     setActionLoading(true);
     try {
       await updateGoal(id, { status: 'COMPLETED', progress: 100 });
@@ -254,6 +264,7 @@ export default function GoalDetailPage() {
 
   async function requestAbandon() {
     if (!goal || !userProfile) return;
+    if (blockIfLocked()) return;
     setActionLoading(true);
     try {
       await updateGoal(id, { status: 'PENDING_ABANDON' });
@@ -287,6 +298,7 @@ export default function GoalDetailPage() {
 
   async function withdrawApproval() {
     if (!goal || !userProfile) return;
+    if (blockIfLocked()) return;
     if (!confirm('승인 요청을 회수하시겠습니까? 임시저장 상태로 돌아갑니다.')) return;
     setActionLoading(true);
     try {
@@ -307,6 +319,7 @@ export default function GoalDetailPage() {
   // 구버전 reassignFromId 데이터도 호환: 있으면 userId/collabs 원복까지 수행.
   async function withdrawModifyRequest() {
     if (!goal || !userProfile) return;
+    if (blockIfLocked()) return;
     const isOwnerChangePending = !!goal.pendingOwnerId;
     const isLegacyReassign = !!goal.reassignFromId;
     const msg = (isOwnerChangePending || isLegacyReassign)
@@ -385,6 +398,7 @@ export default function GoalDetailPage() {
   // 완료 요청 회수 — COMPLETED → IN_PROGRESS/APPROVED 복귀 (팀장 1차 승인 전에만 가능)
   async function withdrawCompletion() {
     if (!goal || !userProfile) return;
+    if (blockIfLocked()) return;
     if (!confirm('완료 요청을 회수하시겠습니까? 이전 진행 상태로 돌아갑니다.')) return;
     setActionLoading(true);
     try {
@@ -404,6 +418,7 @@ export default function GoalDetailPage() {
   // 포기 요청 회수 — PENDING_ABANDON → IN_PROGRESS/APPROVED 복귀 (팀장 1차 승인 전에만 가능)
   async function withdrawAbandon() {
     if (!goal || !userProfile) return;
+    if (blockIfLocked()) return;
     if (!confirm('포기 요청을 회수하시겠습니까? 이전 진행 상태로 돌아갑니다.')) return;
     setActionLoading(true);
     try {
@@ -422,6 +437,7 @@ export default function GoalDetailPage() {
 
   async function handleDelete() {
     if (!goal || !userProfile) return;
+    if (blockIfLocked()) return;
     if (!confirm('이 목표를 휴지통으로 이동하시겠습니까?')) return;
     setActionLoading(true);
     try {
@@ -436,6 +452,7 @@ export default function GoalDetailPage() {
 
   async function submitProgress() {
     if (!goal || !userProfile || !progressComment.trim()) return;
+    if (blockIfLocked()) return;
     setActionLoading(true);
     try {
       // 본인 또는 공동수행자는 진행률 + 코멘트, 그 외(팀장·본부장·임원) 결재자는 코멘트만 저장
@@ -476,6 +493,7 @@ export default function GoalDetailPage() {
   // ── 승인 액션 ──────────────────────────────────────────
   async function approveGoal() {
     if (!goal || !userProfile || !goalOwner) return;
+    if (isYearLocked(goal.cycleYear)) { toast.error(`${goal.cycleYear}년은 확정된 연도입니다. 승인 처리가 불가합니다.`); return; }
     setActionLoading(true);
     try {
       let updateData: Parameters<typeof updateGoal>[1] = {};
@@ -759,6 +777,7 @@ export default function GoalDetailPage() {
   }
 
   async function rejectGoal() {
+    if (goal && isYearLocked(goal.cycleYear)) { toast.error(`${goal.cycleYear}년은 확정된 연도입니다. 반려 처리가 불가합니다.`); return; }
     if (!goal || !userProfile || !rejectComment.trim()) {
       toast.error('반려 사유를 입력해주세요.');
       return;

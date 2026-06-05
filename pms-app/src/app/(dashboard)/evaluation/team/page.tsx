@@ -25,6 +25,7 @@ import { approverTitle } from '@/lib/approval-filters';
 import { compareUserByRoleHire } from '@/lib/user-sort';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
+import YearLockBanner from '@/components/layout/YearLockBanner';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
 import SelfEvalGoalList, { EVAL_RETURN_KEY } from '@/components/evaluation/SelfEvalGoalList';
 import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
@@ -99,7 +100,8 @@ export default function EvaluationTeamPage() {
 
 function TeamLeadEvalView() {
   const { userProfile, effectiveEvalRole } = useAuth();
-  const { activeYear: year } = useActiveYear();
+  const { activeYear: year, isYearLocked } = useActiveYear();
+  const locked = isYearLocked(year);
 
   const [members, setMembers]             = useState<User[]>([]);
   const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
@@ -309,6 +311,7 @@ function TeamLeadEvalView() {
 
   async function handleSubmitOpinion(memberId: string) {
     if (!userProfile) return;
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다. 평가 의견 제출/수정이 불가합니다.`); return; }
     const op = opinions[memberId];
     if (!op?.grade) { toast.error('등급 의견을 선택해주세요.'); return; }
 
@@ -394,6 +397,7 @@ function TeamLeadEvalView() {
 
   async function handleWithdrawOpinion(memberId: string) {
     if (!userProfile) return;
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다. 회수가 불가합니다.`); return; }
     const ie = indivEvals[memberId];
     if (!ie) return;
     const member = members.find(m => m.id === memberId);
@@ -443,6 +447,7 @@ function TeamLeadEvalView() {
     <div className="flex flex-col h-full">
       <Header title={isHQHead ? `${userProfile?.position || '본부장'} 2차 평가 의견` : '팀원 평가 의견 제출'} />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <YearLockBanner />
         <p className="text-sm text-gray-500">
           {isHQHead
             ? `산하 팀원의 자기평가와 팀장 의견을 검토한 후 ${userProfile?.position || '본부장'} 2차 의견을 작성하세요. (팀장 의견 제출 후에만 입력 가능)`
@@ -638,7 +643,7 @@ function TeamLeadEvalView() {
                       <p className="text-xs text-gray-500 mb-2">등급 선택</p>
                       <div className="flex gap-2">
                         {GRADES.map(g => (
-                          <button key={g} disabled={isReviewed || saving === member.id}
+                          <button key={g} disabled={isReviewed || saving === member.id || locked}
                             onClick={() => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], grade: g } }))}
                             className={`w-10 h-10 rounded-lg text-sm font-bold border-2 transition-all ${op.grade === g ? `${GRADE_COLOR[g]} border-current` : 'bg-white border-gray-200 text-gray-400 hover:border-gray-400'} disabled:opacity-50 disabled:cursor-not-allowed`}>
                             {g}
@@ -650,7 +655,7 @@ function TeamLeadEvalView() {
                       <p className="text-xs text-gray-500 mb-1.5">의견 <span className="text-[11px] font-normal text-gray-400">— 육성면담서와 인사평가 등급에 대한 종합의견을 작성하십시오 (필수)</span></p>
                       <textarea value={op.comment}
                         onChange={e => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
-                        disabled={isReviewed || saving === member.id} rows={2} placeholder="등급 의견의 이유를 작성해주세요"
+                        disabled={isReviewed || saving === member.id || locked} rows={2} placeholder="등급 의견의 이유를 작성해주세요"
                         className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
                     </div>
                     <div className="flex justify-end items-center gap-2 flex-wrap">
@@ -660,10 +665,10 @@ function TeamLeadEvalView() {
                         <>
                           <span className="text-xs text-blue-600 mr-auto">제출됨 · 상위 확정 전</span>
                           <Button variant="outline" size="sm" disabled={saving === member.id} onClick={() => handleWithdrawOpinion(member.id)}>의견 회수</Button>
-                          <Button size="sm" disabled={saving === member.id || !op.grade} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '저장 중...' : '의견 수정'}</Button>
+                          <Button size="sm" disabled={saving === member.id || !op.grade || locked} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '저장 중...' : '의견 수정'}</Button>
                         </>
                       ) : (
-                        <Button size="sm" disabled={saving === member.id || !op.grade} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '제출 중...' : '의견 제출'}</Button>
+                        <Button size="sm" disabled={saving === member.id || !op.grade || locked} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '제출 중...' : '의견 제출'}</Button>
                       )}
                     </div>
                   </div>

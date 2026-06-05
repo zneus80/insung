@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getTeamWeeklyTask,
   getWeeklyTasksByMembersAndYear,
@@ -19,7 +20,7 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star, Printer, Save,
+  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star, Printer, Save, Lock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
@@ -78,10 +79,12 @@ export default function TasksPage() {
 // ── 팀원 / 팀장 페이지 ─────────────────────────────────────
 function MemberTasksPage() {
   const { userProfile } = useAuth();
+  const { isYearLocked } = useActiveYear();
   const [tab, setTab] = useState<'my' | 'team'>('my');
   const today = getISOWeek(new Date());
   const [year, setYear] = useState(today.year);
   const [week, setWeek] = useState(today.week);
+  const locked = isYearLocked(year);
   const { start, end } = getWeekRange(year, week);
   const isCurrentWeek = year === today.year && week === today.week;
   // 산하 '다른 팀'(본인 팀 제외) — 있을 때만 '팀 업무 현황' 탭 노출
@@ -111,6 +114,12 @@ function MemberTasksPage() {
     <div className="flex flex-col h-full">
       <Header title="주간업무보고" />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {locked && (
+          <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-gray-100 px-4 py-2.5 text-sm text-gray-600">
+            <Lock className="h-4 w-4 shrink-0 text-gray-500" />
+            <span><b>{year}년</b>은 확정된 연도입니다. 주간업무보고는 조회만 가능합니다.</span>
+          </div>
+        )}
         {hasOtherTeams && (
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
             {(['my', 'team'] as const).map(t => (
@@ -136,12 +145,13 @@ function MemberTasksPage() {
             <TeamWeeklyForm
               orgId={userProfile.organizationId}
               year={year} week={week}
-              editable
+              editable={!locked}
               currentUser={{ id: userProfile.id, name: userProfile.name }}
             />
           </div>
         ) : (
           <ScopeTeamsView year={year} week={week} teams={otherTeams} orgs={orgsAll}
+            locked={locked}
             currentUser={{ id: userProfile.id, name: userProfile.name }} />
         )}
       </div>
@@ -426,6 +436,8 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
   const gpRef = useRef(goalProgress);
   useEffect(() => { gpRef.current = goalProgress; }, [goalProgress]);
 
+  const { isYearLocked } = useActiveYear();
+  const yearLocked = isYearLocked(year);   // 확정 연도 — 코멘트 포함 모든 쓰기 차단
   const { start, end } = getWeekRange(year, week);
   const saturday = new Date(start); saturday.setDate(start.getDate() + 5); saturday.setHours(0, 0, 0, 0);
   // 검토자(read-only)는 항상 본문 잠금. 편집 가능자도 해당 주 토요일 이후 잠금.
@@ -699,6 +711,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
 
   async function postComment() {
     if (!commentDraft.trim()) return;
+    if (yearLocked) { toast.error(`${year}년은 확정된 연도입니다. 코멘트를 작성할 수 없습니다.`); return; }
     setPosting(true);
     try {
       const entry = await addLeadComment(orgId, year, week, currentUser.id, currentUser.name, commentDraft.trim());
@@ -709,6 +722,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
   }
   async function saveEditComment(commentId: string) {
     if (!editingText.trim()) return;
+    if (yearLocked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
     try {
       await updateLeadComment(orgId, year, week, commentId, editingText.trim());
       setLeadComments(prev => prev.map(c => c.id === commentId ? { ...c, text: editingText.trim(), editedAt: new Date() } : c));
@@ -716,6 +730,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     setEditingCommentId(null); setEditingText('');
   }
   async function removeComment(commentId: string) {
+    if (yearLocked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
     if (!confirm('이 코멘트를 삭제하시겠습니까?')) return;
     try {
       await deleteLeadComment(orgId, year, week, commentId);
@@ -846,7 +861,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
                     <span>·</span>
                     <span>{c.createdAt.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                     {c.editedAt && <span className="text-gray-300">(수정됨)</span>}
-                    {isOwn && !isEditing && (
+                    {isOwn && !isEditing && !yearLocked && (
                       <span className="ml-auto opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
                         <button onClick={() => { setEditingCommentId(c.id); setEditingText(c.text); }} className="text-blue-500 hover:text-blue-700">수정</button>
                         <span>·</span>
@@ -870,18 +885,21 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
             })}
           </div>
         )}
-        <div className="flex items-end gap-2 pt-1">
-          <textarea rows={2} value={commentDraft} onChange={e => setCommentDraft(e.target.value)} placeholder="코멘트를 입력하세요"
-            className="flex-1 resize-none rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <Button size="sm" disabled={posting || !commentDraft.trim()} onClick={postComment}>{posting ? '등록 중…' : '등록'}</Button>
-        </div>
+        {!yearLocked && (
+          <div className="flex items-end gap-2 pt-1">
+            <textarea rows={2} value={commentDraft} onChange={e => setCommentDraft(e.target.value)} placeholder="코멘트를 입력하세요"
+              className="flex-1 resize-none rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <Button size="sm" disabled={posting || !commentDraft.trim()} onClick={postComment}>{posting ? '등록 중…' : '등록'}</Button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 // ── 산하 팀 현황 (팀장·본부장 — 본인 팀 외 산하 팀 read-only) ───────────
-function ScopeTeamsView({ year, week, teams, orgs, currentUser }: {
+function ScopeTeamsView({ year, week, teams, orgs, currentUser, locked }: {
+  locked?: boolean;
   year: number; week: number;
   teams: Organization[];          // 본인 팀 제외, 산하 leaf 팀들 (호출 측에서 계산)
   orgs: Organization[];
@@ -917,7 +935,7 @@ function ScopeTeamsView({ year, week, teams, orgs, currentUser }: {
         <>
           <p className="text-xs text-gray-400">{teamPath(active)}</p>
           {/* 해당 산하 팀의 리더(팀장)면 업무추가 등 편집 가능, 아니면 읽기전용(코멘트만) */}
-          <TeamWeeklyForm orgId={active.id} year={year} week={week} editable={active.leaderId === currentUser.id} currentUser={currentUser} />
+          <TeamWeeklyForm orgId={active.id} year={year} week={week} editable={!locked && active.leaderId === currentUser.id} currentUser={currentUser} />
         </>
       )}
     </div>

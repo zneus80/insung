@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
-import { getSystemSettings, updateSystemSettings } from '@/lib/firestore';
+import { getSystemSettings, updateSystemSettings, lockEvaluationYear, unlockEvaluationYear } from '@/lib/firestore';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import Header from '@/components/layout/Header';
@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { CalendarClock, ArrowRight, RefreshCw } from 'lucide-react';
+import { CalendarClock, ArrowRight, RefreshCw, Lock, Unlock } from 'lucide-react';
 
 const CALENDAR_YEAR = new Date().getFullYear();
 
@@ -26,11 +26,37 @@ export default function YearTransitionPage() {
 
 function YearTransitionContent() {
   const { userProfile } = useAuth();
-  const { activeYear } = useActiveYear();
+  const { activeYear, isYearLocked } = useActiveYear();
+  const isHrMaster = !!userProfile?.isHrMaster;
 
   const [currentSetting, setCurrentSetting] = useState<{ activeYear: number; updatedBy?: string; updatedAt?: Date } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  async function handleLock(year: number) {
+    if (!userProfile) return;
+    if (!confirm(`${year}년을 '확정'하시겠습니까?\n\n확정 후 ${year}년의 목표·주간보고·평가·육성면담서 등은 전 화면에서 조회만 가능(읽기 전용)해집니다.\n(해제는 HR 마스터만 가능)`)) return;
+    setSaving(true);
+    try {
+      await lockEvaluationYear(year, { id: userProfile.id, name: userProfile.name });
+      toast.success(`${year}년이 확정되었습니다. (읽기 전용)`);
+    } catch (e: any) {
+      toast.error(`확정 실패: ${e?.message ?? '알 수 없는 오류'}`);
+    } finally { setSaving(false); }
+  }
+
+  async function handleUnlock(year: number) {
+    if (!userProfile) return;
+    if (!isHrMaster) { toast.error('확정 해제는 HR 마스터만 가능합니다.'); return; }
+    if (!confirm(`${year}년 확정을 해제하시겠습니까?\n\n해제 후 ${year}년 데이터의 편집이 다시 가능해집니다.`)) return;
+    setSaving(true);
+    try {
+      await unlockEvaluationYear(year, { id: userProfile.id, name: userProfile.name });
+      toast.success(`${year}년 확정이 해제되었습니다.`);
+    } catch (e: any) {
+      toast.error(`해제 실패: ${e?.message ?? '알 수 없는 오류'}`);
+    } finally { setSaving(false); }
+  }
 
   async function load() {
     try {
@@ -149,6 +175,50 @@ function YearTransitionContent() {
           <p className="text-xs text-gray-400">
             전환 가능 범위: {CALENDAR_YEAR - 2}년 ~ {CALENDAR_YEAR + 1}년
           </p>
+        </div>
+
+        {/* 연도 확정(읽기 전용) 관리 */}
+        <div className="rounded-xl border bg-white p-6 space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Lock className="h-5 w-5 text-gray-600" />
+            <h2 className="font-semibold text-gray-900">연도 확정 (읽기 전용)</h2>
+          </div>
+          <p className="text-sm text-gray-500">
+            마감된 연도를 <strong>확정</strong>하면 해당 연도의 목표·주간보고·평가·육성면담서 등이
+            전 화면에서 조회만 가능(읽기 전용)해집니다. 해제는 <strong>HR 마스터</strong>만 가능합니다.
+          </p>
+          <div className="divide-y border rounded-lg">
+            {[CALENDAR_YEAR - 2, CALENDAR_YEAR - 1, CALENDAR_YEAR].map(y => {
+              const locked = isYearLocked(y);
+              return (
+                <div key={y} className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-800">{y}년</span>
+                    {locked
+                      ? <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"><Lock className="h-3 w-3" /> 확정됨 (읽기 전용)</span>
+                      : <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700">편집 가능</span>}
+                  </div>
+                  {locked ? (
+                    <Button size="sm" variant="outline" disabled={saving || !isHrMaster}
+                      onClick={() => handleUnlock(y)}
+                      className="gap-1.5 text-gray-600"
+                      title={isHrMaster ? '' : '확정 해제는 HR 마스터만 가능'}>
+                      <Unlock className="h-3.5 w-3.5" /> 확정 해제
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" disabled={saving}
+                      onClick={() => handleLock(y)}
+                      className="gap-1.5 text-gray-700">
+                      <Lock className="h-3.5 w-3.5" /> 확정
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {!isHrMaster && (
+            <p className="text-xs text-gray-400">※ 확정 해제(편집 재개방)는 HR 마스터 권한이 필요합니다.</p>
+          )}
         </div>
 
         {/* 안내 */}

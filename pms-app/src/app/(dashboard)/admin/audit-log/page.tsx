@@ -30,6 +30,8 @@ const ACTION_LABEL: Record<AuditLogAction, string> = {
   EVAL_GRADE_CHANGE: '평가 등급 변경',
   READ_ANOMALY_DETECTED: '대량 조회 감지',
   AI_EVAL_SUMMARY: 'AI 성과 요약',
+  YEAR_LOCK: '연도 확정',
+  YEAR_UNLOCK: '연도 확정 해제',
 };
 
 const ACTION_COLOR: Record<AuditLogAction, string> = {
@@ -45,6 +47,8 @@ const ACTION_COLOR: Record<AuditLogAction, string> = {
   EVAL_GRADE_CHANGE: 'bg-indigo-100 text-indigo-700',
   READ_ANOMALY_DETECTED: 'bg-red-100 text-red-700',
   AI_EVAL_SUMMARY: 'bg-violet-100 text-violet-700',
+  YEAR_LOCK: 'bg-gray-200 text-gray-700',
+  YEAR_UNLOCK: 'bg-gray-100 text-gray-600',
 };
 
 export default function AuditLogPage() {

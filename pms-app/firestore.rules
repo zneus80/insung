@@ -120,7 +120,11 @@ service cloud.firestore {
         isHrAdmin() || isHrMaster() || isCeo()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // 본인 작성/수정 OR HR관리자(조직 이전 시 organizationId·viewableBy 갱신)
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isHrAdmin()
+      );
     }
 
     // 평가 사이클
@@ -231,7 +235,11 @@ service cloud.firestore {
         isHrAdmin() || isHrMaster() || isCeo()
       );
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // 본인 작성/수정 OR HR관리자(조직 이전 시 organizationId·viewableBy 갱신)
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isHrAdmin()
+      );
     }
 
     // 평가 기간 설정 (HR관리자·CEO가 설정, 전체가 읽기)

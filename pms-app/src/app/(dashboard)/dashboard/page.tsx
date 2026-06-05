@@ -549,9 +549,9 @@ function ExecDashboard() {
           )}
         </div>
 
-        {/* 요약 카드: 승인대기 + 1on1 + 조직현황 — CEO 는 전체 숨김 */}
+        {/* 요약 카드: 승인대기 + 조직현황 (2개 — 폭 꽉 채움) — CEO 는 전체 숨김 */}
         {userProfile?.role !== 'CEO' && (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
               <Link href="/approvals">
                 <div className={`rounded-xl border px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer ${execPendingCount > 0 ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-white'}`}>
                   <div className="flex items-center gap-2 mb-1">

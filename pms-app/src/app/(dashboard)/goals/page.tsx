@@ -15,6 +15,7 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import Header from '@/components/layout/Header';
+import YearLockBanner from '@/components/layout/YearLockBanner';
 import GoalCard from '@/components/goals/GoalCard';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
 import TaskGoalForm from '@/components/goals/TaskGoalForm';
@@ -44,7 +45,8 @@ export default function GoalsPage() {
 
 function MyGoalsView() {
   const { userProfile } = useAuth();
-  const { activeYear: year } = useActiveYear();
+  const { activeYear: year, isYearLocked } = useActiveYear();
+  const locked = isYearLocked(year);
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -251,6 +253,7 @@ function MyGoalsView() {
   function handleSave() { loadMy(); loadTeam(); }
 
   async function handleTrash(goal: Goal) {
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
     const isFinalAbandoned = goal.status === 'ABANDONED' && !!goal.approvedBy;
     const message = isFinalAbandoned
       ? '포기 확정된 목표를 휴지통으로 이동합니다.\n\n' +
@@ -302,6 +305,7 @@ function MyGoalsView() {
   }
 
   async function handleRestore(goalId: string) {
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다. 복구할 수 없습니다.`); return; }
     const target = myGoals.find(g => g.id === goalId);
     // 포기 확정 목표는 인사평가 기록 보존을 위해 복구 불가 (영구 삭제만 가능)
     // 단, 조직 변경에 의한 자동 이관(autoAbandonedByOrgChange) 은 본인 의사가 아니므로 복구 가능
@@ -340,6 +344,7 @@ function MyGoalsView() {
   }
 
   async function handlePermanentDelete(goalId: string) {
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다. 삭제할 수 없습니다.`); return; }
     const target = myGoals.find(g => g.id === goalId);
     const isFinalAbandoned = target?.status === 'ABANDONED' && !!target.approvedBy;
     const message = isFinalAbandoned
@@ -370,11 +375,15 @@ function MyGoalsView() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
 
+          <YearLockBanner />
+
           {/* 액션 버튼 (내목표/팀목표 통합 — 팀명 탭으로 구분) */}
           <div className="flex items-center justify-end gap-2">
-            <Button size="sm" onClick={handleAdd} className="gap-1.5">
-              <Plus className="h-4 w-4" /> 목표 추가
-            </Button>
+            {!locked && (
+              <Button size="sm" onClick={handleAdd} className="gap-1.5">
+                <Plus className="h-4 w-4" /> 목표 추가
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => setTrashOpen(true)} className="gap-1.5 text-gray-500">
               <Trash2 className="h-4 w-4" />
               휴지통{trashGoals.length > 0 && ` (${trashGoals.length})`}
@@ -482,14 +491,14 @@ function MyGoalsView() {
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {filteredTeamGoals.map(g => {
-                    const isMine = g.userId === userProfile?.id;
+                    const isMine = g.userId === userProfile?.id && !locked;
                     const names = participantNamesOf(g);
                     const canTrash = isMine && (g.status === 'DRAFT' || g.status === 'REJECTED' || (g.status === 'ABANDONED' && !!g.approvedBy));
                     return (
                       <GoalCard
                         key={g.id}
                         goal={g}
-                        ownerName={teamUsers[g.userId]?.name ?? (isMine ? userProfile?.name : undefined)}
+                        ownerName={teamUsers[g.userId]?.name ?? (g.userId === userProfile?.id ? userProfile?.name : undefined)}
                         participantNames={names.length > 1 ? names : undefined}
                         onEdit={isMine && ['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined}
                         onTrash={canTrash ? handleTrash : undefined}

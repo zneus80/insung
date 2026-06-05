@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { CheckSquare, User, Calendar } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getPendingGoalsByOrganizations, getAllUsers, getOrganizations, updateGoal, addGoalHistory } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
@@ -49,6 +50,7 @@ const GOAL_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
 
 function ApprovalsContent() {
   const { userProfile } = useAuth();
+  const { isYearLocked } = useActiveYear();
   const [goals,   setGoals]   = useState<Goal[]>([]);
   const [users,   setUsers]   = useState<Record<string, AppUser>>({});
   const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
@@ -157,6 +159,7 @@ function ApprovalsContent() {
 
   async function handlePromotionApprove(goal: Goal, promoteToTask: boolean) {
     if (!userProfile) return;
+    if (isYearLocked(goal.cycleYear)) { toast.error(`${goal.cycleYear}년은 확정된 연도입니다. 승인 처리가 불가합니다.`); return; }
     setActionLoading(goal.id);
     try {
       if (promoteToTask) {
