@@ -651,7 +651,7 @@ function OrgGoalsView() {
     (async () => {
       setLoading(true);
       try {
-        const allOrgs = await getOrganizations();
+        const allOrgs = (await getOrganizations()).filter(o => !o.archivedAt);
         setOrgs(allOrgs);
 
         // 조회 대상 조직 결정

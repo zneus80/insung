@@ -40,6 +40,12 @@ export default function AiEvalPanel({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<import('@/lib/ai-eval').AiEvalResult | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // 펼친 멤버 — 기본 모두 닫힘
+  const toggleExpanded = (id: string) => setExpanded(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
   const nameOf = (id: string) => members.find(m => m.id === id)?.name ?? id;
 
@@ -73,6 +79,7 @@ export default function AiEvalPanel({
       });
       const res = await summarizeAndRankMembers(input);
       setResult(res);
+      setExpanded(new Set()); // 결과는 모두 닫힌 채로 시작
       // 거버넌스: AI 가 누구의 인사평가 데이터를 처리했는지 감사 기록
       createAuditLog({
         action: 'AI_EVAL_SUMMARY',
@@ -116,17 +123,29 @@ export default function AiEvalPanel({
               <span className="font-semibold">참고 순위:</span> {result.ranking.map(r => nameOf(r.userId)).join(' · ')}
             </p>
           )}
-          {result.summaries.map(s => (
-            <div key={s.userId} className="rounded-lg bg-white border border-violet-100 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-800">{nameOf(s.userId)}</span>
-                {s.suggestedGrade && <span className="text-[11px] rounded-full bg-violet-100 text-violet-700 px-2 py-0.5">추천 {s.suggestedGrade}</span>}
+          {result.summaries.map(s => {
+            const isOpen = expanded.has(s.userId);
+            return (
+              <div key={s.userId} className="rounded-lg bg-white border border-violet-100">
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(s.userId)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-violet-50/50 transition-colors"
+                >
+                  <span className={`text-gray-400 transition-transform text-xs ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+                  <span className="text-sm font-semibold text-gray-800">{nameOf(s.userId)}</span>
+                  {s.suggestedGrade && <span className="text-[11px] rounded-full bg-violet-100 text-violet-700 px-2 py-0.5">추천 {s.suggestedGrade}</span>}
+                </button>
+                {isOpen && (
+                  <div className="px-3 pb-2.5 pt-0">
+                    <p className="text-xs text-gray-600 mt-0.5 whitespace-pre-wrap">{s.summary}</p>
+                    {s.strengths?.length > 0 && <p className="text-[11px] text-green-600 mt-0.5">강점: {s.strengths.join(', ')}</p>}
+                    {s.issues?.length > 0 && <p className="text-[11px] text-amber-600">보완: {s.issues.join(', ')}</p>}
+                  </div>
+                )}
               </div>
-              <p className="text-xs text-gray-600 mt-0.5 whitespace-pre-wrap">{s.summary}</p>
-              {s.strengths?.length > 0 && <p className="text-[11px] text-green-600 mt-0.5">강점: {s.strengths.join(', ')}</p>}
-              {s.issues?.length > 0 && <p className="text-[11px] text-amber-600">보완: {s.issues.join(', ')}</p>}
-            </div>
-          ))}
+            );
+          })}
           {result.disclaimer && <p className="text-[11px] text-gray-400">{result.disclaimer}</p>}
         </div>
       )}

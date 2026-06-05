@@ -392,10 +392,11 @@ export async function transferActiveGoalsToUpstreamLeader(
     if (data.status === 'COMPLETED' && data.completionExecApprovedBy) return;
     if (data.status === 'ABANDONED' && data.approvedBy) return;
     if (data.trashedAt) return;
+    // 옛 소속 org(이관 전 organizationId·userOrgId) 제거 후 새 조직 추가 — 옛 조직 쿼리 잔류 방지
+    const prevOrg = data.organizationId;
     const newRelated = Array.from(new Set([
-      ...(data.relatedOrgIds ?? []),
+      ...((data.relatedOrgIds ?? []).filter((id: string) => id !== prevOrg && id !== userOrgId)),
       target!.targetOrgId,
-      userOrgId,
     ]));
     await updateDoc(d.ref, {
       userId: target!.targetUserId,
@@ -435,8 +436,15 @@ export async function migrateActiveGoalsToNewOrg(userId: string, newOrgId: strin
     if (data.status === 'COMPLETED' && data.completionExecApprovedBy) return;
     if (data.status === 'ABANDONED' && data.approvedBy) return;
     if (data.trashedAt) return; // 휴지통 안의 것도 그대로
+    // relatedOrgIds 에서 옛 소속 org 제거 + 새 org 추가 (옛 조직 쿼리에 계속 잡혀 중복 노출되는 문제 방지)
+    const prevOrg = data.organizationId;
+    const newRelated = Array.from(new Set([
+      ...((data.relatedOrgIds ?? []).filter((id: string) => id !== prevOrg)),
+      newOrgId,
+    ]));
     await updateDoc(d.ref, {
       organizationId: newOrgId,
+      relatedOrgIds: newRelated,
       updatedAt: serverTimestamp(),
     });
     processed += 1;

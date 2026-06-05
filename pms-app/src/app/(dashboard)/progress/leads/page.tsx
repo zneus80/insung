@@ -84,7 +84,7 @@ function ProgressContent() {
     async function load() {
       try {
         const [allUsers, allOrgs, allGoals] = await Promise.all([
-          getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
+          getAllUsers(), getOrganizations().then(os => os.filter(o => !o.archivedAt)), getAllGoalsByYear(year),
         ]);
         // 내가 leaderId 인 모든 조직 → 산하 ID 집합 (fallback: home 조직)
         const myLeadOrgs = allOrgs.filter(o => o.leaderId === userProfile!.id);

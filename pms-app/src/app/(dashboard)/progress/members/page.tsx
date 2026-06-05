@@ -43,7 +43,7 @@ function ProgressMembersContent() {
     async function load() {
       try {
         const [allUsers, allOrgs, allGoals] = await Promise.all([
-          getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
+          getAllUsers(), getOrganizations().then(os => os.filter(o => !o.archivedAt)), getAllGoalsByYear(year),
         ]);
         const descIds = findDescendantIds(userProfile!.organizationId, allOrgs);
         const teamMembers = allUsers.filter(u =>
