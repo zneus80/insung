@@ -23,10 +23,13 @@ interface TaskGoalFormProps {
   onClose: () => void;
   onSave: () => void;
   editGoal?: Goal;
+  /** 산하 팀 핵심목표로 등록 — 신규 작성 시 목표의 organizationId 를 이 조직으로 고정(겸직 팀장용) */
+  targetOrgId?: string;
+  targetOrgName?: string;
 }
 
 export default function TaskGoalForm({
-  open, onClose, onSave, editGoal,
+  open, onClose, onSave, editGoal, targetOrgId, targetOrgName,
 }: TaskGoalFormProps) {
   const { userProfile } = useAuth();
   const { activeYear } = useActiveYear();
@@ -102,7 +105,11 @@ export default function TaskGoalForm({
       // 수행자 결정 — 미선택 시 본인
       const effectiveOwnerId = ownerId || userProfile.id;
       const ownerUser = users.find(u => u.id === effectiveOwnerId);
-      const ownerOrgId = ownerUser?.organizationId ?? userProfile.organizationId;
+      // 신규 작성 + 산하 팀 지정 시 그 팀을 목표 소속으로 고정(겸직 팀장의 산하 팀 핵심목표 등록).
+      // 그 외에는 수행자의 소속 조직 기준.
+      const ownerOrgId = (targetOrgId && !isEdit)
+        ? targetOrgId
+        : (ownerUser?.organizationId ?? userProfile.organizationId);
       // collaboratorIds 에서 수행자 자신·중복 제거
       const cleanedCollaborators = collaboratorIds.filter(id => id !== effectiveOwnerId);
       // 연관 조직 — 수행자 organizationId + collaborator 들의 organizationId 합집합
@@ -508,6 +515,13 @@ export default function TaskGoalForm({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {/* 산하 팀 핵심목표 등록 안내 (겸직 팀장) */}
+          {!isEdit && targetOrgId && targetOrgName && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
+              이 목표는 <b>{targetOrgName}</b> 핵심목표로 등록됩니다. (해당 팀 주간업무보고의 핵심업무로 연동)
+            </div>
+          )}
+
           {/* 승인된 목표 수정 시 — 기존 내용 읽기전용 표시 */}
           {isApprovedEdit && editGoal && (
             <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 space-y-2">

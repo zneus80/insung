@@ -730,43 +730,49 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     const itemLi = (i: SimpleTaskItem) => {
       const main = esc(i.title || i.content);
       const sub = i.title && i.content ? `<div class="sub">${esc(i.content)}</div>` : '';
-      const au = i.authorName ? ` <span class="au">${esc(i.authorName)}</span>` : '';
+      const au = i.authorName ? ` <span class="au">작성자 ${esc(i.authorName)}</span>` : '';
       return `<li>${main}${au}${sub}</li>`;
     };
     // 핵심업무 셀 — 목표별 그룹(진행률은 Has Done 만)
+    const goalOrder = new Map(activeGoals.map((g, idx) => [g.id, idx]));
     const coreCell = (items: SimpleTaskItem[], showPct: boolean) => {
-      const goalIds = [...new Set(items.filter(i => i.goalId).map(i => i.goalId!))];
+      const goalIds = [...new Set(items.filter(i => i.goalId).map(i => i.goalId!))]
+        // 화면(핵심목표)과 동일 순서로 정렬 — Has Done/Will Do 순서 어긋남 방지
+        .sort((a, b) => (goalOrder.get(a) ?? 999) - (goalOrder.get(b) ?? 999));
       if (!goalIds.length) return '<span class="empty">—</span>';
       return goalIds.map(gid => {
         const gItems = items.filter(i => i.goalId === gid);
-        const pct = showPct ? ` <span class="pct">(${goalProgress[gid] ?? 0}%)</span>` : '';
+        const pct = showPct ? ` <span class="pct">진척률 (${goalProgress[gid] ?? 0}) %</span>` : '';
         return `<div class="g"><div class="gt">${esc(titleById.get(gid) ?? '핵심목표')}${pct}</div><ul>${gItems.map(itemLi).join('')}</ul></div>`;
       }).join('');
     };
     // 일반업무 셀
     const genCell = (items: SimpleTaskItem[]) => {
       const g = items.filter(i => !i.goalId);
-      return g.length ? `<ul>${g.map(itemLi).join('')}</ul>` : '<span class="empty">—</span>';
+      return g.length ? `<ul class="gen">${g.map(itemLi).join('')}</ul>` : '<span class="empty">—</span>';
     };
     const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>주간업무보고 ${year}년 ${week}주차</title>
 <style>
-  @page { size: A4 portrait; margin: 12mm; }
+  @page { size: A4 portrait; margin: 11mm; }
   *{ box-sizing:border-box; }
-  body{ font-family:'Malgun Gothic','맑은 고딕',sans-serif; color:#111; margin:0; font-size:10.5px; }
-  h1{ font-size:16px; margin:0 0 2px; }
-  .period{ color:#555; font-size:11px; margin-bottom:10px; }
-  table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-  th,td{ border:1px solid #333; padding:6px 7px; vertical-align:top; word-break:break-word; }
-  thead th{ background:#e5e7eb; text-align:center; font-size:12px; padding:6px; }
-  .rowlabel{ width:64px; background:#f1f5f9; text-align:center; font-weight:700; font-size:11px; vertical-align:middle; }
-  .colcell{ width:calc((100% - 64px)/2); }
+  html,body{ width:100%; }
+  body{ font-family:'Malgun Gothic','맑은 고딕',sans-serif; color:#111; margin:0; font-size:12.7px; }
+  h1{ font-size:20px; margin:0 0 2px; }
+  .period{ color:#555; font-size:13px; margin-bottom:10px; }
+  table{ width:100%; max-width:100%; border-collapse:collapse; table-layout:fixed; }
+  th,td{ border:1px solid #333; padding:6px 6px; vertical-align:top; word-break:break-word; overflow-wrap:anywhere; }
+  thead th{ background:#e5e7eb; text-align:center; font-size:14px; padding:6px; }
+  .rowlabel{ width:56px; background:#f1f5f9; text-align:center; font-weight:700; font-size:13px; vertical-align:middle; }
+  .colcell{ width:calc((100% - 56px)/2); }
   .g{ margin-bottom:6px; }
-  .gt{ font-weight:700; background:#eef2ff; padding:2px 5px; border-radius:3px; }
-  .pct{ color:#2563eb; }
-  ul{ margin:3px 0 0; padding-left:16px; }
-  li{ margin:1.5px 0; line-height:1.35; }
-  .au{ color:#6b7280; font-size:9px; }
-  .sub{ color:#555; white-space:pre-wrap; }
+  .gt{ font-weight:700; background:#eef2ff; padding:2px 5px; border-radius:3px; word-break:break-word; overflow-wrap:anywhere; }
+  .pct{ color:#2563eb; white-space:nowrap; }
+  ul{ margin:3px 0 0; padding-left:15px; }
+  li{ margin:1.5px 0; line-height:1.38; word-break:break-word; overflow-wrap:anywhere; }
+  ul.gen li{ margin:6px 0; line-height:1.5; }
+  ul.gen .sub{ margin-top:3px; }
+  .au{ color:#6b7280; font-size:11px; }
+  .sub{ color:#555; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; }
   .empty{ color:#bbb; }
 </style></head><body>
   <h1>주간업무보고</h1>

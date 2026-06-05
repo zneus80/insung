@@ -16,6 +16,25 @@ function Block({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+// 섹션 카드 — 색상 헤더 바 + 테두리로 영역 구분을 명확히
+const SECTION_COLOR: Record<string, { head: string; bar: string }> = {
+  violet: { head: 'text-violet-700', bar: 'bg-violet-400' },
+  blue: { head: 'text-blue-700', bar: 'bg-blue-400' },
+  gray: { head: 'text-gray-700', bar: 'bg-gray-400' },
+};
+function Section({ title, color = 'gray', children }: { title: string; color?: 'violet' | 'blue' | 'gray'; children: React.ReactNode }) {
+  const c = SECTION_COLOR[color];
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50/70 px-4 py-2.5">
+        <span className={`h-3.5 w-1 rounded-full ${c.bar}`} />
+        <h4 className={`text-sm font-bold ${c.head}`}>{title}</h4>
+      </div>
+      <div className="px-4 py-4 space-y-3">{children}</div>
+    </section>
+  );
+}
+
 function Val({ text }: { text?: string }) {
   return text?.trim()
     ? <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{text}</p>
@@ -41,27 +60,23 @@ export default function MentoringPerfBody({ form }: { form: MentoringForm | null
   const generalEvals = form.generalEvals ?? [];
   const innovationEvals = form.innovationEvals ?? [];
   const certs = (form.certifications ?? '').split('\n').filter(Boolean);
+  const hasJobRequest = form.jobRequest && form.jobRequest !== 'SATISFIED';
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* 직무 정보 */}
-      <div className="space-y-3">
-        <p className="text-sm font-bold text-violet-700">직무 정보</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Block label="직위/직책"><Val text={form.currentPosition} /></Block>
-          <Block label="현 직위 승진일"><Val text={form.promotionDate} /></Block>
-        </div>
+      <Section title="직무 정보" color="violet">
+        <Block label="직책"><Val text={form.currentPosition} /></Block>
         <Block label="보유 자격증">
           {certs.length
-            ? <div className="flex flex-wrap gap-1.5">{certs.map((c, i) => <span key={i} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700">{c}</span>)}</div>
+            ? <div className="flex flex-wrap gap-1.5">{certs.map((c, i) => <span key={i} className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-700">{c}</span>)}</div>
             : <p className="text-sm text-gray-300">—</p>}
         </Block>
         <Block label="주요 담당업무"><Val text={form.mainDuties} /></Block>
-      </div>
+      </Section>
 
       {/* 당해년도 주요 업무실적 */}
-      <div className="space-y-3">
-        <p className="text-sm font-bold text-blue-700">당해년도 주요 업무실적</p>
+      <Section title="당해년도 주요 업무실적" color="blue">
         <Block label="완료 핵심목표">
           {goalEvals.length === 0 ? <p className="text-xs text-gray-400">없음</p>
             : <div className="space-y-1.5">{goalEvals.map(e => <EvalRow key={e.goalId} title={e.goalTitle} comment={e.comment} />)}</div>}
@@ -74,33 +89,33 @@ export default function MentoringPerfBody({ form }: { form: MentoringForm | null
           {innovationEvals.length === 0 ? <p className="text-xs text-gray-400">없음</p>
             : <div className="space-y-1.5">{innovationEvals.map(e => <EvalRow key={e.activityId} title={e.name} comment={e.comment} />)}</div>}
         </Block>
-      </div>
+      </Section>
 
-      {/* 경력개발 방향 */}
-      <Block label="경력개발 방향"><Val text={form.careerPlan} /></Block>
-
-      {/* 직무 요청사항 */}
-      {form.jobRequest && form.jobRequest !== 'SATISFIED' && (
-        <Block label="직무 요청사항">
-          <p className="text-sm text-gray-800">
-            {JOB_REQUEST_LABEL[form.jobRequest] ?? form.jobRequest}
-            {form.jobRequestReason ? ` — ${form.jobRequestReason}` : ''}
-          </p>
-          {(form.desiredJob1 || form.desiredJob2) && (
-            <p className="text-xs text-gray-600 mt-0.5">희망직무: {[form.desiredJob1, form.desiredJob2].filter(Boolean).join(', ')}{form.jobChangeReason && ` (${form.jobChangeReason})`}</p>
-          )}
-          {(form.desiredLocation1 || form.desiredLocation2) && (
-            <p className="text-xs text-gray-600 mt-0.5">희망근무지: {[form.desiredLocation1, form.desiredLocation2].filter(Boolean).join(', ')}{form.locationChangeReason && ` (${form.locationChangeReason})`}</p>
-          )}
-        </Block>
-      )}
+      {/* 경력개발 / 직무 요청사항 */}
+      <Section title="경력개발 및 직무 요청" color="gray">
+        <Block label="경력개발 방향"><Val text={form.careerPlan} /></Block>
+        {hasJobRequest && (
+          <Block label="직무 요청사항">
+            <p className="text-sm text-gray-800">
+              {JOB_REQUEST_LABEL[form.jobRequest!] ?? form.jobRequest}
+              {form.jobRequestReason ? ` — ${form.jobRequestReason}` : ''}
+            </p>
+            {(form.desiredJob1 || form.desiredJob2) && (
+              <p className="text-xs text-gray-600 mt-0.5">희망직무: {[form.desiredJob1, form.desiredJob2].filter(Boolean).join(', ')}{form.jobChangeReason && ` (${form.jobChangeReason})`}</p>
+            )}
+            {(form.desiredLocation1 || form.desiredLocation2) && (
+              <p className="text-xs text-gray-600 mt-0.5">희망근무지: {[form.desiredLocation1, form.desiredLocation2].filter(Boolean).join(', ')}{form.locationChangeReason && ` (${form.locationChangeReason})`}</p>
+            )}
+          </Block>
+        )}
+      </Section>
 
       {/* 종합의견 */}
-      <Block label="본인 종합의견">
+      <Section title="본인 종합의견" color="gray">
         {form.selfOpinion?.trim()
-          ? <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed rounded-lg bg-gray-50 px-3 py-2">{form.selfOpinion}</p>
+          ? <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{form.selfOpinion}</p>
           : <p className="text-sm text-gray-300">미작성</p>}
-      </Block>
+      </Section>
     </div>
   );
 }

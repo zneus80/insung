@@ -111,11 +111,16 @@ function MyGoalsView() {
       // 팀 탭으로 분리할 "팀 단위" 조직 — TEAM 타입 또는 leader 인 조직만 (본부 descendants 중 leaf 만)
       // 단순 처리: scope 의 leaf 조직(자식이 scope 에 없는 조직) 들을 탭으로 노출
       const scopeOrgSet = new Set(scopeOrgIds);
-      const teamTabs = orgs
+      let teamTabs = orgs
         .filter(o => scopeOrgSet.has(o.id))
         .filter(o => !orgs.some(c => c.parentId === o.id && scopeOrgSet.has(c.id))) // leaf
         .slice()
         .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999) || a.name.localeCompare(b.name, 'ko'));
+      // 본인 home 조직이 leaf 탭에 없으면(본부장 등) 맨 앞에 추가 — 본인 목표 표시 누락 방지
+      if (!teamTabs.some(o => o.id === userProfile!.organizationId)) {
+        const home = orgs.find(o => o.id === userProfile!.organizationId);
+        if (home) teamTabs = [home, ...teamTabs];
+      }
       setTeamScopeOrgs(teamTabs);
       if (teamTabs.length > 0 && !teamTabs.some(o => o.id === activeTeamOrgId)) {
         setActiveTeamOrgId(teamTabs[0].id);
@@ -389,9 +394,24 @@ function MyGoalsView() {
               </div>
             )}
 
-            {/* ── 핵심목표 (공동업무 / 단독업무 탭) ── */}
+            {/* ── 핵심목표 (산하 팀 탭 → 공동/단독 하위 탭) ── */}
             <div className="mt-4 space-y-4">
-              {/* 공동업무 / 단독업무 탭 */}
+              {/* 상단: 산하 팀 탭 — 2개 이상 팀을 겸직하는 팀장만 노출 */}
+              {teamScopeOrgs.length >= 2 && (
+                <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+                  {teamScopeOrgs.map(o => (
+                    <button key={o.id} onClick={() => setActiveTeamOrgId(o.id)}
+                      className={cn('px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors',
+                        activeTeamOrgId === o.id
+                          ? 'border-blue-600 text-blue-700'
+                          : 'border-transparent text-gray-500 hover:text-gray-700')}>
+                      {o.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* 하위: 공동업무 / 단독업무 탭 */}
               <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
                 {([['joint', '공동업무'], ['solo', '단독업무']] as const).map(([k, label]) => (
                   <button key={k} onClick={() => setGoalKind(k)}
@@ -402,21 +422,41 @@ function MyGoalsView() {
                 ))}
               </div>
 
-              {/* 공동/단독 필터링 (공동 = collaboratorIds 있음) */}
+              {/* 산하 팀 + 공동/단독 필터링 (공동 = collaboratorIds 있음) */}
               {(() => {
+                const showTeamTabs = teamScopeOrgs.length >= 2;
+                // 산하 팀 탭 필터 — 목표의 소속 조직(organizationId) 또는 연관 조직(공동업무)이 해당 팀일 때만.
+                // ※ 수행자 home 조직(ownerOrg) 기준 필터는 사용하지 않음 — 겸직 인원의 타 팀 목표가
+                //    home 팀 탭에 중복으로 끌려오는 문제 방지.
+                const teamFilter = (g: Goal) => {
+                  if (!showTeamTabs || !activeTeamOrgId) return true;
+                  return g.organizationId === activeTeamOrgId
+                    || (g.relatedOrgIds ?? []).includes(activeTeamOrgId);
+                };
                 const matchKind = (g: Goal) => goalKind === 'joint'
                   ? (g.collaboratorIds?.length ?? 0) > 0
                   : (g.collaboratorIds?.length ?? 0) === 0;
-                const filteredTeamByMember = Object.fromEntries(
-                  Object.entries(teamByMember)
-                    .map(([uid, gs]) => [uid, gs.filter(matchKind)] as const)
-                    .filter(([, gs]) => gs.length > 0)
-                );
-                const filteredTeamGoals = Object.values(filteredTeamByMember).flat();
+                // 사람(멤버) 그룹핑 없이 평면 카드 그리드 — 카드의 수행자/공동수행자 이름으로 구분.
+                const allGoals = Object.values(teamByMember).flat();
+                // 동일 목표 중복 제거(본인 목표가 teamByMember 와 myActive 양쪽에 들어갈 수 있음)
+                const seen = new Set<string>();
+                const filteredTeamGoals = allGoals
+                  .filter(g => !seen.has(g.id) && (seen.add(g.id), true))
+                  .filter(g => teamFilter(g) && matchKind(g))
+                  .sort((a, b) => {
+                    // 본인 목표 우선, 이후 수행자명 가나다순
+                    const am = a.userId === userProfile?.id ? 0 : 1;
+                    const bm = b.userId === userProfile?.id ? 0 : 1;
+                    if (am !== bm) return am - bm;
+                    const an = teamUsers[a.userId]?.name ?? '';
+                    const bn = teamUsers[b.userId]?.name ?? '';
+                    return an.localeCompare(bn, 'ko');
+                  });
                 const filteredProgressGoals = filteredTeamGoals.filter(g => g.status !== 'ABANDONED');
                 const filteredAvgProgress = filteredProgressGoals.length > 0
                   ? Math.round(filteredProgressGoals.reduce((s, g) => s + g.progress, 0) / filteredProgressGoals.length)
                   : 0;
+                const memberCount = new Set(filteredTeamGoals.map(g => g.userId)).size;
                 return (
                   <>
                     {/* 전체 진행률 */}
@@ -428,89 +468,34 @@ function MyGoalsView() {
                         </div>
                         <Progress value={filteredAvgProgress} className="h-2" />
                         <p className="text-xs text-gray-400">
-                          {Object.keys(filteredTeamByMember).length}명 · 목표 {filteredProgressGoals.length}개 평균{filteredTeamGoals.length > filteredProgressGoals.length ? ` (포기됨 ${filteredTeamGoals.length - filteredProgressGoals.length}개 제외)` : ''}
+                          {memberCount}명 · 목표 {filteredProgressGoals.length}개 평균{filteredTeamGoals.length > filteredProgressGoals.length ? ` (포기됨 ${filteredTeamGoals.length - filteredProgressGoals.length}개 제외)` : ''}
                         </p>
                       </div>
                     )}
 
               {teamLoading ? (
-                <div className="space-y-3">
-                  {[1, 2, 3].map(i => <div key={i} className="h-24 animate-pulse rounded-xl bg-gray-100" />)}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2, 3].map(i => <div key={i} className="h-32 animate-pulse rounded-xl bg-gray-100" />)}
                 </div>
-              ) : Object.keys(filteredTeamByMember).length === 0 ? (
-                <EmptyState icon={<Users className="h-10 w-10" />} label="팀 목표가 없습니다." />
+              ) : filteredTeamGoals.length === 0 ? (
+                <EmptyState icon={<Target className="h-10 w-10" />} label={`${goalKind === 'joint' ? '공동업무' : '단독업무'} 목표가 없습니다.`} />
               ) : (
-                <div className="space-y-3">
-                  {Object.entries(filteredTeamByMember).map(([uid, goals]) => {
-                    const user = teamUsers[uid];
-                    const isExpanded = expandedMembers.has(uid);
-                    const memberAvg = goals.length > 0
-                      ? Math.round(goals.reduce((s, g) => s + g.progress, 0) / goals.length)
-                      : 0;
-                    const completedCount = goals.filter(g =>
-                      ['COMPLETED', 'PENDING_COMPLETION', 'APPROVED', 'IN_PROGRESS'].includes(g.status)
-                    ).length;
-
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {filteredTeamGoals.map(g => {
+                    const isMine = g.userId === userProfile?.id;
+                    const names = participantNamesOf(g);
+                    const canTrash = isMine && (g.status === 'DRAFT' || g.status === 'REJECTED' || (g.status === 'ABANDONED' && !!g.approvedBy));
                     return (
-                      <div key={uid} className="rounded-xl border bg-white overflow-hidden">
-                        {/* 멤버 헤더 — 클릭으로 펼침/닫힘 */}
-                        <button
-                          onClick={() => toggleMember(uid)}
-                          className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            {isExpanded
-                              ? <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
-                              : <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
-                            }
-                            <div className="text-left min-w-0">
-                              <p className="font-semibold text-gray-900 text-sm">
-                                {user ? <MemberInfoModal userId={user.id} userName={user.name} /> : (uid)}
-                                <span className="ml-1.5 text-xs font-normal text-gray-400">
-                                  {[
-                                    user ? ROLE_LABEL[user.role] ?? user.role : '',
-                                    user ? orgsMap[user.organizationId] : '',
-                                  ].filter(Boolean).join(' · ')}
-                                </span>
-                              </p>
-                              <p className="text-xs text-gray-400 mt-0.5">
-                                목표 {goals.length}개 · 진행 {completedCount}개
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 shrink-0 ml-4">
-                            <div className="w-24 space-y-1 text-right">
-                              <span className="text-xs font-bold text-blue-600">{memberAvg}%</span>
-                              <Progress value={memberAvg} className="h-1.5" />
-                            </div>
-                          </div>
-                        </button>
-
-                        {/* 펼쳐진 목표 목록 */}
-                        {isExpanded && (
-                          <div className="border-t px-4 py-4">
-                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                              {goals.map(g => {
-                                const isMine = g.userId === userProfile?.id;
-                                const names = participantNamesOf(g);
-                                const canTrash = isMine && (g.status === 'DRAFT' || g.status === 'REJECTED' || (g.status === 'ABANDONED' && !!g.approvedBy));
-                                return (
-                                  <GoalCard
-                                    key={g.id}
-                                    goal={g}
-                                    ownerName={teamUsers[g.userId]?.name ?? (isMine ? userProfile?.name : undefined)}
-                                    participantNames={names.length > 1 ? names : undefined}
-                                    onEdit={isMine && ['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined}
-                                    onTrash={canTrash ? handleTrash : undefined}
-                                    onWithdraw={isMine && g.status === 'PENDING_APPROVAL' ? handleWithdraw : undefined}
-                                    onResubmit={isMine && g.status === 'REJECTED' ? handleResubmit : undefined}
-                                  />
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <GoalCard
+                        key={g.id}
+                        goal={g}
+                        ownerName={teamUsers[g.userId]?.name ?? (isMine ? userProfile?.name : undefined)}
+                        participantNames={names.length > 1 ? names : undefined}
+                        onEdit={isMine && ['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined}
+                        onTrash={canTrash ? handleTrash : undefined}
+                        onWithdraw={isMine && g.status === 'PENDING_APPROVAL' ? handleWithdraw : undefined}
+                        onResubmit={isMine && g.status === 'REJECTED' ? handleResubmit : undefined}
+                      />
                     );
                   })}
                 </div>
@@ -528,6 +513,9 @@ function MyGoalsView() {
         onClose={() => setFormOpen(false)}
         onSave={handleSave}
         editGoal={editGoal}
+        {...(teamScopeOrgs.length >= 2 && activeTeamOrgId && activeTeamOrgId !== userProfile?.organizationId
+          ? { targetOrgId: activeTeamOrgId, targetOrgName: orgsMap[activeTeamOrgId] }
+          : {})}
       />
 
       {/* 휴지통 */}
