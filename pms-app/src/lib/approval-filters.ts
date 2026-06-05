@@ -43,8 +43,11 @@ export function getMyScopeOrgIds(
   userId: string,
   userRole: string,
   userOrgId: string | undefined,
-  allOrgs: Organization[],
+  allOrgsRaw: Organization[],
 ): string[] {
+  // 보관(soft-archive)된 조직은 운영 스코프에서 제외 — 임원·팀장 화면에 폐조직이 새지 않도록.
+  // (보관 조직은 항상 leaf 이므로 트리 체인 손상 없음)
+  const allOrgs = allOrgsRaw.filter(o => !o.archivedAt);
   const led = allOrgs
     .filter(o => o.leaderId === userId)
     .flatMap(o => getDescendantOrgIds(o.id, allOrgs));

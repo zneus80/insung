@@ -216,7 +216,7 @@ export default function ProgressPage() {
       try {
         if (role === 'EXECUTIVE') {
           const [allUsers, allOrgs, allGoals] = await Promise.all([
-            getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
+            getAllUsers(), getOrganizations().then(os => os.filter(o => !o.archivedAt)), getAllGoalsByYear(year),
           ]);
           // 다중 부문 겸직 지원 — 본인이 leaderId 인 모든 조직 descendants 합집합
           const descIds = getMyScopeOrgIds(profile.id, 'EXECUTIVE', profile.organizationId, allOrgs);
@@ -230,7 +230,7 @@ export default function ProgressPage() {
           setExecOrgs(allOrgs);
         } else if (role === 'TEAM_LEAD') {
           const [allUsers, allOrgs, allGoals] = await Promise.all([
-            getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
+            getAllUsers(), getOrganizations().then(os => os.filter(o => !o.archivedAt)), getAllGoalsByYear(year),
           ]);
           // 다중 팀·본부 겸직 지원 — home org descendants ∪ 본인이 leaderId 인 모든 조직 descendants
           const scopeOrgIds = getMyScopeOrgIds(profile.id, 'TEAM_LEAD', profile.organizationId, allOrgs);
@@ -261,7 +261,7 @@ export default function ProgressPage() {
           setTreeNodes(buildTree(null, scopeOrgs, usersByOrg, goalsByUser));
         } else if (isHrAdmin || role === 'CEO') {
           const [allUsers, allOrgs, allGoals, ownGoals] = await Promise.all([
-            getAllUsers(), getOrganizations(), getAllGoalsByYear(year),
+            getAllUsers(), getOrganizations().then(os => os.filter(o => !o.archivedAt)), getAllGoalsByYear(year),
             getGoalsByUser(profile.id, year),
           ]);
           setMyGoals(ownGoals);

@@ -67,8 +67,8 @@ function MemberDashboard() {
     if (!userProfile) return;
     async function load() {
       try {
-        // 조직 정보 — 팀 스코프 계산 + 본부장 판별
-        const allOrgs = await getOrganizations();
+        // 조직 정보 — 팀 스코프 계산 + 본부장 판별 (보관 조직 제외 — 폐조직 누수 방지)
+        const allOrgs = (await getOrganizations()).filter(o => !o.archivedAt);
         function getDescendantIds(orgId: string): string[] {
           const ids: string[] = [orgId];
           allOrgs.filter(o => o.parentId === orgId).forEach(child => {
@@ -369,7 +369,7 @@ function ExecDashboard() {
       try {
         const [allUsers, allOrgs, allGoals, cGoal, orgGoals, announcements, meetings] = await Promise.all([
             getAllUsers(),
-            getOrganizations(),
+            getOrganizations().then(os => os.filter(o => !o.archivedAt)),
             getAllGoalsByYear(year),
             getAnnualGoal('company', year),
             getAllOrgAnnualGoals(year),

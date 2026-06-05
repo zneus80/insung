@@ -973,10 +973,10 @@ export default function GoalDetailPage() {
   const canRequestModify = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
   const canUpdateProgress = isOwnerOrCollab && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
   // 진행 중 목표에 한해 조직 체인 상의 결재자(팀장·본부장·임원) 및 공동 수행자도 코멘트 작성 가능 (v0.75)
-  const canComment =
+  const canComment = !goalLocked && (
     canUpdateProgress ||
     (['APPROVED', 'IN_PROGRESS', 'COMPLETED'].includes(goal.status) &&
-      (iAmTeamLead || iAmHQHead || iAmExec || isCollaborator));
+      (iAmTeamLead || iAmHQHead || iAmExec || isCollaborator)));
 
   // 팀장: PENDING_APPROVAL 목표 (팀원 것). 본인 목표는 자기가 승인 불가
   const canLeadApprove = iAmTeamLead && ownerIsMemberLike && !isOwner && (
@@ -1020,15 +1020,15 @@ export default function GoalDetailPage() {
     (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike && !!goal.abandonLeadApprovedBy)
   );
 
-  const canApprove = canLeadApprove || canHQApprove || canExecApprove;
+  const canApprove = !goalLocked && (canLeadApprove || canHQApprove || canExecApprove);
 
-  const canReject = (iAmTeamLead && ['PENDING_APPROVAL', 'COMPLETED'].includes(goal.status) && ownerIsMemberLike) ||
+  const canReject = !goalLocked && ((iAmTeamLead && ['PENDING_APPROVAL', 'COMPLETED'].includes(goal.status) && ownerIsMemberLike) ||
     (iAmHQHead && (
       ['LEAD_APPROVED', 'COMPLETED'].includes(goal.status) ||
       // 팀장 신규 목표(PENDING_APPROVAL) 도 본부장이 반려 가능
       (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD')
     )) ||
-    (iAmExec && ['LEAD_APPROVED', 'PENDING_APPROVAL', 'COMPLETED'].includes(goal.status));
+    (iAmExec && ['LEAD_APPROVED', 'PENDING_APPROVAL', 'COMPLETED'].includes(goal.status)));
 
   function getApproveLabel() {
     if (iAmTeamLead) {
@@ -1183,7 +1183,7 @@ export default function GoalDetailPage() {
               <Progress value={goal.progress} className="h-2" />
             </div>
 
-            {(canEdit || canDelete || canRequestApproval || canWithdraw || canWithdrawModifyRequest || canWithdrawCompletion || canWithdrawAbandon || canRequestCompletion || canRequestAbandon || canRequestModify) && (
+            {!goalLocked && (canEdit || canDelete || canRequestApproval || canWithdraw || canWithdrawModifyRequest || canWithdrawCompletion || canWithdrawAbandon || canRequestCompletion || canRequestAbandon || canRequestModify) && (
               <div className="space-y-3 pt-2 border-t">
                 <div className="flex gap-2 flex-wrap">
                   {canEdit && (
