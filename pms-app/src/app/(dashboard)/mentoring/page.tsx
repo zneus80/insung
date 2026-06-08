@@ -7,11 +7,8 @@ import {
   getMentoringForm, upsertMentoringForm,
   requestMentoringFormEdit, withdrawMentoringFormEditRequest,
   getHrAdmins, createNotification, getOrganizations, getAllUsers,
-  getGoalsByUser, getWeeklyTasksByMembersAndYear, listInnovationActivitiesByUser,
-  upsertIndividualEvaluation, getSelfEvaluation,
 } from '@/lib/firestore';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
-import type { Goal, InnovationActivity } from '@/types';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
@@ -21,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
   Save, Send, CheckCircle2, Briefcase, Pencil, XCircle,
-  TrendingUp, MapPin, MessageSquare, RefreshCw, Plus, X, AlertCircle, Target,
+  TrendingUp, MapPin, MessageSquare, RefreshCw, Plus, X, AlertCircle,
 } from 'lucide-react';
 import type { MentoringForm, JobRequestType } from '@/types';
 
@@ -82,13 +79,6 @@ function MentoringContent() {
   const [editRequestReason, setEditRequestReason] = useState('');
   const [showEditRequestInput, setShowEditRequestInput] = useState(false);
   const [editRequestInputValue, setEditRequestInputValue] = useState('');
-  // 당해년도 주요 업무실적 (자기평가 통합) — 데이터 소스 + 코멘트 맵
-  const [perfGoals, setPerfGoals] = useState<Goal[]>([]);
-  const [perfStarred, setPerfStarred] = useState<{ id: string; title: string }[]>([]);
-  const [perfInnov, setPerfInnov] = useState<InnovationActivity[]>([]);
-  const [goalEvalMap, setGoalEvalMap] = useState<Record<string, string>>({});
-  const [generalEvalMap, setGeneralEvalMap] = useState<Record<string, string>>({});
-  const [innovEvalMap, setInnovEvalMap] = useState<Record<string, string>>({});
 
   const set = (field: string, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
@@ -106,8 +96,6 @@ function MentoringContent() {
     setStatus('DRAFT');
     setCertList(['']);
     setCarriedOver(false);
-    setGoalEvalMap({}); setGeneralEvalMap({}); setInnovEvalMap({});
-    setPerfGoals([]); setPerfStarred([]); setPerfInnov([]);
     try {
       if (IS_MOCK) {
         setForm(prev => ({ ...prev, ...MOCK_PREV_FORM }));
@@ -120,7 +108,8 @@ function MentoringContent() {
         const {
           id, userId, organizationId, cycleYear, createdAt, updatedAt, status: s, submittedAt,
           editRequestPending: erp, editRequestReason: err, editRequestedAt, editRequestApprovedBy, editRequestApprovedAt,
-          goalEvals, generalEvals, innovationEvals,
+          // (v0.9.2) 업무실적 자기평가는 self-eval 로 분리 — rest 에서 제외만 하고 사용 안 함
+          goalEvals: _ge, generalEvals: _gge, innovationEvals: _ie,
           ...rest
         } = record;
         setForm(rest);
@@ -128,9 +117,6 @@ function MentoringContent() {
         setEditRequestPending(!!erp);
         setEditRequestReason(err ?? '');
         setCertList(record.certifications ? record.certifications.split('\n').filter(Boolean) : ['']);
-        if (goalEvals) setGoalEvalMap(Object.fromEntries(goalEvals.map(e => [e.goalId, e.comment])));
-        if (generalEvals) setGeneralEvalMap(Object.fromEntries(generalEvals.map(e => [e.id, e.comment])));
-        if (innovationEvals) setInnovEvalMap(Object.fromEntries(innovationEvals.map(e => [e.activityId, e.comment])));
       } else {
         // 현재 연도 폼 없으면 작년 폼에서 고정 필드(직책·자격증·승진일) 자동 불러오기
         const prevRecord = await getMentoringForm(userProfile.id, year - 1);
@@ -148,27 +134,7 @@ function MentoringContent() {
         }
       }
 
-      // ── 당해년도 주요 업무실적 데이터 소스 (자기평가 통합) ──
-      const [goalsList, wtDocs, innovAll] = await Promise.all([
-        getGoalsByUser(userProfile.id, year),
-        getWeeklyTasksByMembersAndYear([{ id: userProfile.id, organizationId: userProfile.organizationId }], year),
-        listInnovationActivitiesByUser(userProfile.id),
-      ]);
-      setPerfGoals(goalsList.filter(g => g.status === 'COMPLETED'));
-      // 본인 별표 일반업무(goalId 없는 hasDone important) — 항목 id 기준 중복 제거(서로 다른 업무는 모두 표시)
-      const seenId = new Set<string>();
-      const starred = wtDocs
-        .flatMap(t => (t.hasDoneItems ?? []).map(i => ({ i, owner: i.authorId ?? t.userId })))
-        .filter(x => x.i.important && !x.i.goalId && x.owner === userProfile.id)
-        .map(x => ({ id: x.i.id, title: (x.i.title || x.i.content || '').trim() }))
-        .filter(x => x.title && !seenId.has(x.id) && (seenId.add(x.id), true));
-      setPerfStarred(starred);
-      setPerfInnov(innovAll.filter(a => a.year === year));
-      // 폴백: 면담서에 goalEvals 없고 기존 자기평가 있으면 그 의견으로 프리필
-      if (!record?.goalEvals) {
-        const se = await getSelfEvaluation(userProfile.id, year);
-        if (se?.goalEvals?.length) setGoalEvalMap(Object.fromEntries(se.goalEvals.map(e => [e.goalId, e.comment])));
-      }
+      // (v0.9.2) 당해년도 업무실적 자기평가는 별도 '자기평가'(/self-eval) 메뉴로 분리됨 — 여기서 로드하지 않음.
     } finally {
       setLoading(false);
     }
@@ -188,26 +154,14 @@ function MentoringContent() {
           organizationId: userProfile.organizationId,
           cycleYear: year,
           ...form,
-          // 당해년도 주요 업무실적 자기평가 (통합)
-          goalEvals: perfGoals.map(g => ({ goalId: g.id, goalTitle: g.title, comment: goalEvalMap[g.id] ?? '' })),
-          generalEvals: perfStarred.map(s => ({ id: s.id, title: s.title, comment: generalEvalMap[s.id] ?? '' })),
-          innovationEvals: perfInnov.map(a => ({ activityId: a.id, name: a.name, comment: innovEvalMap[a.id] ?? '' })),
           status: submit ? 'SUBMITTED' : 'DRAFT',
           ...(submit ? { submittedAt: new Date() } : {}),
         });
       }
       if (submit) {
         setStatus('SUBMITTED');
-        // 자기평가 통합: 제출 시 개인평가 체인 시작(SELF_SUBMITTED) → 팀원평가에 노출
-        if (!IS_MOCK) {
-          try {
-            await upsertIndividualEvaluation(userProfile.id, year, {
-              organizationId: userProfile.organizationId,
-              status: 'SELF_SUBMITTED',
-            });
-          } catch (err) { console.error('[평가 체인 시작] 실패:', err); }
-        }
-        // 상위 검토자(팀장/본부장/임원) 에게 알림 — 자기평가와 동일 라인
+        // (v0.9.2) 개인평가 체인 시작(SELF_SUBMITTED)은 '자기평가'(/self-eval) 제출에서 처리.
+        // 상위 검토자(팀장/본부장/임원) 에게 육성면담서 제출 알림
         try {
           const [allOrgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
           const stage = userProfile.role === 'MEMBER' ? 'LEAD'
@@ -484,59 +438,7 @@ function MentoringContent() {
             </div>
           </SectionCard>
 
-          {/* ── 당해년도 주요 업무실적 (자기평가 통합) ── */}
-          <SectionCard icon={<Target className="h-4 w-4" />} title="당해년도 주요 업무실적" color="blue"
-            subtitle="완료한 핵심목표·주요 일반업무·혁신업무에 대해 본인의 역할·기여도·주요실적을 작성하세요.">
-            <div className="space-y-5">
-              {/* 완료 핵심목표 */}
-              <div>
-                <p className="text-xs font-bold text-gray-600 mb-2">완료 핵심목표</p>
-                {perfGoals.length === 0 ? (
-                  <p className="text-xs text-gray-400">완료된 핵심목표가 없습니다.</p>
-                ) : perfGoals.map(g => (
-                  <div key={g.id} className="mb-3">
-                    <p className="text-sm font-medium text-gray-800">{g.title}</p>
-                    <Textarea rows={2} disabled={isSubmitted} value={goalEvalMap[g.id] ?? ''}
-                      placeholder="본인의 역할·기여도·주요실적을 작성하세요"
-                      className="resize-none mt-1"
-                      onChange={e => setGoalEvalMap(m => ({ ...m, [g.id]: e.target.value }))} />
-                  </div>
-                ))}
-              </div>
-              {/* 주요 일반업무 (주간보고 별표) */}
-              <div>
-                <p className="text-xs font-bold text-gray-600 mb-2">주요 일반업무 <span className="font-normal text-gray-400">(주간보고 별표 항목 · 연 5개)</span></p>
-                {perfStarred.length === 0 ? (
-                  <p className="text-xs text-gray-400">주간보고에서 별표(★)한 일반업무가 없습니다.</p>
-                ) : perfStarred.map(s => (
-                  <div key={s.id} className="mb-3">
-                    <p className="text-sm font-medium text-gray-800">★ {s.title}</p>
-                    <Textarea rows={2} disabled={isSubmitted} value={generalEvalMap[s.id] ?? ''}
-                      placeholder="본인의 역할·기여도·주요실적을 작성하세요"
-                      className="resize-none mt-1"
-                      onChange={e => setGeneralEvalMap(m => ({ ...m, [s.id]: e.target.value }))} />
-                  </div>
-                ))}
-              </div>
-              {/* 참여 혁신업무 */}
-              <div>
-                <p className="text-xs font-bold text-gray-600 mb-2">참여 혁신업무</p>
-                {perfInnov.length === 0 ? (
-                  <p className="text-xs text-gray-400">참여한 혁신업무가 없습니다.</p>
-                ) : perfInnov.map(a => (
-                  <div key={a.id} className="mb-3">
-                    <p className="text-sm font-medium text-gray-800">
-                      {a.name} <span className="text-xs text-gray-400">({a.type === 'SMART_PROJECT' ? '스마트프로젝트' : 'TDS'})</span>
-                    </p>
-                    <Textarea rows={2} disabled={isSubmitted} value={innovEvalMap[a.id] ?? ''}
-                      placeholder="본인의 역할·기여도·주요실적을 작성하세요"
-                      className="resize-none mt-1"
-                      onChange={e => setInnovEvalMap(m => ({ ...m, [a.id]: e.target.value }))} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </SectionCard>
+          {/* (v0.9.2) '당해년도 주요 업무실적'은 '자기평가'(/self-eval) 메뉴로 분리됨 */}
 
           {/* ── 경력개발 계획 ── */}
           <SectionCard icon={<TrendingUp className="h-4 w-4" />} title="경력개발 계획" color="emerald">

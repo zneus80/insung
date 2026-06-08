@@ -25,6 +25,7 @@ import {
   Lightbulb,
   ShieldCheck,
   ShieldAlert,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -168,15 +169,15 @@ const navItems: NavItem[] = [
   },
 
   // ══ 인사고과 ════════════════════════════════
-  // 자기평가 — v0.9 육성면담서로 통합되어 메뉴 제거. (/evaluation 진입 시 작성자 역할은 /mentoring 으로 이동)
-  // {
-  //   label: '자기평가',
-  //   href: '/evaluation',
-  //   icon: <FileText className="h-5 w-5" />,
-  //   roles: ['MEMBER', 'TEAM_LEAD'],
-  //   exact: true,
-  //   group: '인사고과',
-  // },
+  // 자기평가 — v0.9.2 육성면담서에서 다시 분리(핵심목표 가중치·점수 / 일반업무 / 혁신). 라우트 /self-eval.
+  {
+    label: '자기평가',
+    href: '/self-eval',
+    icon: <FileText className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
+    group: '인사고과',
+  },
   {
     label: '인사평가',
     href: '/evaluation/team',

@@ -277,6 +277,10 @@ export interface SelfEvalGoalEntry {
   goalId: string;
   goalTitle: string;
   comment: string;  // 종합 의견 (v0.75~)
+  /** 자기평가 점수 0~100 (v0.9.2 자기평가 분리) */
+  score?: number;
+  /** 환산 가중치 % 스냅샷 — 핵심목표는 개인 합100% × 80% 비율 (표시·기록용) */
+  weight?: number;
   // 구버전 호환 (v0.75 미만에서 작성된 데이터) — 신규 입력은 모두 comment 에 저장
   good?: string;    // (legacy) 잘된 점
   regret?: string;  // (legacy) 아쉬운 점
@@ -291,6 +295,10 @@ export interface SelfEvaluation {
   /** 저장 시점 사용자 조직 — viewableBy 다년도 정확도를 위해 박아둠 (v0.9.1+). 과거 doc 은 없을 수 있음. */
   organizationId?: string;
   goalEvals: SelfEvalGoalEntry[];
+  /** 주요 일반업무(주간 별표) 자기평가 — v0.9.2 자기평가 분리 */
+  generalEvals?: GeneralWorkEval[];
+  /** 참여 혁신활동 자기평가(서술만) — v0.9.2 */
+  innovationEvals?: InnovationEval[];
   status: SelfEvalStatus;
   submittedAt?: Date;
   /** 가시성 ACL — 본인 + 조직 트리 상위 리더 userId 목록.
@@ -512,6 +520,10 @@ export interface GeneralWorkEval {
   id: string;       // 주간보고 별표 항목 id (또는 uuid)
   title: string;    // 일반업무 제목 (주간 별표에서 가져옴)
   comment: string;  // 본인 자기평가 (자유 서술)
+  /** 자기평가 점수 0~100 (v0.9.2) */
+  score?: number;
+  /** 환산 가중치 % 스냅샷 — 일반업무 총 20%를 항목수로 균등 배분 */
+  weight?: number;
 }
 export interface InnovationEval {
   activityId: string;

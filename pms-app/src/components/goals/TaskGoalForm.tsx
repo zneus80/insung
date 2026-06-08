@@ -41,6 +41,7 @@ export default function TaskGoalForm({
   const [error, setError] = useState('');
   const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
   const [isConfidential, setIsConfidential] = useState(false);
+  const [weight, setWeight] = useState<string>('');   // 가중치(원시값) — 정규화 모델
   const [ownerId, setOwnerId] = useState<string>('');   // 수행자 (Goal.userId) — 기본 본인
   const [ownerSearch, setOwnerSearch] = useState('');
   const [users, setUsers] = useState<User[]>([]);
@@ -73,6 +74,7 @@ export default function TaskGoalForm({
       setCollaboratorIds(editGoal.collaboratorIds ?? []);
       setOwnerId(editGoal.userId);
       setIsConfidential(!!editGoal.isConfidential);
+      setWeight(editGoal.weight != null ? String(editGoal.weight) : '');
     } else {
       openedStatusRef.current = null;
       setTitle('');
@@ -81,6 +83,7 @@ export default function TaskGoalForm({
       setCollaboratorIds([]);
       setOwnerId(userProfile?.id ?? '');  // 본인이 기본 수행자
       setIsConfidential(false);
+      setWeight('');
     }
     setError('');
     setUserSearch('');
@@ -118,6 +121,7 @@ export default function TaskGoalForm({
         .filter((v): v is string => !!v);
       const relatedOrgIds = Array.from(new Set([ownerOrgId, ...collaboratorOrgIds].filter(Boolean)));
 
+      const weightNum = weight.trim() === '' ? undefined : Math.max(0, Number(weight) || 0);
       const payload = {
         title: title.trim(),
         description: description.trim(),
@@ -126,6 +130,7 @@ export default function TaskGoalForm({
         collaboratorIds: cleanedCollaborators,
         relatedOrgIds,
         isConfidential,
+        ...(weightNum !== undefined ? { weight: weightNum } : {}),
       };
 
       // ── 변경 항목 diff 계산 (편집 모드일 때) ──
@@ -327,6 +332,7 @@ export default function TaskGoalForm({
           description: editGoal.description,
           dueDate: FsTimestamp.fromDate(editGoal.dueDate),
           isConfidential: !!editGoal.isConfidential,
+          weight: editGoal.weight ?? null,
         };
 
         // 콘텐츠 필드만 즉시 반영. collaboratorIds/relatedOrgIds 는 isOwnerChanged 일 때 pending 으로 분기.
@@ -335,6 +341,7 @@ export default function TaskGoalForm({
           description: payload.description,
           dueDate: FsTimestamp.fromDate(dueDate ? new Date(dueDate) : new Date()),
           isConfidential: payload.isConfidential,
+          ...(weightNum !== undefined ? { weight: weightNum } : {}),
           modifyRequestedBy: userProfile.id,
           modifySnapshot,
           status: submitStatus,
@@ -565,6 +572,22 @@ export default function TaskGoalForm({
           <div className="space-y-1.5">
             <Label className="whitespace-nowrap">{isApprovedEdit ? '수정할 추진기한' : '추진기한'} <span className="text-red-500">*</span></Label>
             <Input type="date" min="2000-01-01" max="2099-12-31" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+          </div>
+
+          {/* 가중치 (정규화 모델) */}
+          <div className="space-y-1.5">
+            <Label className="whitespace-nowrap">가중치 <span className="text-gray-400 font-normal text-xs">(선택)</span></Label>
+            <div className="flex items-center gap-2">
+              <Input type="number" min="0" max="100" step="1" value={weight}
+                onChange={e => setWeight(e.target.value)}
+                onKeyDown={e => e.stopPropagation()}
+                placeholder="예) 30" className="w-32" />
+              <span className="text-sm text-gray-400">점</span>
+            </div>
+            <p className="text-xs text-gray-400">
+              입력한 가중치는 본인 핵심목표 전체 <b>합계 100% 기준</b>으로 자동 환산되어 표시됩니다.
+              (자기평가 시 핵심목표는 80% 비율로 반영) · 미입력 시 동일 비중으로 배분됩니다.
+            </p>
           </div>
 
           {/* 수행자 (owner) — 본인 자동 기본값, 다른 사용자 지정 가능

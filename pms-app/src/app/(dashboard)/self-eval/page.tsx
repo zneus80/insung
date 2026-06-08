@@ -1,0 +1,266 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useActiveYear } from '@/contexts/ActiveYearContext';
+import {
+  getGoalsByUser, getWeeklyTasksByMembersAndYear, listInnovationActivitiesByUser,
+  getSelfEvaluation, upsertSelfEvaluation, upsertIndividualEvaluation,
+  getOrganizations, getAllUsers,
+} from '@/lib/firestore';
+import { notifyEvalReviewer } from '@/lib/eval-notifications';
+import { normalizeWeights } from '@/lib/goal-weight';
+import Header from '@/components/layout/Header';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from 'sonner';
+import { Target, Star, Lightbulb, CheckCircle2, Lock } from 'lucide-react';
+import type { Goal } from '@/types';
+
+type Starred = { id: string; title: string };
+type Innov = { id: string; name: string };
+
+export default function SelfEvalPage() {
+  const { userProfile } = useAuth();
+  const { activeYear: year, isYearLocked } = useActiveYear();
+  const locked = isYearLocked(year);
+
+  const [goals, setGoals] = useState<Goal[]>([]);       // 완료 핵심목표
+  const [starred, setStarred] = useState<Starred[]>([]); // 별표 일반업무
+  const [innov, setInnov] = useState<Innov[]>([]);       // 참여 혁신활동
+  const [goalMap, setGoalMap] = useState<Record<string, { comment: string; score: string }>>({});
+  const [genMap, setGenMap] = useState<Record<string, { comment: string; score: string }>>({});
+  const [innovMap, setInnovMap] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState<'DRAFT' | 'SUBMITTED'>('DRAFT');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const readOnly = locked || status === 'SUBMITTED';
+
+  const load = useCallback(async () => {
+    if (!userProfile) return;
+    setLoading(true);
+    try {
+      const [goalsList, wtDocs, innovAll, se] = await Promise.all([
+        getGoalsByUser(userProfile.id, year),
+        getWeeklyTasksByMembersAndYear([{ id: userProfile.id, organizationId: userProfile.organizationId }], year),
+        listInnovationActivitiesByUser(userProfile.id),
+        getSelfEvaluation(userProfile.id, year),
+      ]);
+      const completed = goalsList.filter(g => g.status === 'COMPLETED');
+      setGoals(completed);
+      // 별표 일반업무(goalId 없는 hasDone important) — 항목 id 중복 제거
+      const seen = new Set<string>();
+      const stars = wtDocs
+        .flatMap(t => (t.hasDoneItems ?? []).map(i => ({ i, owner: i.authorId ?? t.userId })))
+        .filter(x => x.i.important && !x.i.goalId && x.owner === userProfile.id)
+        .map(x => ({ id: x.i.id, title: (x.i.title || x.i.content || '').trim() }))
+        .filter(x => x.title && !seen.has(x.id) && (seen.add(x.id), true));
+      setStarred(stars);
+      setInnov(innovAll.filter(a => a.year === year).map(a => ({ id: a.id, name: a.name })));
+
+      // 기존 자기평가 프리필
+      if (se) {
+        setStatus(se.status === 'SUBMITTED' ? 'SUBMITTED' : 'DRAFT');
+        setGoalMap(Object.fromEntries((se.goalEvals ?? []).map(e => [e.goalId, { comment: e.comment ?? '', score: e.score != null ? String(e.score) : '' }])));
+        setGenMap(Object.fromEntries((se.generalEvals ?? []).map(e => [e.id, { comment: e.comment ?? '', score: e.score != null ? String(e.score) : '' }])));
+        setInnovMap(Object.fromEntries((se.innovationEvals ?? []).map(e => [e.activityId, e.comment ?? ''])));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [userProfile, year]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // 가중치 — 핵심목표: 완료 목표 가중치 정규화 → ×0.8 (핵심 총 80%). 일반업무: 총 20% 균등.
+  const corePct = useMemo(() => normalizeWeights(goals), [goals]);
+  const coreEff = (id: string) => Math.round((corePct[id] ?? 0) * 0.8 * 10) / 10; // 80% 비율
+  const genEff = starred.length > 0 ? Math.round((20 / starred.length) * 10) / 10 : 0;
+
+  const num = (s: string) => Math.max(0, Math.min(100, Number(s) || 0));
+  const totalScore = useMemo(() => {
+    let t = 0;
+    goals.forEach(g => { t += num(goalMap[g.id]?.score ?? '') * (coreEff(g.id) / 100); });
+    starred.forEach(s => { t += num(genMap[s.id]?.score ?? '') * (genEff / 100); });
+    return Math.round(t * 10) / 10;
+  }, [goals, starred, goalMap, genMap, corePct]);
+
+  async function handleSave(submit: boolean) {
+    if (!userProfile) return;
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
+    setSaving(true);
+    try {
+      await upsertSelfEvaluation(userProfile.id, year, {
+        organizationId: userProfile.organizationId,
+        goalEvals: goals.map(g => ({ goalId: g.id, goalTitle: g.title, comment: goalMap[g.id]?.comment ?? '', score: num(goalMap[g.id]?.score ?? ''), weight: coreEff(g.id) })),
+        generalEvals: starred.map(s => ({ id: s.id, title: s.title, comment: genMap[s.id]?.comment ?? '', score: num(genMap[s.id]?.score ?? ''), weight: genEff })),
+        innovationEvals: innov.map(a => ({ activityId: a.id, name: a.name, comment: innovMap[a.id] ?? '' })),
+        status: submit ? 'SUBMITTED' : 'DRAFT',
+        ...(submit ? { submittedAt: new Date() } : {}),
+      });
+      if (submit) {
+        setStatus('SUBMITTED');
+        try {
+          await upsertIndividualEvaluation(userProfile.id, year, {
+            organizationId: userProfile.organizationId,
+            status: 'SELF_SUBMITTED',
+          });
+        } catch (err) { console.error('[평가 체인 시작] 실패:', err); }
+        try {
+          const [allOrgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
+          const stage = userProfile.role === 'MEMBER' ? 'LEAD' : userProfile.role === 'TEAM_LEAD' ? 'HQ' : 'EXEC';
+          const subject = allUsers.find(u => u.id === userProfile.id) ?? userProfile;
+          const res = await notifyEvalReviewer({
+            subject, fromUserId: userProfile.id, fromUserName: userProfile.name,
+            stage, type: 'SELF_EVAL_SUBMITTED', category: 'EVALUATION',
+            title: `${userProfile.name}님 자기평가 제출`,
+            message: `${userProfile.name}님이 ${year}년 자기평가를 제출했습니다.`,
+            link: '/evaluation/team', allOrgs, allUsers,
+          });
+          if (!res?.notified && stage === 'HQ') {
+            await notifyEvalReviewer({
+              subject, fromUserId: userProfile.id, fromUserName: userProfile.name,
+              stage: 'EXEC', type: 'SELF_EVAL_SUBMITTED', category: 'EVALUATION',
+              title: `${userProfile.name}님 자기평가 제출`,
+              message: `${userProfile.name}님이 ${year}년 자기평가를 제출했습니다.`,
+              link: '/evaluation/team', allOrgs, allUsers,
+            });
+          }
+        } catch (err) { console.error('[자기평가 알림] 실패:', err); }
+      }
+      toast.success(submit ? '자기평가가 제출되었습니다.' : '임시저장 되었습니다.');
+    } catch (e) {
+      console.error('[자기평가 저장] 실패:', e);
+      toast.error('저장에 실패했습니다.');
+    } finally { setSaving(false); }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col h-full">
+        <Header title="자기평가" showBack />
+        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+          {[1, 2, 3].map(i => <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100" />)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <Header title="자기평가" showBack />
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-3xl mx-auto space-y-5">
+          {locked && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-gray-100 px-4 py-2.5 text-sm text-gray-600">
+              <Lock className="h-4 w-4 shrink-0 text-gray-500" /><span><b>{year}년</b>은 확정된 연도입니다. 조회만 가능합니다.</span>
+            </div>
+          )}
+
+          {/* 총점 헤더 */}
+          <div className="rounded-xl border bg-white px-5 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-700">{year}년 자기평가</p>
+              <p className="text-xs text-gray-400 mt-0.5">핵심목표 80% · 일반업무 20% · 혁신활동(서술) · 각 항목 0~100점</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-gray-400">가중 환산 총점</p>
+              <p className="text-2xl font-bold text-indigo-700">{totalScore}<span className="text-sm font-normal text-gray-400"> / 100</span></p>
+            </div>
+          </div>
+
+          {/* 1) 핵심목표 (완료) — 80% */}
+          <section className="rounded-xl border bg-white overflow-hidden">
+            <div className="flex items-center gap-2 border-b bg-gray-50/70 px-4 py-2.5">
+              <Target className="h-4 w-4 text-blue-600" />
+              <h3 className="text-sm font-bold text-blue-700">핵심목표 <span className="text-xs font-normal text-gray-400">(완료 · 총 80%)</span></h3>
+            </div>
+            <div className="p-4 space-y-3">
+              {goals.length === 0 ? <p className="text-xs text-gray-400">완료된 핵심목표가 없습니다.</p> : goals.map(g => (
+                <ItemRow key={g.id} title={g.title} weight={coreEff(g.id)}
+                  comment={goalMap[g.id]?.comment ?? ''} score={goalMap[g.id]?.score ?? ''}
+                  readOnly={readOnly}
+                  onComment={v => setGoalMap(m => ({ ...m, [g.id]: { ...m[g.id], comment: v, score: m[g.id]?.score ?? '' } }))}
+                  onScore={v => setGoalMap(m => ({ ...m, [g.id]: { ...m[g.id], score: v, comment: m[g.id]?.comment ?? '' } }))} />
+              ))}
+            </div>
+          </section>
+
+          {/* 2) 일반업무 (별표) — 20% */}
+          <section className="rounded-xl border bg-white overflow-hidden">
+            <div className="flex items-center gap-2 border-b bg-gray-50/70 px-4 py-2.5">
+              <Star className="h-4 w-4 text-amber-500" />
+              <h3 className="text-sm font-bold text-amber-700">주요 일반업무 <span className="text-xs font-normal text-gray-400">(주간보고 별표 · 총 20%)</span></h3>
+            </div>
+            <div className="p-4 space-y-3">
+              {starred.length === 0 ? <p className="text-xs text-gray-400">주간보고에서 별표(★)한 일반업무가 없습니다.</p> : starred.map(s => (
+                <ItemRow key={s.id} title={s.title} weight={genEff}
+                  comment={genMap[s.id]?.comment ?? ''} score={genMap[s.id]?.score ?? ''}
+                  readOnly={readOnly}
+                  onComment={v => setGenMap(m => ({ ...m, [s.id]: { ...m[s.id], comment: v, score: m[s.id]?.score ?? '' } }))}
+                  onScore={v => setGenMap(m => ({ ...m, [s.id]: { ...m[s.id], score: v, comment: m[s.id]?.comment ?? '' } }))} />
+              ))}
+            </div>
+          </section>
+
+          {/* 3) 참여 혁신활동 — 서술만 */}
+          <section className="rounded-xl border bg-white overflow-hidden">
+            <div className="flex items-center gap-2 border-b bg-gray-50/70 px-4 py-2.5">
+              <Lightbulb className="h-4 w-4 text-emerald-600" />
+              <h3 className="text-sm font-bold text-emerald-700">참여 혁신활동 <span className="text-xs font-normal text-gray-400">(서술)</span></h3>
+            </div>
+            <div className="p-4 space-y-3">
+              {innov.length === 0 ? <p className="text-xs text-gray-400">참여한 혁신활동이 없습니다.</p> : innov.map(a => (
+                <div key={a.id} className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
+                  <p className="text-sm font-medium text-gray-800">{a.name}</p>
+                  <Textarea rows={2} disabled={readOnly} value={innovMap[a.id] ?? ''}
+                    onChange={e => setInnovMap(m => ({ ...m, [a.id]: e.target.value }))}
+                    placeholder="역할·기여도·주요 실적을 작성하세요" className="resize-none mt-1.5" />
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* 액션 */}
+          {status === 'SUBMITTED' ? (
+            <div className="flex items-center justify-center gap-1.5 text-sm text-green-600 font-medium py-2">
+              <CheckCircle2 className="h-4 w-4" /> 제출 완료
+            </div>
+          ) : !locked && (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" disabled={saving} onClick={() => handleSave(false)}>임시저장</Button>
+              <Button disabled={saving} onClick={() => handleSave(true)}>제출</Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ItemRow({ title, weight, comment, score, readOnly, onComment, onScore }: {
+  title: string; weight: number; comment: string; score: string; readOnly: boolean;
+  onComment: (v: string) => void; onScore: (v: string) => void;
+}) {
+  const weighted = Math.round((Math.max(0, Math.min(100, Number(score) || 0)) * (weight / 100)) * 10) / 10;
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2.5 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-gray-800 flex-1 min-w-0">{title}</p>
+        <span className="shrink-0 inline-flex items-baseline gap-0.5 rounded-md bg-indigo-50 px-2 py-0.5 text-indigo-700 font-bold text-xs">
+          가중치 {weight}%
+        </span>
+      </div>
+      <Textarea rows={2} disabled={readOnly} value={comment} onChange={e => onComment(e.target.value)}
+        placeholder="역할·기여도·주요 실적을 작성하세요" className="resize-none" />
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-500">자기평가 점수</span>
+        <Input type="number" min="0" max="100" disabled={readOnly} value={score}
+          onChange={e => onScore(e.target.value)} className="w-24 h-8" placeholder="0~100" />
+        <span className="text-xs text-gray-400">점 · 가중환산 <b className="text-indigo-600">{weighted}</b></span>
+      </div>
+    </div>
+  );
+}

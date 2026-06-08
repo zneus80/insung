@@ -8,6 +8,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizationsForYear, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory } from '@/lib/firestore';
 import { notifyNextApprover } from '@/lib/goal-notifications';
+import { normalizeWeights } from '@/lib/goal-weight';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -443,6 +444,12 @@ function MyGoalsView() {
                   ? Math.round(filteredProgressGoals.reduce((s, g) => s + g.progress, 0) / filteredProgressGoals.length)
                   : 0;
                 const memberCount = new Set(filteredTeamGoals.map(g => g.userId)).size;
+                // 가중치 정규화 — 개인(owner)별 본인 핵심목표 전체 합 100% 기준 (공동/단독·팀탭 필터 무관하게 전체로 산정)
+                const dedupAll = Object.values(Object.fromEntries(allGoals.map(g => [g.id, g])));
+                const byOwner: Record<string, typeof dedupAll> = {};
+                dedupAll.forEach(g => { (byOwner[g.userId] ??= []).push(g); });
+                const weightPct: Record<string, number> = {};
+                Object.values(byOwner).forEach(gs => Object.assign(weightPct, normalizeWeights(gs)));
                 return (
                   <>
                     {/* 전체 진행률 */}
@@ -460,13 +467,13 @@ function MyGoalsView() {
                     )}
 
               {teamLoading ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {[1, 2, 3].map(i => <div key={i} className="h-32 animate-pulse rounded-xl bg-gray-100" />)}
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100" />)}
                 </div>
               ) : filteredTeamGoals.length === 0 ? (
                 <EmptyState icon={<Target className="h-10 w-10" />} label={`${goalKind === 'joint' ? '공동업무' : '단독업무'} 목표가 없습니다.`} />
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-3">
                   {filteredTeamGoals.map(g => {
                     const isMine = g.userId === userProfile?.id && !locked;
                     const names = participantNamesOf(g);
@@ -475,6 +482,7 @@ function MyGoalsView() {
                       <GoalCard
                         key={g.id}
                         goal={g}
+                        effectiveWeight={weightPct[g.id]}
                         ownerName={teamUsers[g.userId]?.name ?? (g.userId === userProfile?.id ? userProfile?.name : undefined)}
                         participantNames={names.length > 1 ? names : undefined}
                         onEdit={isMine && ['DRAFT', 'REJECTED', 'APPROVED', 'IN_PROGRESS'].includes(g.status) ? handleEdit : undefined}

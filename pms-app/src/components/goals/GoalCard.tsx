@@ -25,6 +25,7 @@ interface GoalCardProps {
   goal: Goal;
   ownerName?: string;             // 수행자 이름 — 외부에서 usersMap 으로 조회해 전달
   participantNames?: string[];    // 공동업무: 수행자+공동수행자 이름을 차례대로(구분 없이) — 강조 표시
+  effectiveWeight?: number;       // 정규화된 가중치 % (외부에서 normalizeWeights 로 계산해 전달)
   onEdit?: (goal: Goal) => void;
   onTrash?: (goal: Goal) => void;
   onWithdraw?: (goal: Goal) => void;
@@ -32,7 +33,7 @@ interface GoalCardProps {
   onClick?: (goal: Goal) => void; // 휴지통 다이얼로그 등에서 Link 대신 사용
 }
 
-export default function GoalCard({ goal, ownerName, participantNames, onEdit, onTrash, onWithdraw, onResubmit, onClick }: GoalCardProps) {
+export default function GoalCard({ goal, ownerName, participantNames, effectiveWeight, onEdit, onTrash, onWithdraw, onResubmit, onClick }: GoalCardProps) {
   const router = useRouter();
   const { userProfile } = useAuth();
 
@@ -90,7 +91,15 @@ export default function GoalCard({ goal, ownerName, participantNames, onEdit, on
             )}
           </div>
 
-          <GoalStatusBadge goal={goal} />
+          <div className="flex items-center gap-2 shrink-0">
+            {effectiveWeight !== undefined && (
+              <span className="inline-flex items-baseline gap-0.5 rounded-md bg-indigo-50 px-2 py-0.5 text-indigo-700 font-bold"
+                title="본인 핵심목표 합계 100% 기준 환산 가중치">
+                <span className="text-sm">{effectiveWeight}</span><span className="text-[10px]">%</span>
+              </span>
+            )}
+            <GoalStatusBadge goal={goal} />
+          </div>
         </div>
 
         {/* ── 제목 ── */}
@@ -140,10 +149,6 @@ export default function GoalCard({ goal, ownerName, participantNames, onEdit, on
             </span>
           ) : null}
 
-          {/* 가중치 (설정된 경우만 표시) */}
-          {goal.weight !== undefined && (
-            <span>가중치 {goal.weight}%</span>
-          )}
         </div>
 
         {/* ── 액션 버튼 그룹 ── */}
