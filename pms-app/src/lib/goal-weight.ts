@@ -12,12 +12,14 @@ const WEIGHT_EXCLUDE = new Set<string>(['ABANDONED', 'REJECTED', 'DRAFT']);
  */
 export function normalizeWeights(goals: Pick<Goal, 'id' | 'weight' | 'status' | 'trashedAt'>[]): Record<string, number> {
   const active = goals.filter(g => !WEIGHT_EXCLUDE.has(g.status) && !g.trashedAt);
-  const raw = active.map(g => ({ id: g.id, w: Math.max(0, g.weight ?? 1) }));
-  const total = raw.reduce((s, r) => s + r.w, 0);
   const out: Record<string, number> = {};
   if (active.length === 0) return out;
+  // 미설정(또는 0) 목표는 '균등배분값(100/N)'을 기본 raw 로 사용 — 일부만 가중치를 줘도
+  // 나머지가 1로 깔려 한쪽이 과대해지는 왜곡을 방지(직관적: 전체 합 100% 기준 자동 조정).
+  const evenDefault = 100 / active.length;
+  const raw = active.map(g => ({ id: g.id, w: (g.weight != null && g.weight > 0) ? g.weight : evenDefault }));
+  const total = raw.reduce((s, r) => s + r.w, 0);
   if (total <= 0) {
-    // 모든 가중치 0/미설정 → 균등 배분
     const even = Math.floor(100 / active.length);
     raw.forEach(r => { out[r.id] = even; });
   } else {

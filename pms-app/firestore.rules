@@ -293,6 +293,16 @@ service cloud.firestore {
       allow write: if isHrAdmin();
     }
 
+    // 핵심목표 가중치 배분 변경 요청 (직속 1인 약식 승인) — 로그인 사용자 읽기, 본인/승인자/HR 쓰기
+    match /weightChangeRequests/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (
+        id.matches('^' + request.auth.uid + '_.*') ||   // 본인 제출/철회 (id = uid_year)
+        (resource != null && resource.data.approverId == request.auth.uid) ||  // 직속 승인자 승인/반려
+        isHrAdmin() || isCeo()
+      );
+    }
+
     // 데이터 백업 (HR관리자만 읽기·쓰기·삭제)
     match /backups/{id} {
       allow read: if isHrAdmin();

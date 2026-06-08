@@ -2,6 +2,17 @@
 
 import type { SelfEvaluation } from '@/types';
 
+/** 자기평가 가중 환산 총점(0~100). 제출 폼이 없거나 점수 미입력이면 null. */
+export function computeSelfEvalTotal(form: SelfEvaluation | null | undefined): number | null {
+  if (!form) return null;
+  const rows = [...(form.goalEvals ?? []), ...(form.generalEvals ?? [])];
+  const hasScore = rows.some(r => r.score != null);
+  if (!hasScore) return null;
+  let t = 0;
+  rows.forEach(r => { if (r.weight != null && r.score != null) t += r.score * (r.weight / 100); });
+  return Math.round(t * 10) / 10;
+}
+
 /**
  * 자기평가 읽기전용 표시 (평가등급 확정/팀원평가 상세에서 사용).
  * 핵심목표(가중치·점수) / 주요 일반업무(가중치·점수) / 참여 혁신활동(서술).
@@ -50,12 +61,7 @@ export default function SelfEvalBody({ form }: { form: SelfEvaluation | null }) 
   const goals = form.goalEvals ?? [];
   const general = form.generalEvals ?? [];
   const innov = form.innovationEvals ?? [];
-  const total = (() => {
-    let t = 0;
-    goals.forEach(g => { if (g.weight != null && g.score != null) t += g.score * (g.weight / 100); });
-    general.forEach(g => { if (g.weight != null && g.score != null) t += g.score * (g.weight / 100); });
-    return Math.round(t * 10) / 10;
-  })();
+  const total = computeSelfEvalTotal(form) ?? 0;
 
   return (
     <div className="space-y-3">

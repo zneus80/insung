@@ -34,7 +34,7 @@ import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AiEvalPanel from '@/components/evaluation/AiEvalPanel';
 import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
-import SelfEvalBody from '@/components/evaluation/SelfEvalBody';
+import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
@@ -457,8 +457,11 @@ function ExecutiveEvalView() {
                               <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold shrink-0 ${GRADE_COLOR[ie.execGrade]}`}>확정 {ie.execGrade}</span>
                             )}
                           </div>
-                          {/* 이전 평가등급 의견(임원 화면) — 팀장·본부 의견을 검토중으로 표시 */}
+                          {/* 이전 평가등급 의견(임원 화면) — 팀장·본부 등급의견 + 자기평가 점수 */}
                           <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            {(() => { const t = computeSelfEvalTotal(se); return t != null && (
+                              <span className="text-[11px] rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold">자기평가 {t}점</span>
+                            ); })()}
                             {ie?.leadGrade && <span className={`text-[11px] rounded-full px-2 py-0.5 ${GRADE_COLOR[ie.leadGrade]}`}>팀장 {ie.leadGrade}</span>}
                             {ie?.hqGrade && <span className={`text-[11px] rounded-full px-2 py-0.5 ${GRADE_COLOR[ie.hqGrade]}`}>본부 {ie.hqGrade}</span>}
                             {(ie?.leadGrade || ie?.hqGrade)
@@ -556,7 +559,12 @@ function ExecutiveEvalView() {
 
                         {/* 자기평가 (핵심목표 가중치·점수 / 일반업무 / 혁신) */}
                         <div>
-                          <p className="text-sm font-bold text-gray-800 mb-2">자기평가</p>
+                          <p className="text-sm font-bold text-gray-800 mb-2">
+                            자기평가
+                            {(() => { const t = computeSelfEvalTotal(selfEvals[member.id]); return t != null && (
+                              <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점)</span>
+                            ); })()}
+                          </p>
                           <SelfEvalBody form={selfEvals[member.id] ?? null} />
                         </div>
 

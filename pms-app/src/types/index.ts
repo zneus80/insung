@@ -147,7 +147,8 @@ export interface Goal {
   taskCategory?: TaskCategory;
   linkedOrgGoalId?: string;
   linkedOrgGoalTitle?: string;
-  weight?: number;             // 가중치 %, 팀원 합산 80% 이내
+  weight?: number;             // (legacy) owner 가중치 % — weights 미설정 시 fallback
+  weights?: Record<string, number>; // 사람별 가중치 % (userId→%). 공동 목표에서 참여자마다 다른 기여도. 각자 본인 핵심목표 합 100%.
 
   // 일반업무(GENERAL) 전용
   generalType?: GeneralType;
@@ -786,5 +787,28 @@ export interface WeeklyTask {
   leadComments: LeadCommentEntry[];  // 팀장 Comment (누적 스레드)
   /** 핵심업무목표 그룹별 이번 주 진행률(%) — { goalId: 0~100 }. 저장 시 goal.progress 로 역류. */
   goalProgress?: Record<string, number>;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 핵심목표 가중치 배분 변경 요청 (v0.9.2) — 개인 합 100%, 직속 1인 약식 승인
+// ─────────────────────────────────────────────
+export type WeightChangeStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export interface WeightChangeRequest {
+  id: string;                 // `${userId}_${year}`
+  userId: string;
+  userName?: string;
+  organizationId?: string;
+  cycleYear: number;
+  before: Record<string, number>;   // goalId → 이전 가중치 %
+  after: Record<string, number>;    // goalId → 제안 가중치 % (합 100)
+  titles?: Record<string, string>;  // goalId → 목표명 (표시용 스냅샷)
+  status: WeightChangeStatus;
+  approverId?: string;        // 직속 승인자 1인
+  requestedAt: Date;
+  decidedBy?: string;
+  decidedAt?: Date;
+  comment?: string;           // 반려 사유 등
+  createdAt: Date;
   updatedAt: Date;
 }

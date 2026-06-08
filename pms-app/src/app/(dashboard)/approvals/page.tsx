@@ -7,13 +7,14 @@ import { ko } from 'date-fns/locale';
 import { CheckSquare, User, Calendar } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
-import { getPendingGoalsByOrganizations, getAllUsers, getOrganizations, updateGoal, addGoalHistory } from '@/lib/firestore';
+import { getPendingGoalsByOrganizations, getAllUsers, getOrganizations, updateGoal, addGoalHistory, getPendingWeightChangeRequestsForApprover, approveWeightChangeRequest, rejectWeightChangeRequest } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import type { Goal, User as AppUser, Organization } from '@/types';
+import { cn } from '@/lib/utils';
+import type { Goal, User as AppUser, Organization, WeightChangeRequest } from '@/types';
 import {
   getDescendantOrgIds as sharedGetDescendantOrgIds,
   getOrgChain as sharedGetOrgChain,
@@ -56,6 +57,7 @@ function ApprovalsContent() {
   const [allOrgs, setAllOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [weightReqs, setWeightReqs] = useState<WeightChangeRequest[]>([]); // 가중치 변경 약식 승인 대기
 
   async function load() {
     if (!userProfile) return;
@@ -63,6 +65,7 @@ function ApprovalsContent() {
       const [orgsData, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
       setAllOrgs(orgsData);
       setUsers(Object.fromEntries(allUsers.map(u => [u.id, u])));
+      getPendingWeightChangeRequestsForApprover(userProfile.id).then(setWeightReqs).catch(() => {});
 
       // 내가 leaderId로 등록된 조직 목록
       const myLedOrgs = orgsData.filter(o => o.leaderId === userProfile.id);
@@ -98,6 +101,28 @@ function ApprovalsContent() {
     if (!userProfile) return;
     load();
   }, [userProfile]);
+
+  async function handleWeightApprove(req: WeightChangeRequest) {
+    if (!userProfile) return;
+    setActionLoading(`w_${req.id}`);
+    try {
+      await approveWeightChangeRequest(req.userId, req.cycleYear, userProfile.id);
+      toast.success(`${req.userName ?? ''}님 가중치 배분을 승인했습니다.`);
+      setWeightReqs(prev => prev.filter(r => r.id !== req.id));
+    } catch (e: any) { toast.error(e?.message ?? '승인 실패'); }
+    finally { setActionLoading(null); }
+  }
+  async function handleWeightReject(req: WeightChangeRequest) {
+    if (!userProfile) return;
+    const comment = prompt('반려 사유를 입력하세요 (선택):') ?? undefined;
+    setActionLoading(`w_${req.id}`);
+    try {
+      await rejectWeightChangeRequest(req.userId, req.cycleYear, userProfile.id, comment);
+      toast.success(`${req.userName ?? ''}님 가중치 배분을 반려했습니다.`);
+      setWeightReqs(prev => prev.filter(r => r.id !== req.id));
+    } catch (e: any) { toast.error(e?.message ?? '반려 실패'); }
+    finally { setActionLoading(null); }
+  }
 
   // ── 목록 필터링 ─────────────────────────────────────────────
 
@@ -153,7 +178,7 @@ function ApprovalsContent() {
     return rs.state === 'NEXT' || rs.state === 'UPSTREAM';
   });
 
-  const isEmpty = approvalGoals.length === 0 && completionGoals.length === 0 && abandonGoals.length === 0;
+  const isEmpty = approvalGoals.length === 0 && completionGoals.length === 0 && abandonGoals.length === 0 && weightReqs.length === 0;
 
   // ── 과제업무 전환 처리 ────────────────────────────────────────
 
@@ -231,6 +256,59 @@ function ApprovalsContent() {
             <CheckSquare className="mb-3 h-10 w-10" />
             <p className="text-sm">처리할 항목이 없습니다.</p>
           </div>
+        )}
+
+        {/* 가중치 배분 변경 요청 (약식 승인) */}
+        {weightReqs.length > 0 && (
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-gray-700">가중치 배분 변경 요청 ({weightReqs.length})</h3>
+            <p className="text-xs text-gray-400">팀원이 제출한 핵심목표 가중치 배분(합 100%)입니다. 변경 전·후를 확인하고 승인하세요.</p>
+            {weightReqs.map(req => {
+              const keys = Array.from(new Set([...Object.keys(req.after ?? {}), ...Object.keys(req.before ?? {})]));
+              const busy = actionLoading === `w_${req.id}`;
+              return (
+                <div key={req.id} className="rounded-xl border bg-white p-4 shadow-sm space-y-3">
+                  <div className="text-sm font-semibold text-gray-900">
+                    {req.userName ?? req.userId} <span className="text-xs font-normal text-gray-400">· {req.cycleYear}년 핵심목표 가중치</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-gray-400 border-b">
+                          <th className="py-1.5 text-left font-medium">목표</th>
+                          <th className="py-1.5 w-20 text-right font-medium">변경 전</th>
+                          <th className="py-1.5 w-20 text-right font-medium">변경 후</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {keys.map(k => {
+                          const b = req.before?.[k] ?? 0;
+                          const a = req.after?.[k] ?? 0;
+                          const changed = b !== a;
+                          return (
+                            <tr key={k} className="border-b last:border-0">
+                              <td className="py-1.5 text-gray-700">{req.titles?.[k] ?? k}</td>
+                              <td className="py-1.5 text-right text-gray-400">{b}%</td>
+                              <td className={cn('py-1.5 text-right font-medium', changed ? 'text-indigo-600' : 'text-gray-500')}>{a}%</td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="font-semibold">
+                          <td className="py-1.5 text-gray-500 text-xs">합계</td>
+                          <td className="py-1.5 text-right text-gray-400">{keys.reduce((s, k) => s + (req.before?.[k] ?? 0), 0)}%</td>
+                          <td className="py-1.5 text-right text-indigo-600">{keys.reduce((s, k) => s + (req.after?.[k] ?? 0), 0)}%</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" disabled={busy} onClick={() => handleWeightReject(req)}>반려</Button>
+                    <Button size="sm" disabled={busy} onClick={() => handleWeightApprove(req)}>{busy ? '처리 중…' : '승인'}</Button>
+                  </div>
+                </div>
+              );
+            })}
+          </section>
         )}
 
         {/* 목표 승인 요청 */}

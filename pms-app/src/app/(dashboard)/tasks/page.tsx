@@ -560,6 +560,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     else { const n = willDoItems.filter(i => i.id !== id); setWillDoItems(n); saveBody(hasDoneItems, n); }
   }
   async function toggleImportant(section: 'hd' | 'wd', id: string) {
+    if (yearLocked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
     const list = section === 'hd' ? hasDoneItems : willDoItems;
     const item = list.find(i => i.id === id);
     if (!item) return;
@@ -594,14 +595,14 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     const hasTitle = !!item.title?.trim();
     return (
       <div key={item.id} className={cn('flex items-start gap-2.5 px-3 py-2.5 group hover:bg-gray-50 transition-colors', item.important && 'bg-amber-50/60')}>
-        {/* 별표(주요 일반업무실적)는 일반업무 항목에만 — 핵심업무는 목표로 평가되므로 제외 */}
-        {isGreen && !isBodyLocked && !item.goalId && (
-          <button onClick={() => toggleImportant(section, item.id)} title={item.important ? '중요 해제' : '중요 표시 (육성면담서 주요 일반업무실적 연동, 연 5개)'}
+        {/* 별표(주요 일반업무실적)는 일반업무 항목에만 — 본문 잠금(과거 주차)이어도 편집권자/미확정연도면 토글 가능 */}
+        {isGreen && editable && !yearLocked && !item.goalId && (
+          <button onClick={() => toggleImportant(section, item.id)} title={item.important ? '중요 해제' : '중요 표시 (자기평가 주요 일반업무 연동, 연 5개)'}
             className={cn('shrink-0 mt-0.5 rounded p-0.5 transition-colors', item.important ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400')}>
             <Star className={cn('h-4 w-4', item.important && 'fill-amber-400')} />
           </button>
         )}
-        {isGreen && isBodyLocked && item.important && !item.goalId && (
+        {isGreen && !(editable && !yearLocked) && item.important && !item.goalId && (
           <Star className="h-4 w-4 shrink-0 mt-0.5 text-amber-500 fill-amber-400" />
         )}
         <div className="flex-1 min-w-0">

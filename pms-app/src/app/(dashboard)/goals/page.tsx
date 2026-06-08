@@ -2,19 +2,21 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Plus, Target, Trash2, Users, ChevronDown, ChevronRight, Calendar, Building2 } from 'lucide-react';
+import { Plus, Target, Trash2, Users, ChevronDown, ChevronRight, Calendar, Building2, Scale } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizationsForYear, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory } from '@/lib/firestore';
 import { notifyNextApprover } from '@/lib/goal-notifications';
-import { normalizeWeights } from '@/lib/goal-weight';
+import { getWeightChangeRequest, submitWeightChangeRequest } from '@/lib/firestore';
+import { getOrgChain } from '@/lib/approval-filters';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import Header from '@/components/layout/Header';
 import YearLockBanner from '@/components/layout/YearLockBanner';
 import GoalCard from '@/components/goals/GoalCard';
@@ -58,7 +60,12 @@ function MyGoalsView() {
   const [activeTeamOrgId, setActiveTeamOrgId] = useState<string>(''); // 다중 팀 겸직 시 활성 팀
   const [orgsMap, setOrgsMap] = useState<Record<string, string>>({}); // orgId → 조직명
   const [nameById, setNameById] = useState<Record<string, string>>({}); // userId → 이름 (공동수행자 표시용)
-  const [goalKind, setGoalKind] = useState<'joint' | 'solo'>('joint'); // 공동업무 / 단독업무 탭
+  const [orgsRaw, setOrgsRaw] = useState<Organization[]>([]); // 승인자 산정용 조직 트리
+  // 가중치 배분
+  const [weightOpen, setWeightOpen] = useState(false);
+  const [weightDraft, setWeightDraft] = useState<Record<string, string>>({});
+  const [weightPending, setWeightPending] = useState<import('@/types').WeightChangeRequest | null>(null);
+  const [weightSaving, setWeightSaving] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [teamLoading, setTeamLoading] = useState(false);
@@ -107,6 +114,8 @@ function MyGoalsView() {
       const [orgs, allUsers] = await Promise.all([getOrganizationsForYear(year), getAllUsers()]);
       setOrgsMap(Object.fromEntries(orgs.map(o => [o.id, o.name])));
       setNameById(Object.fromEntries(allUsers.map(u => [u.id, u.name])));
+      setOrgsRaw(orgs);
+      getWeightChangeRequest(userProfile!.id, year).then(setWeightPending).catch(() => {});
       // 다중 팀·본부 겸직 지원 — home org descendants ∪ 본인이 leaderId 인 모든 조직 descendants
       const scopeOrgIds = getMyScopeOrgIds(userProfile!.id, userProfile!.role, userProfile!.organizationId, orgs);
       // 팀 탭으로 분리할 "팀 단위" 조직 — TEAM 타입 또는 leader 인 조직만 (본부 descendants 중 leaf 만)
@@ -229,6 +238,42 @@ function MyGoalsView() {
   function handleEdit(goal: Goal) { setEditGoal(goal); setFormOpen(true); }
   function handleAdd() { setEditGoal(undefined); setFormOpen(true); }
   function handleSave() { loadMy(); loadTeam(); }
+
+  // 본인 활성 핵심목표 (가중치 배분 대상)
+  const weightTargets = myActive.filter(g => !['ABANDONED', 'REJECTED', 'DRAFT'].includes(g.status) && !g.trashedAt);
+  function openWeightModal() {
+    const uid = userProfile?.id ?? '';
+    const src = weightPending?.status === 'PENDING' ? weightPending.after : null;
+    // 본인 가중치 = weights[uid] (공동 목표는 사람마다 다름) → 없으면 legacy weight
+    setWeightDraft(Object.fromEntries(weightTargets.map(g => [g.id, String(src?.[g.id] ?? g.weights?.[uid] ?? g.weight ?? 0)])));
+    setWeightOpen(true);
+  }
+  const weightSum = weightTargets.reduce((s, g) => s + (Math.round(Number(weightDraft[g.id]) || 0)), 0);
+  async function submitWeights() {
+    if (!userProfile) return;
+    if (weightSum !== 100) { toast.error(`가중치 합계가 100%여야 합니다. (현재 ${weightSum}%)`); return; }
+    setWeightSaving(true);
+    try {
+      const after = Object.fromEntries(weightTargets.map(g => [g.id, Math.round(Number(weightDraft[g.id]) || 0)]));
+      const before = Object.fromEntries(weightTargets.map(g => [g.id, g.weights?.[userProfile.id] ?? g.weight ?? 0]));
+      const titles = Object.fromEntries(weightTargets.map(g => [g.id, g.title]));
+      // 직속 승인자 = 본인 조직 체인 상 첫 leader(본인 제외)
+      let approverId: string | undefined;
+      for (const o of getOrgChain(userProfile.organizationId, orgsRaw)) {
+        if (o.leaderId && o.leaderId !== userProfile.id) { approverId = o.leaderId; break; }
+      }
+      await submitWeightChangeRequest({
+        userId: userProfile.id, userName: userProfile.name, organizationId: userProfile.organizationId,
+        cycleYear: year, before, after, titles, approverId,
+      });
+      toast.success(approverId ? '가중치 배분 변경을 제출했습니다. 승인 후 반영됩니다.' : '가중치 배분을 제출했습니다. (승인자 미지정 — 관리자 확인 필요)');
+      setWeightOpen(false);
+      getWeightChangeRequest(userProfile.id, year).then(setWeightPending).catch(() => {});
+    } catch (e) {
+      console.error('[가중치 제출] 실패', e);
+      toast.error('제출에 실패했습니다.');
+    } finally { setWeightSaving(false); }
+  }
 
   async function handleTrash(goal: Goal) {
     if (locked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
@@ -362,11 +407,22 @@ function MyGoalsView() {
                 <Plus className="h-4 w-4" /> 목표 추가
               </Button>
             )}
+            {!locked && (
+              <Button variant="outline" size="sm" onClick={openWeightModal} className="gap-1.5">
+                <Scale className="h-4 w-4" /> 가중치 배분
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => setTrashOpen(true)} className="gap-1.5 text-gray-500">
               <Trash2 className="h-4 w-4" />
               휴지통{trashGoals.length > 0 && ` (${trashGoals.length})`}
             </Button>
           </div>
+
+          {weightPending?.status === 'PENDING' && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
+              가중치 배분 변경이 <b>승인 대기 중</b>입니다. 승인되면 각 목표 가중치에 반영됩니다.
+            </div>
+          )}
 
             {/* 상태 필터 표시 */}
             {statusFilter === 'COMPLETED' && (
@@ -398,38 +454,22 @@ function MyGoalsView() {
                 </div>
               )}
 
-              {/* 하위: 공동업무 / 단독업무 탭 */}
-              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-                {([['joint', '공동업무'], ['solo', '단독업무']] as const).map(([k, label]) => (
-                  <button key={k} onClick={() => setGoalKind(k)}
-                    className={cn('px-5 py-1.5 rounded-md text-sm font-medium transition-colors',
-                      goalKind === k ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {/* 산하 팀 + 공동/단독 필터링 (공동 = collaboratorIds 있음) */}
+              {/* 산하 팀 필터링 — 공동/단독 구분 없이 전체 가중치를 한 번에 표시 */}
               {(() => {
                 const showTeamTabs = teamScopeOrgs.length >= 2;
-                // 산하 팀 탭 필터 — 목표의 소속 조직(organizationId) 또는 연관 조직(공동업무)이 해당 팀일 때만.
-                // ※ 수행자 home 조직(ownerOrg) 기준 필터는 사용하지 않음 — 겸직 인원의 타 팀 목표가
-                //    home 팀 탭에 중복으로 끌려오는 문제 방지.
+                // 산하 팀 탭 필터 — 목표의 소속 조직(organizationId) 또는 연관 조직이 해당 팀일 때만.
                 const teamFilter = (g: Goal) => {
                   if (!showTeamTabs || !activeTeamOrgId) return true;
                   return g.organizationId === activeTeamOrgId
                     || (g.relatedOrgIds ?? []).includes(activeTeamOrgId);
                 };
-                const matchKind = (g: Goal) => goalKind === 'joint'
-                  ? (g.collaboratorIds?.length ?? 0) > 0
-                  : (g.collaboratorIds?.length ?? 0) === 0;
-                // 사람(멤버) 그룹핑 없이 평면 카드 그리드 — 카드의 수행자/공동수행자 이름으로 구분.
+                // 사람(멤버) 그룹핑 없이 평면 카드 — 카드의 수행자/공동수행자 이름으로 구분.
                 const allGoals = Object.values(teamByMember).flat();
                 // 동일 목표 중복 제거(본인 목표가 teamByMember 와 myActive 양쪽에 들어갈 수 있음)
                 const seen = new Set<string>();
                 const filteredTeamGoals = allGoals
                   .filter(g => !seen.has(g.id) && (seen.add(g.id), true))
-                  .filter(g => teamFilter(g) && matchKind(g))
+                  .filter(g => teamFilter(g))
                   .sort((a, b) => {
                     // 본인 목표 우선, 이후 수행자명 가나다순
                     const am = a.userId === userProfile?.id ? 0 : 1;
@@ -444,24 +484,24 @@ function MyGoalsView() {
                   ? Math.round(filteredProgressGoals.reduce((s, g) => s + g.progress, 0) / filteredProgressGoals.length)
                   : 0;
                 const memberCount = new Set(filteredTeamGoals.map(g => g.userId)).size;
-                // 가중치 정규화 — 개인(owner)별 본인 핵심목표 전체 합 100% 기준 (공동/단독·팀탭 필터 무관하게 전체로 산정)
-                const dedupAll = Object.values(Object.fromEntries(allGoals.map(g => [g.id, g])));
-                const byOwner: Record<string, typeof dedupAll> = {};
-                dedupAll.forEach(g => { (byOwner[g.userId] ??= []).push(g); });
+                // 가중치 = 개인이 직접 배분한 절대 % (goal.weight). 합 100%가 되도록 '가중치 배분'에서 관리.
                 const weightPct: Record<string, number> = {};
-                Object.values(byOwner).forEach(gs => Object.assign(weightPct, normalizeWeights(gs)));
+                // 칩 표시: 보는 사람(본인) 슬롯 우선 → 없으면 owner 슬롯 → legacy weight. (공동 목표에서 각자 본인 기여도가 보이도록)
+                const wpViewer = userProfile?.id ?? '';
+                filteredTeamGoals.forEach(g => { weightPct[g.id] = g.weights?.[wpViewer] ?? g.weights?.[g.userId] ?? g.weight ?? 0; });
                 return (
                   <>
                     {/* 전체 진행률 */}
                     {!teamLoading && filteredTeamGoals.length > 0 && (
                       <div className="rounded-xl border bg-white px-5 py-4 space-y-2">
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-500 font-medium">{goalKind === 'joint' ? '공동업무' : '단독업무'} 진행률</span>
+                          <span className="text-gray-500 font-medium">핵심목표 진행률</span>
                           <span className="font-bold text-blue-600">{filteredAvgProgress}%</span>
                         </div>
                         <Progress value={filteredAvgProgress} className="h-2" />
                         <p className="text-xs text-gray-400">
                           {memberCount}명 · 목표 {filteredProgressGoals.length}개 평균{filteredTeamGoals.length > filteredProgressGoals.length ? ` (포기됨 ${filteredTeamGoals.length - filteredProgressGoals.length}개 제외)` : ''}
+                          {' · '}<span className="text-indigo-500">가중치는 본인 핵심목표 합계 100% 기준 자동 환산(평가 시 80% 반영)</span>
                         </p>
                       </div>
                     )}
@@ -471,9 +511,9 @@ function MyGoalsView() {
                   {[1, 2, 3].map(i => <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100" />)}
                 </div>
               ) : filteredTeamGoals.length === 0 ? (
-                <EmptyState icon={<Target className="h-10 w-10" />} label={`${goalKind === 'joint' ? '공동업무' : '단독업무'} 목표가 없습니다.`} />
+                <EmptyState icon={<Target className="h-10 w-10" />} label="핵심목표가 없습니다." />
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {filteredTeamGoals.map(g => {
                     const isMine = g.userId === userProfile?.id && !locked;
                     const names = participantNamesOf(g);
@@ -511,6 +551,40 @@ function MyGoalsView() {
           ? { targetOrgId: activeTeamOrgId, targetOrgName: orgsMap[activeTeamOrgId] }
           : {})}
       />
+
+      {/* 가중치 배분 모달 — 본인 핵심목표 합 100%, 직속 1인 약식 승인 */}
+      <Dialog open={weightOpen} onOpenChange={v => !v && setWeightOpen(false)}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Scale className="h-4 w-4" /> 가중치 배분</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-gray-400">본인 핵심목표의 가중치 합계가 <b>100%</b>가 되도록 배분하세요. 제출 시 직속 상급자 승인 후 반영됩니다.</p>
+          <div className="space-y-2 py-1">
+            {weightTargets.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4 text-center">배분할 핵심목표가 없습니다.</p>
+            ) : weightTargets.map(g => (
+              <div key={g.id} className="flex items-center gap-2">
+                <span className="text-sm text-gray-700 flex-1 min-w-0 truncate">{g.title}</span>
+                <Input type="number" min="0" max="100" value={weightDraft[g.id] ?? ''}
+                  onChange={e => setWeightDraft(m => ({ ...m, [g.id]: e.target.value }))}
+                  onKeyDown={e => e.stopPropagation()}
+                  className="w-20 h-8 text-right" />
+                <span className="text-xs text-gray-400 w-3">%</span>
+              </div>
+            ))}
+          </div>
+          <div className={cn('flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold',
+            weightSum === 100 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600')}>
+            <span>합계</span><span>{weightSum}% {weightSum === 100 ? '✓' : '(100% 필요)'}</span>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setWeightOpen(false)} disabled={weightSaving}>취소</Button>
+            <Button onClick={submitWeights} disabled={weightSaving || weightSum !== 100 || weightTargets.length === 0}>
+              {weightSaving ? '제출 중…' : '제출 (승인 요청)'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 휴지통 */}
       <Dialog open={trashOpen} onOpenChange={setTrashOpen}>

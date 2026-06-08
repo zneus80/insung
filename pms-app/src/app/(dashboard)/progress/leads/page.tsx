@@ -136,11 +136,18 @@ function ProgressContent() {
     : [];
   const teamAvg = avgProgressExcludingAbandoned(teamGoals);
   const teamCounts = bucketize(teamGoals);
-  // 목표 수행자(owner+공동수행자) 이름 차례대로
-  function participantNamesOf(g: Goal): string[] {
+  // 목표별 참여 인원 + 사람별 가중치(기여도). 임원이 한눈에 누가 얼마나 기여하는지 파악.
+  function participantsDetailOf(g: Goal): { id: string; name: string; weight: number | null }[] {
     const ids = [g.userId, ...(g.collaboratorIds ?? [])];
     const seen = new Set<string>();
-    return ids.filter(id => id && !seen.has(id) && (seen.add(id), true)).map(id => nameById[id] ?? '').filter(Boolean);
+    return ids
+      .filter(id => id && !seen.has(id) && (seen.add(id), true))
+      .map(id => ({
+        id,
+        name: nameById[id] ?? '',
+        weight: g.weights?.[id] ?? (id === g.userId ? (g.weight ?? null) : null),
+      }))
+      .filter(p => p.name);
   }
 
   return (
@@ -210,13 +217,13 @@ function ProgressContent() {
                   {teamGoals.length > 0 ? (
                     <div className="p-4 space-y-4">
                       {teamCounts.completed.length > 0 && (
-                        <GoalGroup label="완료" color="green" goals={teamCounts.completed} participantsOf={participantNamesOf} />
+                        <GoalGroup label="완료" color="green" goals={teamCounts.completed} partsOf={participantsDetailOf} />
                       )}
                       {teamCounts.inProgress.length > 0 && (
-                        <GoalGroup label="추진중" color="blue" goals={teamCounts.inProgress} participantsOf={participantNamesOf} />
+                        <GoalGroup label="추진중" color="blue" goals={teamCounts.inProgress} partsOf={participantsDetailOf} />
                       )}
                       {teamCounts.abandoned.length > 0 && (
-                        <AbandonedGroup goals={teamCounts.abandoned} participantsOf={participantNamesOf} />
+                        <AbandonedGroup goals={teamCounts.abandoned} partsOf={participantsDetailOf} />
                       )}
                     </div>
                   ) : (
@@ -233,7 +240,7 @@ function ProgressContent() {
 }
 
 /** 포기 목표 접힘 토글 그룹 */
-function AbandonedGroup({ goals, participantsOf }: { goals: Goal[]; participantsOf?: (g: Goal) => string[] }) {
+function AbandonedGroup({ goals, partsOf }: { goals: Goal[]; partsOf?: (g: Goal) => { id: string; name: string; weight: number | null }[] }) {
   const [show, setShow] = useState(false);
   return (
     <div>
@@ -247,14 +254,14 @@ function AbandonedGroup({ goals, participantsOf }: { goals: Goal[]; participants
       </button>
       {show && (
         <div className="mt-1">
-          <GoalGroup label="" color="gray" goals={goals} muted hideLabel participantsOf={participantsOf} />
+          <GoalGroup label="" color="gray" goals={goals} muted hideLabel partsOf={partsOf} />
         </div>
       )}
     </div>
   );
 }
 
-function GoalGroup({ label, color, goals, muted, hideLabel, participantsOf }: { label: string; color: 'green' | 'blue' | 'gray'; goals: Goal[]; muted?: boolean; hideLabel?: boolean; participantsOf?: (g: Goal) => string[] }) {
+function GoalGroup({ label, color, goals, muted, hideLabel, partsOf }: { label: string; color: 'green' | 'blue' | 'gray'; goals: Goal[]; muted?: boolean; hideLabel?: boolean; partsOf?: (g: Goal) => { id: string; name: string; weight: number | null }[] }) {
   const colorMap = {
     green: 'bg-green-50 border-green-200 text-green-700',
     blue:  'bg-blue-50 border-blue-200 text-blue-700',
@@ -269,24 +276,32 @@ function GoalGroup({ label, color, goals, muted, hideLabel, participantsOf }: { 
       )}
       <div className="space-y-1">
         {goals.map(goal => {
-          const names = participantsOf ? participantsOf(goal) : [];
+          const parts = partsOf ? partsOf(goal) : [];
           return (
           <Link key={goal.id} href={`/goals/${goal.id}`}>
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 hover:shadow-sm hover:border-blue-200 transition-all cursor-pointer ${muted ? 'bg-gray-50' : 'bg-white'}`}>
               <GoalStatusBadge goal={goal} unifyActive />
               <div className="flex-1 min-w-0">
                 <p className={`text-sm truncate ${muted ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{goal.title}</p>
-                {names.length > 0 && (
-                  <p className="text-[11px] text-gray-400 truncate mt-0.5">
-                    수행자 <span className="text-gray-600 font-medium">{names.join(', ')}</span>
-                    {names.length > 1 && <span className="text-purple-500"> · 공동 {names.length}명</span>}
-                  </p>
-                )}
+                {parts.length > 1 && <p className="text-[11px] text-purple-500 mt-0.5">공동 {parts.length}명</p>}
               </div>
               {!muted && (
                 <div className="flex items-center gap-2 min-w-[80px] shrink-0">
                   <Progress value={goal.progress} className="h-1.5 flex-1" />
                   <span className="text-xs text-gray-500 w-8 text-right">{goal.progress}%</span>
+                </div>
+              )}
+              {/* 우측 고정 열: 참여 인원 · 가중치(기여도) */}
+              {parts.length > 0 && (
+                <div className="shrink-0 w-32 border-l border-gray-100 pl-3 space-y-0.5">
+                  {parts.map(p => (
+                    <div key={p.id} className="flex items-center justify-between gap-1.5 text-[11px]">
+                      <span className="text-gray-700 truncate">{p.name}</span>
+                      {p.weight != null
+                        ? <span className="shrink-0 font-semibold text-indigo-600">{p.weight}%</span>
+                        : <span className="shrink-0 text-gray-300">–</span>}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

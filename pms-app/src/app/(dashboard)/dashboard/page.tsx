@@ -9,6 +9,7 @@ import {
   getGoalsByOrganization,
   getGoalsByOrganizations,
   getPendingGoalsByOrganizations,
+  getPendingWeightChangeRequestsForApprover,
   getOneOnOnesForUser,
   hideOneOnOneForUser,
   getMileage,
@@ -116,9 +117,10 @@ function MemberDashboard() {
             getAllUsers(),
           ]);
           const usersMap = Object.fromEntries(allUsers.map(u => [u.id, u]));
+          const weightReqs = await getPendingWeightChangeRequestsForApprover(userProfile!.id).catch(() => []);
           pendingCount = filterMyActionableGoals(
             pending, allOrgs, usersMap, userProfile!.id, userProfile!.role,
-          ).length;
+          ).length + weightReqs.length;
         }
 
         const [goalList, teamScopeGoals, meetings, mileage, cGoal, oGoal, announcements] = await Promise.all([
@@ -418,7 +420,8 @@ function ExecDashboard() {
           const execPending = filterMyActionableGoals(
             pendingGoals, allOrgs, usersMap, userProfile!.id, userProfile!.role,
           );
-          setExecPendingCount(execPending.length);
+          const execWeightReqs = await getPendingWeightChangeRequestsForApprover(userProfile!.id).catch(() => []);
+          setExecPendingCount(execPending.length + execWeightReqs.length);
 
           const scopeUsers = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
           const scopeGoals = allGoals.filter(g => new Set(scopeUsers.map(u => u.id)).has(g.userId));
