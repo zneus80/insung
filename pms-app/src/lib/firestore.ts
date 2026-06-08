@@ -2124,12 +2124,47 @@ export async function lockEvaluationYear(year: number, by: { id: string; name?: 
   const set = new Set(cur?.lockedYears ?? []);
   set.add(year);
   await updateSystemSettings({ lockedYears: [...set].sort((a, b) => a - b), updatedBy: by.id });
+  // 경량 B — 확정 시점의 조직 트리를 그 연도로 스냅샷 저장(과거 연도 조직명·계층을 그 해 기준으로 표시).
+  // 보관 조직 포함 전체를 저장(과거 이름 해석용). 재확정 시 덮어쓰기.
+  try {
+    const orgs = await getOrganizations();
+    await setDoc(doc(db, 'orgSnapshots', String(year)), {
+      year,
+      orgs: orgs.map(o => ({
+        id: o.id,
+        name: o.name,
+        parentId: o.parentId ?? null,
+        leaderId: o.leaderId ?? null,
+        type: o.type,
+        displayOrder: o.displayOrder ?? null,
+      })),
+      createdBy: by.id,
+      createdAt: serverTimestamp(),
+    });
+  } catch (e) { console.error('[연도확정] 조직 스냅샷 저장 실패:', e); }
   await createAuditLog({
     action: 'YEAR_LOCK',
     actorId: by.id,
     actorName: by.name ?? '',
-    details: `${year}년 평가/데이터 확정(읽기 전용 전환)`,
+    details: `${year}년 평가/데이터 확정(읽기 전용 전환) + 조직 스냅샷 저장`,
   }).catch(() => { /* 무시 */ });
+}
+
+/**
+ * 확정 연도의 조직 스냅샷 조회 — 과거 연도 화면에서 그 해 조직명·계층 해석용(경량 B).
+ * 스냅샷이 없으면 null (→ 호출 측은 라이브 트리로 폴백).
+ */
+export async function getOrgSnapshot(year: number): Promise<Organization[] | null> {
+  const snap = await getDoc(doc(db, 'orgSnapshots', String(year)));
+  if (!snap.exists()) return null;
+  const arr = (snap.data().orgs ?? []) as Array<Partial<Organization>>;
+  const now = new Date();
+  return arr.map(o => ({
+    id: o.id!, name: o.name ?? '', type: o.type as Organization['type'],
+    parentId: o.parentId ?? null, leaderId: o.leaderId ?? null,
+    displayOrder: o.displayOrder ?? undefined,
+    archivedAt: null, createdAt: now, updatedAt: now,
+  } as Organization));
 }
 
 export async function unlockEvaluationYear(year: number, by: { id: string; name?: string }): Promise<void> {
