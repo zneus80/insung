@@ -20,13 +20,21 @@ interface Props {
     | 'completionLeadApprovedBy' | 'completionHqApprovedBy' | 'completionExecApprovedBy'>;
   /** Goal 없이 status만 받는 경우(레거시·이력 표시 등) */
   status?: GoalStatus;
+  /** 진행현황 등 '추진중' 그룹 표시용 — APPROVED 도 '진행 중'으로 통일 표기 */
+  unifyActive?: boolean;
 }
 
-export default function GoalStatusBadge({ goal, status }: Props) {
+export default function GoalStatusBadge({ goal, status, unifyActive }: Props) {
   const st = (goal?.status ?? status ?? 'DRAFT') as GoalStatus;
   const base = STATUS_MAP[st] ?? STATUS_MAP.DRAFT;
   let label = base.label;
   let className = base.className;
+
+  // 진행현황(추진중 그룹): 최종승인(APPROVED)도 '진행 중'으로 일치 표기
+  if (unifyActive && st === 'APPROVED') {
+    label = STATUS_MAP.IN_PROGRESS.label;
+    className = STATUS_MAP.IN_PROGRESS.className;
+  }
 
   // LEAD_APPROVED 세부 라벨링 — 누가 승인했는지에 따라
   if (goal && st === 'LEAD_APPROVED') {

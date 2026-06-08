@@ -304,7 +304,7 @@ function GoalGroup({ label, color, goals, muted, hideLabel }: { label: string; c
         {goals.map(goal => (
           <Link key={goal.id} href={`/goals/${goal.id}`}>
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-1.5 hover:shadow-sm hover:border-blue-200 transition-all cursor-pointer ${muted ? 'bg-gray-50' : 'bg-white'}`}>
-              <GoalStatusBadge goal={goal} />
+              <GoalStatusBadge goal={goal} unifyActive />
               <span className={`text-sm flex-1 truncate ${muted ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{goal.title}</span>
               {!muted && (
                 <div className="flex items-center gap-2 min-w-[72px]">
