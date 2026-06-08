@@ -58,7 +58,6 @@ function MyGoalsView() {
   const [activeTeamOrgId, setActiveTeamOrgId] = useState<string>(''); // 다중 팀 겸직 시 활성 팀
   const [orgsMap, setOrgsMap] = useState<Record<string, string>>({}); // orgId → 조직명
   const [nameById, setNameById] = useState<Record<string, string>>({}); // userId → 이름 (공동수행자 표시용)
-  const [goalKind, setGoalKind] = useState<'joint' | 'solo'>('joint'); // 공동업무 / 단독업무 탭
 
   const [loading, setLoading] = useState(true);
   const [teamLoading, setTeamLoading] = useState(false);
@@ -398,38 +397,22 @@ function MyGoalsView() {
                 </div>
               )}
 
-              {/* 하위: 공동업무 / 단독업무 탭 */}
-              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-                {([['joint', '공동업무'], ['solo', '단독업무']] as const).map(([k, label]) => (
-                  <button key={k} onClick={() => setGoalKind(k)}
-                    className={cn('px-5 py-1.5 rounded-md text-sm font-medium transition-colors',
-                      goalKind === k ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {/* 산하 팀 + 공동/단독 필터링 (공동 = collaboratorIds 있음) */}
+              {/* 산하 팀 필터링 — 공동/단독 구분 없이 전체 가중치를 한 번에 표시 */}
               {(() => {
                 const showTeamTabs = teamScopeOrgs.length >= 2;
-                // 산하 팀 탭 필터 — 목표의 소속 조직(organizationId) 또는 연관 조직(공동업무)이 해당 팀일 때만.
-                // ※ 수행자 home 조직(ownerOrg) 기준 필터는 사용하지 않음 — 겸직 인원의 타 팀 목표가
-                //    home 팀 탭에 중복으로 끌려오는 문제 방지.
+                // 산하 팀 탭 필터 — 목표의 소속 조직(organizationId) 또는 연관 조직이 해당 팀일 때만.
                 const teamFilter = (g: Goal) => {
                   if (!showTeamTabs || !activeTeamOrgId) return true;
                   return g.organizationId === activeTeamOrgId
                     || (g.relatedOrgIds ?? []).includes(activeTeamOrgId);
                 };
-                const matchKind = (g: Goal) => goalKind === 'joint'
-                  ? (g.collaboratorIds?.length ?? 0) > 0
-                  : (g.collaboratorIds?.length ?? 0) === 0;
-                // 사람(멤버) 그룹핑 없이 평면 카드 그리드 — 카드의 수행자/공동수행자 이름으로 구분.
+                // 사람(멤버) 그룹핑 없이 평면 카드 — 카드의 수행자/공동수행자 이름으로 구분.
                 const allGoals = Object.values(teamByMember).flat();
                 // 동일 목표 중복 제거(본인 목표가 teamByMember 와 myActive 양쪽에 들어갈 수 있음)
                 const seen = new Set<string>();
                 const filteredTeamGoals = allGoals
                   .filter(g => !seen.has(g.id) && (seen.add(g.id), true))
-                  .filter(g => teamFilter(g) && matchKind(g))
+                  .filter(g => teamFilter(g))
                   .sort((a, b) => {
                     // 본인 목표 우선, 이후 수행자명 가나다순
                     const am = a.userId === userProfile?.id ? 0 : 1;
@@ -456,12 +439,13 @@ function MyGoalsView() {
                     {!teamLoading && filteredTeamGoals.length > 0 && (
                       <div className="rounded-xl border bg-white px-5 py-4 space-y-2">
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-500 font-medium">{goalKind === 'joint' ? '공동업무' : '단독업무'} 진행률</span>
+                          <span className="text-gray-500 font-medium">핵심목표 진행률</span>
                           <span className="font-bold text-blue-600">{filteredAvgProgress}%</span>
                         </div>
                         <Progress value={filteredAvgProgress} className="h-2" />
                         <p className="text-xs text-gray-400">
                           {memberCount}명 · 목표 {filteredProgressGoals.length}개 평균{filteredTeamGoals.length > filteredProgressGoals.length ? ` (포기됨 ${filteredTeamGoals.length - filteredProgressGoals.length}개 제외)` : ''}
+                          {' · '}<span className="text-indigo-500">가중치는 본인 핵심목표 합계 100% 기준 자동 환산(평가 시 80% 반영)</span>
                         </p>
                       </div>
                     )}
@@ -471,9 +455,9 @@ function MyGoalsView() {
                   {[1, 2, 3].map(i => <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100" />)}
                 </div>
               ) : filteredTeamGoals.length === 0 ? (
-                <EmptyState icon={<Target className="h-10 w-10" />} label={`${goalKind === 'joint' ? '공동업무' : '단독업무'} 목표가 없습니다.`} />
+                <EmptyState icon={<Target className="h-10 w-10" />} label="핵심목표가 없습니다." />
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5 max-w-2xl">
                   {filteredTeamGoals.map(g => {
                     const isMine = g.userId === userProfile?.id && !locked;
                     const names = participantNamesOf(g);

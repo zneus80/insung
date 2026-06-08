@@ -176,7 +176,7 @@ const navItems: NavItem[] = [
     icon: <FileText className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
     exact: true,
-    group: '인사고과',
+    group: 'EGG Meeting',
   },
   {
     label: '인사평가',
