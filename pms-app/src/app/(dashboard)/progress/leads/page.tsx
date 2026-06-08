@@ -69,7 +69,7 @@ function ProgressContent() {
   const { activeYear: year } = useActiveYear();
   const [loading, setLoading] = useState(true);
   const [scopedUsers, setScopedUsers] = useState<User[]>([]);
-  const [goalsByUser, setGoalsByUser] = useState<Record<string, Goal[]>>({});
+  const [scopedGoals, setScopedGoals] = useState<Goal[]>([]); // 스코프 내 확정 목표 (조직 체인 기준)
   const [nameById, setNameById] = useState<Record<string, string>>({}); // 수행자/공동수행자 이름 (전 사용자)
   const [teamOrgs, setTeamOrgs] = useState<Organization[]>([]);
   // 활성 팀 탭 — 뒤로가기 복원 위해 sessionStorage 에 보존
@@ -112,27 +112,13 @@ function ProgressContent() {
           setActiveTeamIdRaw(valid);
         }
 
-        // 사용자별 목표 = owner 본인 + 공동수행자, 임원 확정된 것만 (임시저장·반려·승인대기 제외)
-        const COLLAB_VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
-        const gMap: Record<string, Goal[]> = {};
-        usersInScope.forEach(u => {
-          const own = allGoals.filter(g => g.userId === u.id);
-          const collab = allGoals.filter(g =>
-            g.userId !== u.id &&
-            (g.collaboratorIds ?? []).includes(u.id) &&
-            COLLAB_VISIBLE.has(g.status) &&
-            !g.trashedAt && !g.softDeletedAt,
-          );
-          const seen = new Set<string>();
-          const merged = [...own, ...collab].filter(g => {
-            if (seen.has(g.id)) return false;
-            seen.add(g.id);
-            return true;
-          });
-          // 확정된 목표만 (APPROVED/IN_PROGRESS/COMPLETED/ABANDONED)
-          gMap[u.id] = filterConfirmed(merged);
-        });
-        setGoalsByUser(gMap);
+        // 조직 체인 기준 — 목표의 소속 조직(organizationId) 또는 연관 조직(relatedOrgIds)이 스코프와 교차하는 확정 목표만.
+        // ※ 사람(owner) 기준이 아니라 조직 기준 — 겸직자(예: 인사팀 소속·전략기획팀 팀장)의 전략기획팀 목표가
+        //   인사팀에 끌려오는 누수를 차단.
+        const scoped = allGoals.filter(g =>
+          (descIds.includes(g.organizationId) || (g.relatedOrgIds ?? []).some(o => descIds.includes(o)))
+        );
+        setScopedGoals(filterConfirmed(scoped));
       } finally {
         setLoading(false);
       }
@@ -144,17 +130,10 @@ function ProgressContent() {
   const teamMembers = activeTeam ? scopedUsers.filter(u => u.organizationId === activeTeam.id) : [];
   const teamLeads = teamMembers.filter(u => u.role === 'TEAM_LEAD').sort(compareByHireThenName);
   const teamMembersOnly = teamMembers.filter(u => u.role === 'MEMBER').sort(compareByHireThenName);
-  // 팀 목표 = 팀 소속 인원의 목표 합집합을 id 로 중복 제거 (공동업무 1회만)
-  const teamGoals = (() => {
-    const seen = new Set<string>();
-    const out: Goal[] = [];
-    for (const u of teamMembers) {
-      for (const g of (goalsByUser[u.id] ?? [])) {
-        if (!seen.has(g.id)) { seen.add(g.id); out.push(g); }
-      }
-    }
-    return out;
-  })();
+  // 팀 목표 = 조직 체인 기준 (목표 소속 조직 또는 연관 조직이 이 팀) — 겸직자 타 팀 목표 누수 없음
+  const teamGoals = activeTeam
+    ? scopedGoals.filter(g => g.organizationId === activeTeam.id || (g.relatedOrgIds ?? []).includes(activeTeam.id))
+    : [];
   const teamAvg = avgProgressExcludingAbandoned(teamGoals);
   const teamCounts = bucketize(teamGoals);
   // 목표 수행자(owner+공동수행자) 이름 차례대로
