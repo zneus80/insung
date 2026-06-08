@@ -61,7 +61,7 @@ function MentoringAllContent() {
         // 임원·CEO 는 육성면담서 작성 대상이 아니므로 전사 확인 목록에서 제외
         const active = allUsers.filter(u => u.isActive && u.role !== 'EXECUTIVE' && u.role !== 'CEO');
         setUsers(active);
-        setOrgs(allOrgs);
+        setOrgs(allOrgs.filter(o => !o.archivedAt)); // 아카이브된 조직(예: 과거 총무팀) 제외 — 중복 표시 방지
 
         const formList = await getMentoringFormsByUsers(active.map(u => u.id), selectedYear);
         const formMap: Record<string, MentoringForm> = {};

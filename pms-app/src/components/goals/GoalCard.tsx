@@ -48,10 +48,10 @@ export default function GoalCard({ goal, ownerName, participantNames, effectiveW
   const inner = (
     <div
       className={cn(
-        'relative border border-l-4 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer',
+        'relative border border-l-4 rounded-xl px-4 py-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer',
         border,
         bg,
-        hasActions && 'pb-10',
+        hasActions && 'pb-9',
       )}
     >
         {/* ── 상단: 유형 뱃지 + 상태 뱃지 ── */}
@@ -102,36 +102,29 @@ export default function GoalCard({ goal, ownerName, participantNames, effectiveW
           </div>
         </div>
 
-        {/* ── 제목 ── */}
-        <h3 className="font-semibold text-gray-900 line-clamp-1 mb-0.5">{goal.title}</h3>
-
-        {/* ── 팀 연계 표시 ── */}
-        {goal.taskCategory === 'TEAM_LINKED' && goal.linkedOrgGoalTitle && (
-          <p className="text-xs text-gray-400 mb-1">↳ {goal.linkedOrgGoalTitle}</p>
-        )}
-
-        {/* ── 설명 ── */}
-        {goal.description && (
-          <p className="text-sm text-gray-500 line-clamp-2 mt-1 mb-2 whitespace-pre-line">{goal.description}</p>
-        )}
-
-        {/* ── 진행률 ── */}
-        <div className="space-y-1 mb-3">
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>진행률</span>
-            <span className="font-medium text-gray-700">{goal.progress}%</span>
+        {/* ── 제목 + 진행률(우측 인라인) — 세로 길이 축소 ── */}
+        <div className="flex items-center gap-3">
+          <h3 className="font-semibold text-gray-900 line-clamp-1 flex-1 min-w-0">{goal.title}</h3>
+          <div className="flex items-center gap-2 w-32 shrink-0">
+            <Progress value={goal.progress} className="h-1.5 flex-1" />
+            <span className="text-xs font-medium text-gray-700 w-8 text-right">{goal.progress}%</span>
           </div>
-          <Progress value={goal.progress} className="h-1.5" />
         </div>
 
-        {/* ── 메타 정보 ── */}
-        <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+        {/* ── 팀 연계 + 설명(1줄) ── */}
+        {goal.taskCategory === 'TEAM_LINKED' && goal.linkedOrgGoalTitle && (
+          <p className="text-xs text-gray-400 mt-0.5">↳ {goal.linkedOrgGoalTitle}</p>
+        )}
+        {goal.description && (
+          <p className="text-sm text-gray-500 line-clamp-1 mt-0.5">{goal.description}</p>
+        )}
+
+        {/* ── 메타 정보 (날짜 · 수행자) ── */}
+        <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap mt-1.5">
           <span className="flex items-center gap-1">
             <Calendar className="h-3.5 w-3.5" />
             {format(goal.dueDate, 'MM/dd', { locale: ko })}까지
           </span>
-
-          {/* 수행자 표시 — 공동업무는 수행자/공동수행자 구분 없이 이름 차례대로 강조 */}
           {(participantNames && participantNames.length > 0) ? (
             <span className="flex items-center gap-1.5">
               {participantNames.length > 1
@@ -148,7 +141,6 @@ export default function GoalCard({ goal, ownerName, participantNames, effectiveW
               <span className="text-sm font-semibold text-gray-800">{ownerName}</span>
             </span>
           ) : null}
-
         </div>
 
         {/* ── 액션 버튼 그룹 ── */}

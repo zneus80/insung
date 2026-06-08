@@ -23,7 +23,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { USE_EVAL_READ_PROXY } from './feature-flags';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, IndividualEvalStatus, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem, InnovationActivity } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, IndividualEvalStatus, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem, InnovationActivity, WeightChangeRequest } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -2176,6 +2176,105 @@ export async function getOrganizationsForYear(year: number): Promise<Organizatio
   const snap = await getOrgSnapshot(year);
   if (snap && snap.length > 0) return snap;
   return (await getOrganizations()).filter(o => !o.archivedAt);
+}
+
+// ─── 핵심목표 가중치 배분 변경 요청 (직속 1인 약식 승인) ───────────────
+function weightReqId(userId: string, year: number) { return `${userId}_${year}`; }
+
+function reviveWeightReq(id: string, d: DocumentData): WeightChangeRequest {
+  return {
+    id,
+    userId: d.userId, userName: d.userName, organizationId: d.organizationId,
+    cycleYear: d.cycleYear,
+    before: d.before ?? {}, after: d.after ?? {}, titles: d.titles ?? {},
+    status: d.status ?? 'PENDING',
+    approverId: d.approverId,
+    requestedAt: fromTimestamp(d.requestedAt) ?? new Date(),
+    decidedBy: d.decidedBy, decidedAt: fromTimestamp(d.decidedAt) ?? undefined,
+    comment: d.comment,
+    createdAt: fromTimestamp(d.createdAt) ?? new Date(),
+    updatedAt: fromTimestamp(d.updatedAt) ?? new Date(),
+  } as WeightChangeRequest;
+}
+
+export async function getWeightChangeRequest(userId: string, year: number): Promise<WeightChangeRequest | null> {
+  const snap = await getDoc(doc(db, 'weightChangeRequests', weightReqId(userId, year)));
+  return snap.exists() ? reviveWeightReq(snap.id, snap.data()) : null;
+}
+
+export async function getPendingWeightChangeRequestsForApprover(approverId: string): Promise<WeightChangeRequest[]> {
+  const snap = await getDocs(query(
+    collection(db, 'weightChangeRequests'),
+    where('approverId', '==', approverId),
+    where('status', '==', 'PENDING'),
+  ));
+  return snap.docs.map(d => reviveWeightReq(d.id, d.data()));
+}
+
+/** 가중치 배분안 제출 — 직속 승인자에게 약식 승인 요청 (PENDING 1건, 덮어쓰기) */
+export async function submitWeightChangeRequest(req: {
+  userId: string; userName?: string; organizationId?: string; cycleYear: number;
+  before: Record<string, number>; after: Record<string, number>; titles?: Record<string, string>;
+  approverId?: string;
+}): Promise<void> {
+  const id = weightReqId(req.userId, req.cycleYear);
+  await setDoc(doc(db, 'weightChangeRequests', id), {
+    userId: req.userId, userName: req.userName ?? '', organizationId: req.organizationId ?? '',
+    cycleYear: req.cycleYear,
+    before: req.before, after: req.after, titles: req.titles ?? {},
+    status: 'PENDING',
+    approverId: req.approverId ?? null,
+    requestedAt: serverTimestamp(),
+    decidedBy: null, decidedAt: null, comment: null,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }, { merge: true });
+  if (req.approverId) {
+    await createNotification({
+      userId: req.approverId,
+      type: 'GOAL_COMMENT',
+      category: 'GOAL',
+      title: `${req.userName ?? ''}님 가중치 변경 요청`,
+      message: `${req.userName ?? ''}님이 ${req.cycleYear}년 핵심목표 가중치 배분 변경을 요청했습니다.`,
+      link: '/approvals',
+      read: false,
+    } as any).catch(() => { /* 무시 */ });
+  }
+}
+
+/** 가중치 배분안 승인 — after 가중치를 각 목표에 반영 */
+export async function approveWeightChangeRequest(userId: string, year: number, decidedBy: string): Promise<void> {
+  const id = weightReqId(userId, year);
+  const snap = await getDoc(doc(db, 'weightChangeRequests', id));
+  if (!snap.exists()) throw new Error('가중치 변경 요청을 찾을 수 없습니다.');
+  const req = reviveWeightReq(snap.id, snap.data());
+  if (req.status !== 'PENDING') throw new Error('이미 처리된 요청입니다.');
+  // after 가중치를 각 목표의 "사람별 가중치 맵(weights[userId])"에 적용 (공동 목표에서 사람마다 다른 기여도)
+  await Promise.all(Object.entries(req.after).map(([goalId, w]) =>
+    updateGoal(goalId, { [`weights.${req.userId}`]: w } as Partial<Goal>)
+      .catch(e => console.error('[가중치 적용] 실패', goalId, e))
+  ));
+  await updateDoc(doc(db, 'weightChangeRequests', id), {
+    status: 'APPROVED', decidedBy, decidedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  await createNotification({
+    userId: req.userId, type: 'GOAL_COMMENT', category: 'GOAL',
+    title: '가중치 변경 승인됨',
+    message: `${year}년 핵심목표 가중치 배분 변경이 승인되었습니다.`,
+    link: '/goals', read: false,
+  } as any).catch(() => {});
+}
+
+export async function rejectWeightChangeRequest(userId: string, year: number, decidedBy: string, comment?: string): Promise<void> {
+  const id = weightReqId(userId, year);
+  await updateDoc(doc(db, 'weightChangeRequests', id), {
+    status: 'REJECTED', decidedBy, decidedAt: serverTimestamp(), comment: comment ?? null, updatedAt: serverTimestamp(),
+  });
+  await createNotification({
+    userId, type: 'GOAL_COMMENT', category: 'GOAL',
+    title: '가중치 변경 반려됨',
+    message: `${year}년 핵심목표 가중치 배분 변경이 반려되었습니다.${comment ? ` (${comment})` : ''}`,
+    link: '/goals', read: false,
+  } as any).catch(() => {});
 }
 
 export async function unlockEvaluationYear(year: number, by: { id: string; name?: string }): Promise<void> {

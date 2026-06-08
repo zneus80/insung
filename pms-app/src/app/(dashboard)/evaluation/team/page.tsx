@@ -33,7 +33,7 @@ import InnovationList from '@/components/evaluation/InnovationList';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AiEvalPanel from '@/components/evaluation/AiEvalPanel';
 import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
-import SelfEvalBody from '@/components/evaluation/SelfEvalBody';
+import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -579,6 +579,15 @@ function TeamLeadEvalView() {
                           ? <span className="text-blue-600">· 자기평가 제출</span>
                           : <span className="text-gray-300">· 미제출</span>}
                       </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        {(() => { const t = computeSelfEvalTotal(se); return t != null && (
+                          <span className="text-[11px] rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold">자기평가 {t}점</span>
+                        ); })()}
+                        {/* 본부장 2차 평가 시 — 팀장 1차 등급의견 표시 */}
+                        {isHQHead && member.role === 'MEMBER' && indivEvals[member.id]?.leadGrade && (
+                          <span className={`text-[11px] rounded-full px-2 py-0.5 ${GRADE_COLOR[indivEvals[member.id]!.leadGrade!]}`}>팀장 {indivEvals[member.id]!.leadGrade}</span>
+                        )}
+                      </div>
                     </button>
                   );
                 })}
@@ -681,7 +690,12 @@ function TeamLeadEvalView() {
 
                 {/* 자기평가 (핵심목표 가중치·점수 / 일반업무 / 혁신) */}
                 <div>
-                  <p className="text-sm font-bold text-gray-800 mb-2">자기평가</p>
+                  <p className="text-sm font-bold text-gray-800 mb-2">
+                    자기평가
+                    {(() => { const t = computeSelfEvalTotal(selfEvals[member.id]); return t != null && (
+                      <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점)</span>
+                    ); })()}
+                  </p>
                   <SelfEvalBody form={selfEvals[member.id] ?? null} />
                 </div>
 

@@ -75,7 +75,11 @@ export default function SelfEvalPage() {
   useEffect(() => { load(); }, [load]);
 
   // 가중치 — 핵심목표: 완료 목표 가중치 정규화 → ×0.8 (핵심 총 80%). 일반업무: 총 20% 균등.
-  const corePct = useMemo(() => normalizeWeights(goals), [goals]);
+  // 공동 목표는 사람마다 가중치가 다르므로 본인(weights[uid]) 슬롯을 우선 사용.
+  const corePct = useMemo(() => {
+    const uid = userProfile?.id ?? '';
+    return normalizeWeights(goals.map(g => ({ ...g, weight: g.weights?.[uid] ?? g.weight })));
+  }, [goals, userProfile?.id]);
   const coreEff = (id: string) => Math.round((corePct[id] ?? 0) * 0.8 * 10) / 10; // 80% 비율
   const genEff = starred.length > 0 ? Math.round((20 / starred.length) * 10) / 10 : 0;
 

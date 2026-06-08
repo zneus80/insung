@@ -33,7 +33,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { signOut } from '@/lib/auth';
 import {
   getUnreadNotificationCount,
-  getOrganizations, getAllUsers, getPendingGoalsByOrganizations,
+  getOrganizations, getAllUsers, getPendingGoalsByOrganizations, getPendingWeightChangeRequestsForApprover,
   getAnnouncements, getTeamWeeklyTask,
 } from '@/lib/firestore';
 import type { UserRole } from '@/types';
@@ -145,6 +145,15 @@ const navItems: NavItem[] = [
   //   roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   //   group: 'EGG Meeting',
   // },
+  // 자기평가 — EGG Meeting 그룹 최상단(임원·CEO 제외). 핵심목표 가중치·점수 / 일반업무 / 혁신. 라우트 /self-eval.
+  {
+    label: '자기평가',
+    href: '/self-eval',
+    icon: <FileText className="h-5 w-5" />,
+    roles: ['MEMBER', 'TEAM_LEAD'],
+    exact: true,
+    group: 'EGG Meeting',
+  },
   {
     label: '육성면담서',
     href: '/mentoring',
@@ -165,17 +174,6 @@ const navItems: NavItem[] = [
     href: '/mentoring/all',
     icon: <MessageSquareHeart className="h-5 w-5" />,
     requireHrAdmin: true,
-    group: 'EGG Meeting',
-  },
-
-  // ══ 인사고과 ════════════════════════════════
-  // 자기평가 — v0.9.2 육성면담서에서 다시 분리(핵심목표 가중치·점수 / 일반업무 / 혁신). 라우트 /self-eval.
-  {
-    label: '자기평가',
-    href: '/self-eval',
-    icon: <FileText className="h-5 w-5" />,
-    roles: ['MEMBER', 'TEAM_LEAD'],
-    exact: true,
     group: 'EGG Meeting',
   },
   {
@@ -395,12 +393,13 @@ export default function Sidebar() {
           const rootSet = new Set<string>([orgId]);
           allOrgs.filter(o => o.leaderId === uid).forEach(o => rootSet.add(o.id));
           const scopeOrgIds = [...new Set([...rootSet].flatMap(id => descIds(id)))];
-          const [pending, allUsers] = await Promise.all([
+          const [pending, allUsers, weightReqs] = await Promise.all([
             getPendingGoalsByOrganizations(scopeOrgIds),
             getAllUsers(),
+            getPendingWeightChangeRequestsForApprover(uid).catch(() => []),
           ]);
           const usersMap = Object.fromEntries(allUsers.map(u => [u.id, u]));
-          const cnt = filterMyActionableGoals(pending, allOrgs, usersMap, uid, role).length;
+          const cnt = filterMyActionableGoals(pending, allOrgs, usersMap, uid, role).length + weightReqs.length;
           if (!cancelled) setApprovalsCount(cnt);
         } catch { /* 무시 */ }
       }
