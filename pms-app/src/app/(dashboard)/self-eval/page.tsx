@@ -7,6 +7,7 @@ import {
   getGoalsByUser, getWeeklyTasksByMembersAndYear, listInnovationActivitiesByUser,
   getSelfEvaluation, upsertSelfEvaluation, upsertIndividualEvaluation,
   getOrganizations, getAllUsers,
+  requestSelfEvalEdit, withdrawSelfEvalEditRequest, getHrAdmins, createNotification,
 } from '@/lib/firestore';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import { normalizeWeights } from '@/lib/goal-weight';
@@ -15,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Target, Star, Lightbulb, CheckCircle2, Lock } from 'lucide-react';
+import { Target, Star, Lightbulb, CheckCircle2, Lock, Pencil, XCircle, AlertCircle } from 'lucide-react';
 import type { Goal } from '@/types';
 
 type Starred = { id: string; title: string };
@@ -35,6 +36,11 @@ export default function SelfEvalPage() {
   const [status, setStatus] = useState<'DRAFT' | 'SUBMITTED'>('DRAFT');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // 제출 후 수정 요청 (육성면담서와 동일: 개인 → HR, 확정 전까지)
+  const [editRequestPending, setEditRequestPending] = useState(false);
+  const [editRequestReason, setEditRequestReason] = useState('');
+  const [showEditRequestInput, setShowEditRequestInput] = useState(false);
+  const [editRequestInputValue, setEditRequestInputValue] = useState('');
 
   const readOnly = locked || status === 'SUBMITTED';
 
@@ -66,6 +72,11 @@ export default function SelfEvalPage() {
         setGoalMap(Object.fromEntries((se.goalEvals ?? []).map(e => [e.goalId, { comment: e.comment ?? '', score: e.score != null ? String(e.score) : '' }])));
         setGenMap(Object.fromEntries((se.generalEvals ?? []).map(e => [e.id, { comment: e.comment ?? '', score: e.score != null ? String(e.score) : '' }])));
         setInnovMap(Object.fromEntries((se.innovationEvals ?? []).map(e => [e.activityId, e.comment ?? ''])));
+        setEditRequestPending(!!se.editRequestPending);
+        setEditRequestReason(se.editRequestReason ?? '');
+      } else {
+        setEditRequestPending(false);
+        setEditRequestReason('');
       }
     } finally {
       setLoading(false);
@@ -138,6 +149,48 @@ export default function SelfEvalPage() {
     } catch (e) {
       console.error('[자기평가 저장] 실패:', e);
       toast.error('저장에 실패했습니다.');
+    } finally { setSaving(false); }
+  }
+
+  // ── 수정 요청 (육성면담서와 동일: 개인 → HR, 평가 확정 전까지) ──
+  async function submitEditRequest() {
+    if (!userProfile) return;
+    if (!editRequestInputValue.trim()) { toast.error('수정 요청 사유를 입력해주세요.'); return; }
+    setSaving(true);
+    try {
+      await requestSelfEvalEdit(userProfile.id, year, editRequestInputValue.trim());
+      try {
+        const hrAdmins = await getHrAdmins();
+        await Promise.all(hrAdmins.map(hr => createNotification({
+          userId: hr.id,
+          type: 'SELF_EVAL_EDIT_REQUESTED',
+          category: 'EVALUATION',
+          title: `${userProfile.name}님 자기평가 수정 요청`,
+          message: `사유: ${editRequestInputValue.trim().slice(0, 80)}${editRequestInputValue.trim().length > 80 ? '…' : ''}`,
+          link: `/self-eval?user=${userProfile.id}&year=${year}`,
+          read: false,
+        })));
+      } catch (err) { console.error('[알림] HR 알림 발송 실패:', err); }
+      setEditRequestPending(true);
+      setEditRequestReason(editRequestInputValue.trim());
+      setEditRequestInputValue('');
+      setShowEditRequestInput(false);
+      toast.success('HR 관리자에게 수정 요청을 보냈습니다.');
+    } catch {
+      toast.error('수정 요청 발송에 실패했습니다.');
+    } finally { setSaving(false); }
+  }
+  async function withdrawEditRequest() {
+    if (!userProfile) return;
+    if (!confirm('수정 요청을 회수하시겠습니까?')) return;
+    setSaving(true);
+    try {
+      await withdrawSelfEvalEditRequest(userProfile.id, year);
+      setEditRequestPending(false);
+      setEditRequestReason('');
+      toast.success('수정 요청을 회수했습니다.');
+    } catch {
+      toast.error('회수에 실패했습니다.');
     } finally { setSaving(false); }
   }
 
@@ -227,10 +280,46 @@ export default function SelfEvalPage() {
             </div>
           </section>
 
+          {/* 수정 요청 진행 중 배너 (HR 승인 대기) */}
+          {editRequestPending && (
+            <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
+              <AlertCircle className="h-4 w-4 shrink-0 text-blue-600 mt-0.5" />
+              <div className="flex-1 text-blue-800">
+                <p className="font-medium">HR 수정 승인 대기 중</p>
+                {editRequestReason && <p className="text-xs text-blue-700/80 mt-0.5 whitespace-pre-wrap">사유: {editRequestReason}</p>}
+                <p className="text-xs text-blue-700/70 mt-1">HR 관리자가 승인하면 다시 작성 가능 상태로 전환됩니다.</p>
+              </div>
+            </div>
+          )}
+
+          {/* 수정 요청 입력 박스 */}
+          {showEditRequestInput && !editRequestPending && status === 'SUBMITTED' && !locked && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-blue-700"><Pencil className="h-4 w-4" /> HR 수정 요청</div>
+              <p className="text-xs text-gray-600">제출된 자기평가를 수정하려면 HR 관리자에게 사유와 함께 요청하세요. 평가 확정 전까지 HR 승인 후 다시 작성 가능 상태로 전환됩니다.</p>
+              <Textarea rows={3} value={editRequestInputValue} onChange={e => setEditRequestInputValue(e.target.value)} placeholder="수정이 필요한 사유를 구체적으로 입력하세요" className="resize-none" />
+              <div className="flex gap-2 justify-end">
+                <Button size="sm" variant="ghost" disabled={saving} onClick={() => { setShowEditRequestInput(false); setEditRequestInputValue(''); }}>취소</Button>
+                <Button size="sm" disabled={saving || !editRequestInputValue.trim()} onClick={submitEditRequest}>{saving ? '요청 중...' : 'HR에 요청 보내기'}</Button>
+              </div>
+            </div>
+          )}
+
           {/* 액션 */}
           {status === 'SUBMITTED' ? (
-            <div className="flex items-center justify-center gap-1.5 text-sm text-green-600 font-medium py-2">
-              <CheckCircle2 className="h-4 w-4" /> 제출 완료
+            <div className="flex items-center justify-between gap-2 py-2">
+              <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium"><CheckCircle2 className="h-4 w-4" /> 제출 완료</span>
+              {!locked && (
+                editRequestPending ? (
+                  <Button size="sm" variant="outline" disabled={saving} onClick={withdrawEditRequest} className="gap-1.5 text-orange-600 border-orange-300 hover:bg-orange-50">
+                    <XCircle className="h-3.5 w-3.5" /> 수정 요청 회수
+                  </Button>
+                ) : !showEditRequestInput && (
+                  <Button size="sm" variant="outline" disabled={saving} onClick={() => setShowEditRequestInput(true)} className="gap-1.5 text-blue-600 border-blue-300 hover:bg-blue-50">
+                    <Pencil className="h-3.5 w-3.5" /> HR 수정 요청
+                  </Button>
+                )
+              )}
             </div>
           ) : !locked && (
             <div className="flex justify-end gap-2">

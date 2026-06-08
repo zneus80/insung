@@ -1940,6 +1940,57 @@ export async function rejectMentoringFormEdit(userId: string, year: number) {
   });
 }
 
+// ── 자기평가 수정요청 (육성면담서와 동일 로직: 개인 → HR, 확정 전까지 수정 허가받아 재개방) ──
+/** 개인 → HR: 자기평가 수정 요청 (SUBMITTED 잠금 유지, 요청 플래그만 ON) */
+export async function requestSelfEvalEdit(userId: string, year: number, reason: string) {
+  const ref = doc(db, COLLECTIONS.SELF_EVALUATIONS, selfEvalDocId(userId, year));
+  await updateDoc(ref, {
+    editRequestPending: true,
+    editRequestReason: reason,
+    editRequestedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** 개인이 자신의 수정 요청 회수 (HR 처리 전) */
+export async function withdrawSelfEvalEditRequest(userId: string, year: number) {
+  const ref = doc(db, COLLECTIONS.SELF_EVALUATIONS, selfEvalDocId(userId, year));
+  const { deleteField: del } = await import('firebase/firestore');
+  await updateDoc(ref, {
+    editRequestPending: false,
+    editRequestReason: del(),
+    editRequestedAt: del(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** HR → 개인: 수정 허가 → 자기평가를 DRAFT 로 되돌림, 요청 필드 초기화 */
+export async function approveSelfEvalEdit(userId: string, year: number, hrUserId: string) {
+  const ref = doc(db, COLLECTIONS.SELF_EVALUATIONS, selfEvalDocId(userId, year));
+  const { deleteField: del } = await import('firebase/firestore');
+  await updateDoc(ref, {
+    status: 'DRAFT',
+    editRequestPending: false,
+    editRequestReason: del(),
+    editRequestedAt: del(),
+    editRequestApprovedBy: hrUserId,
+    editRequestApprovedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** HR → 개인: 수정 거절 → SUBMITTED 유지, 요청 필드만 초기화 */
+export async function rejectSelfEvalEdit(userId: string, year: number) {
+  const ref = doc(db, COLLECTIONS.SELF_EVALUATIONS, selfEvalDocId(userId, year));
+  const { deleteField: del } = await import('firebase/firestore');
+  await updateDoc(ref, {
+    editRequestPending: false,
+    editRequestReason: del(),
+    editRequestedAt: del(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
 /** HR 관리자 (isHrAdmin === true) 목록 */
 export async function getHrAdmins(): Promise<User[]> {
   const snap = await getDocs(query(

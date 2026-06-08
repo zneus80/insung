@@ -302,6 +302,12 @@ export interface SelfEvaluation {
   innovationEvals?: InnovationEval[];
   status: SelfEvalStatus;
   submittedAt?: Date;
+  // 제출 후 수정 요청 (육성면담서와 동일): 평가 확정 전까지 개인이 HR에 수정 허가 요청 → 승인 시 DRAFT 로 재개방
+  editRequestPending?: boolean;
+  editRequestReason?: string;
+  editRequestedAt?: Date;
+  editRequestApprovedBy?: string;
+  editRequestApprovedAt?: Date;
   /** 가시성 ACL — 본인 + 조직 트리 상위 리더 userId 목록.
    *  v0.9.1 부터 평가 저장 시 자동 계산되어 Firestore 규칙의 read 권한 검증에 사용. */
   viewableBy?: string[];
@@ -706,6 +712,9 @@ export type NotificationType =
   | 'MENTORING_EDIT_APPROVED'   // HR 가 수정 허가 (HR → 개인)
   | 'MENTORING_EDIT_REJECTED'   // HR 가 수정 거절 (HR → 개인)
   | 'SELF_EVAL_SUBMITTED'       // 자기평가 제출 → 상위 검토자
+  | 'SELF_EVAL_EDIT_REQUESTED'  // 자기평가 수정 요청 (개인 → HR)
+  | 'SELF_EVAL_EDIT_APPROVED'   // HR 가 자기평가 수정 허가 (HR → 개인)
+  | 'SELF_EVAL_EDIT_REJECTED'   // HR 가 자기평가 수정 거절 (HR → 개인)
   | 'EVAL_LEAD_REVIEWED'        // 팀장 1차 의견 제출 → 본부장 또는 임원
   | 'EVAL_HQ_REVIEWED'          // 본부장 2차 의견 제출 → 임원
   | 'MENTORING_SUBMITTED'       // 육성면담서 제출 → 상위 검토자
