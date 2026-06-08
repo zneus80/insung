@@ -13,6 +13,9 @@ import {
   approveMentoringFormEdit,
   rejectMentoringFormEdit,
   getMentoringForm,
+  approveSelfEvalEdit,
+  rejectSelfEvalEdit,
+  getSelfEvaluation,
   getUser,
   createNotification,
 } from '@/lib/firestore';
@@ -136,6 +139,57 @@ export default function NotificationsPage() {
     }
   }
 
+  async function handleSelfEvalEditAction(n: AppNotification, action: 'APPROVE' | 'REJECT') {
+    if (!userProfile) return;
+    if (!userProfile.isHrAdmin) { toast.error('HR 관리자만 처리할 수 있습니다.'); return; }
+    const params = parseMentoringParams(n.link); // user/year 공용 파서
+    if (!params) { toast.error('알림 정보가 올바르지 않습니다.'); return; }
+    setProcessingId(n.id);
+    try {
+      const current = await getSelfEvaluation(params.userId, params.year);
+      if (!current || !current.editRequestPending) {
+        setProcessedMap(prev => ({ ...prev, [n.id]: 'STALE' }));
+        await markNotificationRead(n.id);
+        setItems(prev => prev.map(it => it.id === n.id ? { ...it, read: true } : it));
+        toast.info('이미 처리된 요청입니다.');
+        return;
+      }
+      const requester = await getUser(params.userId);
+      if (action === 'APPROVE') {
+        await approveSelfEvalEdit(params.userId, params.year, userProfile.id);
+        try {
+          await createNotification({
+            userId: params.userId, type: 'SELF_EVAL_EDIT_APPROVED', category: 'EVALUATION',
+            title: `${params.year}년 자기평가 수정 허가`,
+            message: `${userProfile.name}님이 수정 요청을 승인했습니다. 다시 작성/제출이 가능합니다.`,
+            link: '/self-eval', read: false,
+          });
+        } catch (err) { console.error('[알림] 승인 결과 알림 발송 실패:', err); }
+        setProcessedMap(prev => ({ ...prev, [n.id]: 'APPROVED' }));
+        toast.success(`${requester?.name ?? ''}님의 수정 요청을 승인했습니다.`);
+      } else {
+        await rejectSelfEvalEdit(params.userId, params.year);
+        try {
+          await createNotification({
+            userId: params.userId, type: 'SELF_EVAL_EDIT_REJECTED', category: 'EVALUATION',
+            title: `${params.year}년 자기평가 수정 요청 거절`,
+            message: `${userProfile.name}님이 수정 요청을 거절했습니다.`,
+            link: '/self-eval', read: false,
+          });
+        } catch (err) { console.error('[알림] 거절 결과 알림 발송 실패:', err); }
+        setProcessedMap(prev => ({ ...prev, [n.id]: 'REJECTED' }));
+        toast.success(`${requester?.name ?? ''}님의 수정 요청을 거절했습니다.`);
+      }
+      await markNotificationRead(n.id);
+      setItems(prev => prev.map(it => it.id === n.id ? { ...it, read: true } : it));
+    } catch (err) {
+      console.error('[알림 인라인액션 실패] self-eval:', err);
+      toast.error('처리에 실패했습니다.');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
   async function load() {
     if (!userProfile) return;
     setLoading(true);
@@ -170,6 +224,33 @@ export default function NotificationsPage() {
             setProcessedMap(prev => {
               const next = { ...prev };
               for (const sid of staleIds) if (!next[sid]) next[sid] = 'STALE';
+              return next;
+            });
+          }
+        }
+        // 자기평가 수정요청 알림 — 동일하게 다른 HR 처리분 자동 감지
+        const seEditReqs = list.filter(n => n.type === 'SELF_EVAL_EDIT_REQUESTED');
+        if (seEditReqs.length > 0) {
+          const seCache = new Map<string, boolean>();
+          const seStale: string[] = [];
+          await Promise.all(seEditReqs.map(async n => {
+            const params = parseMentoringParams(n.link);
+            if (!params) return;
+            const key = `${params.userId}_${params.year}`;
+            let pending = seCache.get(key);
+            if (pending === undefined) {
+              try {
+                const se = await getSelfEvaluation(params.userId, params.year);
+                pending = !!se?.editRequestPending;
+              } catch { pending = true; }
+              seCache.set(key, pending);
+            }
+            if (!pending) seStale.push(n.id);
+          }));
+          if (seStale.length > 0) {
+            setProcessedMap(prev => {
+              const next = { ...prev };
+              for (const sid of seStale) if (!next[sid]) next[sid] = 'STALE';
               return next;
             });
           }
@@ -438,6 +519,28 @@ export default function NotificationsPage() {
                             onClick={() => handleMentoringEditAction(n, 'REJECT')}
                             className="gap-1 h-7 px-3 text-red-600 border-red-300 hover:bg-red-50 text-xs"
                           >
+                            <XCircle className="h-3 w-3" /> 거절
+                          </Button>
+                          {isBusy && <span className="text-xs text-gray-400 self-center">처리 중...</span>}
+                        </div>
+                      );
+                    })()}
+
+                    {/* 인라인 액션: 자기평가 수정 요청 (HR 관리자만) */}
+                    {!selectMode && n.type === 'SELF_EVAL_EDIT_REQUESTED' && userProfile?.isHrAdmin && (() => {
+                      const status = processedMap[n.id];
+                      if (status === 'APPROVED') return <p className="mt-2 text-xs text-green-600 font-medium">✓ 수정 허가됨</p>;
+                      if (status === 'REJECTED') return <p className="mt-2 text-xs text-red-600 font-medium">✗ 거절됨</p>;
+                      if (status === 'STALE') return <p className="mt-2 text-xs text-gray-500 font-medium">이미 처리된 요청</p>;
+                      const isBusy = processingId === n.id;
+                      return (
+                        <div className="mt-2 flex gap-2" onClick={e => e.stopPropagation()}>
+                          <Button size="sm" disabled={isBusy} onClick={() => handleSelfEvalEditAction(n, 'APPROVE')}
+                            className="gap-1 h-7 px-3 bg-blue-600 hover:bg-blue-700 text-xs">
+                            <CheckCircle2 className="h-3 w-3" /> 수정 허가
+                          </Button>
+                          <Button size="sm" variant="outline" disabled={isBusy} onClick={() => handleSelfEvalEditAction(n, 'REJECT')}
+                            className="gap-1 h-7 px-3 text-red-600 border-red-300 hover:bg-red-50 text-xs">
                             <XCircle className="h-3 w-3" /> 거절
                           </Button>
                           {isBusy && <span className="text-xs text-gray-400 self-center">처리 중...</span>}
