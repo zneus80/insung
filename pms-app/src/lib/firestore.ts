@@ -2167,6 +2167,17 @@ export async function getOrgSnapshot(year: number): Promise<Organization[] | nul
   } as Organization));
 }
 
+/**
+ * 연도-스코프 화면용 조직 목록 — 확정 연도면 그 해 스냅샷(정책 ②: 그 해 구조·이름),
+ * 아니면 라이브(보관 조직 제외). 과거 연도 화면 전반의 조직명·계층 표시 일관화용.
+ * ※ 등급 가시성(§6-1)은 평가 doc 의 viewableBy ACL 로 별도 보장 — 본 함수는 표시/그룹핑용.
+ */
+export async function getOrganizationsForYear(year: number): Promise<Organization[]> {
+  const snap = await getOrgSnapshot(year);
+  if (snap && snap.length > 0) return snap;
+  return (await getOrganizations()).filter(o => !o.archivedAt);
+}
+
 export async function unlockEvaluationYear(year: number, by: { id: string; name?: string }): Promise<void> {
   const cur = await getSystemSettings();
   const next = (cur?.lockedYears ?? []).filter(y => y !== year);

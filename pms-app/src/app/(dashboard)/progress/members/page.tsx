@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
-import { getAllUsers, getOrganizations, getAllGoalsByYear } from '@/lib/firestore';
+import { getAllUsers, getOrganizationsForYear, getAllGoalsByYear } from '@/lib/firestore';
 import { compareByHireThenName } from '@/lib/user-sort';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
@@ -43,7 +43,7 @@ function ProgressMembersContent() {
     async function load() {
       try {
         const [allUsers, allOrgs, allGoals] = await Promise.all([
-          getAllUsers(), getOrganizations().then(os => os.filter(o => !o.archivedAt)), getAllGoalsByYear(year),
+          getAllUsers(), getOrganizationsForYear(year), getAllGoalsByYear(year),
         ]);
         const descIds = findDescendantIds(userProfile!.organizationId, allOrgs);
         const teamMembers = allUsers.filter(u =>

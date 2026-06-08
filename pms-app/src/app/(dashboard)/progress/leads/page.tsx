@@ -18,7 +18,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
-import { getAllUsers, getOrganizations, getAllGoalsByYear } from '@/lib/firestore';
+import { getAllUsers, getOrganizationsForYear, getAllGoalsByYear } from '@/lib/firestore';
 import { compareByHireThenName } from '@/lib/user-sort';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
@@ -84,7 +84,7 @@ function ProgressContent() {
     async function load() {
       try {
         const [allUsers, allOrgs, allGoals] = await Promise.all([
-          getAllUsers(), getOrganizations().then(os => os.filter(o => !o.archivedAt)), getAllGoalsByYear(year),
+          getAllUsers(), getOrganizationsForYear(year), getAllGoalsByYear(year),
         ]);
         // 내가 leaderId 인 모든 조직 → 산하 ID 집합 (fallback: home 조직)
         const myLeadOrgs = allOrgs.filter(o => o.leaderId === userProfile!.id);

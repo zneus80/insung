@@ -6,7 +6,7 @@ import { Plus, Target, Trash2, Users, ChevronDown, ChevronRight, Calendar, Build
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
-import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizations, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory } from '@/lib/firestore';
+import { getGoalsByUser, getGoalsByOrganization, getGoalsByOrganizations, getOrganizationsForYear, getAllUsers, getUser, updateGoal, deleteGoal, addGoalHistory } from '@/lib/firestore';
 import { notifyNextApprover } from '@/lib/goal-notifications';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { toast } from 'sonner';
@@ -103,7 +103,7 @@ function MyGoalsView() {
     setTeamLoading(true);
     try {
       // 같은 조직 구성원 전체 조회 (팀장 포함)
-      const [orgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
+      const [orgs, allUsers] = await Promise.all([getOrganizationsForYear(year), getAllUsers()]);
       setOrgsMap(Object.fromEntries(orgs.map(o => [o.id, o.name])));
       setNameById(Object.fromEntries(allUsers.map(u => [u.id, u.name])));
       const myOrg = orgs.find(o => o.id === userProfile!.organizationId);
@@ -288,7 +288,7 @@ function MyGoalsView() {
       if (userProfile) {
         await addGoalHistory({ goalId: goal.id, changedBy: userProfile.id, changeType: 'STATUS_CHANGED', previousStatus: 'REJECTED', newStatus: 'PENDING_APPROVAL', comment: '재상신' });
         try {
-          const [orgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
+          const [orgs, allUsers] = await Promise.all([getOrganizationsForYear(year), getAllUsers()]);
           await notifyNextApprover({
             goal: { ...goal, status: 'PENDING_APPROVAL' },
             allOrgs: orgs,
@@ -651,7 +651,7 @@ function OrgGoalsView() {
     (async () => {
       setLoading(true);
       try {
-        const allOrgs = (await getOrganizations()).filter(o => !o.archivedAt);
+        const allOrgs = await getOrganizationsForYear(year);
         setOrgs(allOrgs);
 
         // 조회 대상 조직 결정

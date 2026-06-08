@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getAllUsers, getOrganizations, getOrgEvaluations, getAllIndividualEvaluations } from '@/lib/firestore';
+import { getAllUsers, getOrganizationsForYear, getOrgEvaluations, getAllIndividualEvaluations } from '@/lib/firestore';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { roleRank } from '@/lib/user-sort';
 import { useAuth } from '@/contexts/AuthContext';
@@ -57,7 +57,7 @@ function EvaluationHistoryContent() {
       try {
       const [allUsers, allOrgs, realEvals] = await Promise.all([
         getAllUsers(),
-        getOrganizations(),
+        getOrganizationsForYear(selectedYear),
         getAllIndividualEvaluations(selectedYear),
       ]);
       setUsers(Object.fromEntries(allUsers.map(u => [u.id, u])));
