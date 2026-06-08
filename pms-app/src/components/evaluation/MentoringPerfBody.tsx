@@ -41,24 +41,10 @@ function Val({ text }: { text?: string }) {
     : <p className="text-sm text-gray-300">—</p>;
 }
 
-function EvalRow({ title, comment }: { title: string; comment?: string }) {
-  return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
-      <p className="text-sm font-medium text-gray-800">{title}</p>
-      {comment?.trim()
-        ? <p className="text-xs text-gray-600 mt-0.5 whitespace-pre-wrap leading-relaxed">{comment}</p>
-        : <p className="text-xs text-gray-300 mt-0.5">자기평가 미작성</p>}
-    </div>
-  );
-}
-
 export default function MentoringPerfBody({ form }: { form: MentoringForm | null }) {
   if (!form) {
     return <p className="text-sm text-gray-400 px-1 py-4">제출된 육성면담서가 없습니다.</p>;
   }
-  const goalEvals = form.goalEvals ?? [];
-  const generalEvals = form.generalEvals ?? [];
-  const innovationEvals = form.innovationEvals ?? [];
   const certs = (form.certifications ?? '').split('\n').filter(Boolean);
   const hasJobRequest = form.jobRequest && form.jobRequest !== 'SATISFIED';
 
@@ -75,21 +61,7 @@ export default function MentoringPerfBody({ form }: { form: MentoringForm | null
         <Block label="주요 담당업무"><Val text={form.mainDuties} /></Block>
       </Section>
 
-      {/* 당해년도 주요 업무실적 */}
-      <Section title="당해년도 주요 업무실적" color="blue">
-        <Block label="완료 핵심목표">
-          {goalEvals.length === 0 ? <p className="text-xs text-gray-400">없음</p>
-            : <div className="space-y-1.5">{goalEvals.map(e => <EvalRow key={e.goalId} title={e.goalTitle} comment={e.comment} />)}</div>}
-        </Block>
-        <Block label="주요 일반업무 (★)">
-          {generalEvals.length === 0 ? <p className="text-xs text-gray-400">없음</p>
-            : <div className="space-y-1.5">{generalEvals.map(e => <EvalRow key={e.id} title={e.title} comment={e.comment} />)}</div>}
-        </Block>
-        <Block label="참여 혁신업무">
-          {innovationEvals.length === 0 ? <p className="text-xs text-gray-400">없음</p>
-            : <div className="space-y-1.5">{innovationEvals.map(e => <EvalRow key={e.activityId} title={e.name} comment={e.comment} />)}</div>}
-        </Block>
-      </Section>
+      {/* (v0.9.2) 당해년도 업무실적은 '자기평가'(SelfEvalBody)로 분리 */}
 
       {/* 경력개발 / 직무 요청사항 */}
       <Section title="경력개발 및 직무 요청" color="gray">

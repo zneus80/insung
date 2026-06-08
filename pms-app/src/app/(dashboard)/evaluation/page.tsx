@@ -34,6 +34,7 @@ import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AiEvalPanel from '@/components/evaluation/AiEvalPanel';
 import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
+import SelfEvalBody from '@/components/evaluation/SelfEvalBody';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
@@ -553,9 +554,15 @@ function ExecutiveEvalView() {
                           </div>
                         </div>
 
-                        {/* 육성면담 및 업무실적 (통합 육성면담서 — 핵심목표·일반업무·혁신 자기평가 포함) */}
+                        {/* 자기평가 (핵심목표 가중치·점수 / 일반업무 / 혁신) */}
                         <div>
-                          <p className="text-sm font-bold text-gray-800 mb-2">육성면담 및 업무실적</p>
+                          <p className="text-sm font-bold text-gray-800 mb-2">자기평가</p>
+                          <SelfEvalBody form={selfEvals[member.id] ?? null} />
+                        </div>
+
+                        {/* 육성면담서 (직무·경력·요청·종합의견) */}
+                        <div>
+                          <p className="text-sm font-bold text-gray-800 mb-2">육성면담서</p>
                           <MentoringPerfBody form={mentoringForms[member.id] ?? null} />
                         </div>
                       </div>
