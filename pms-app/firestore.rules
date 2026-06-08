@@ -287,6 +287,12 @@ service cloud.firestore {
       allow write: if isHrAdmin();
     }
 
+    // 연도별 조직 스냅샷 (경량 B — 확정 시점 조직 트리 보존, 과거 연도 조직명 표시용)
+    match /orgSnapshots/{year} {
+      allow read: if isAuthenticated();
+      allow write: if isHrAdmin();
+    }
+
     // 데이터 백업 (HR관리자만 읽기·쓰기·삭제)
     match /backups/{id} {
       allow read: if isHrAdmin();

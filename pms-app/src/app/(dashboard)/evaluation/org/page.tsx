@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getOrganizations,
+  getOrgSnapshot,
   getAllUsers,
   getOrgEvaluations,
   upsertOrgEvaluation,
@@ -185,6 +186,8 @@ function OrgEvaluationContent() {
   const [histories, setHistories] = useState<OrgGradeHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [savingGrade, setSavingGrade] = useState<string | null>(null);
+  // 경량 B — 선택 연도가 확정(스냅샷 보유)이면 그 해 조직명으로 표시
+  const [gradeYearOrgNames, setGradeYearOrgNames] = useState<Record<string, string>>({});
 
   // HR_ADMIN 쿼터 편집 (orgId → { A, B, C, D, E })
   const [quotaEdits, setQuotaEdits] = useState<Record<string, Record<EvaluationGrade, number>>>({});
@@ -252,6 +255,9 @@ function OrgEvaluationContent() {
         } else {
           if (!cancelled) setGradePrevEvals([]);
         }
+        // 경량 B — 그 해 조직 스냅샷 이름맵(없으면 라이브 이름 사용)
+        const snapOrgs = await getOrgSnapshot(gradeSelectedYear);
+        if (!cancelled) setGradeYearOrgNames(snapOrgs ? Object.fromEntries(snapOrgs.map(o => [o.id, o.name])) : {});
       } finally {
         if (!cancelled) setGradeYearLoading(false);
       }
@@ -260,6 +266,10 @@ function OrgEvaluationContent() {
     return () => { cancelled = true; };
   }, [gradeSelectedYear, gradeCompareMode, showGradeSection, year, evaluations]);
 
+  // 선택 연도 조직명 (확정 연도면 그 해 스냅샷 이름, 아니면 라이브)
+  function orgNameY(org: { id: string; name: string }) {
+    return gradeYearOrgNames[org.id] ?? org.name;
+  }
   // 선택 연도 평가에서 조회
   function getGradeYearEval(orgId: string) {
     return gradeYearEvals.find(e => e.organizationId === orgId);
@@ -595,7 +605,7 @@ function OrgEvaluationContent() {
                       const cur = getGradeYearEval(org.id);
                       const prev = getGradePrevEval(org.id);
                       return {
-                        '조직명': org.name,
+                        '조직명': orgNameY(org),
                         '유형': ORG_TYPE_LABEL[org.type] ?? org.type,
                         [`${gradeSelectedYear}년 등급`]: cur?.grade ?? '-',
                         [`${gradeSelectedYear - 1}년 등급`]: prev?.grade ?? '-',
@@ -643,7 +653,7 @@ function OrgEvaluationContent() {
                       const prev = getGradePrevEval(org.id);
                       return (
                         <tr key={org.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium text-gray-900">{org.name}</td>
+                          <td className="px-4 py-3 font-medium text-gray-900">{orgNameY(org)}</td>
                           <td className="px-4 py-3">
                             <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
                               {ORG_TYPE_LABEL[org.type] ?? org.type}
@@ -701,7 +711,7 @@ function OrgEvaluationContent() {
                         : null;
                       return (
                         <tr key={org.id}>
-                          <td className="px-4 py-3 font-medium text-gray-900">{org.name}</td>
+                          <td className="px-4 py-3 font-medium text-gray-900">{orgNameY(org)}</td>
                           <td className="px-4 py-3">
                             <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
                               {ORG_TYPE_LABEL[org.type] ?? org.type}
@@ -827,7 +837,7 @@ function OrgEvaluationContent() {
                       {/* 카드 헤더 */}
                       <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b">
                         <div className="flex items-center gap-3">
-                          <span className="font-semibold text-gray-900">{org.name}</span>
+                          <span className="font-semibold text-gray-900">{orgNameY(org)}</span>
                           <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
                             {ORG_TYPE_LABEL[org.type] ?? org.type}
                           </span>
