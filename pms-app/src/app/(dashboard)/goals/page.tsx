@@ -106,8 +106,6 @@ function MyGoalsView() {
       const [orgs, allUsers] = await Promise.all([getOrganizationsForYear(year), getAllUsers()]);
       setOrgsMap(Object.fromEntries(orgs.map(o => [o.id, o.name])));
       setNameById(Object.fromEntries(allUsers.map(u => [u.id, u.name])));
-      const myOrg = orgs.find(o => o.id === userProfile!.organizationId);
-
       // 다중 팀·본부 겸직 지원 — home org descendants ∪ 본인이 leaderId 인 모든 조직 descendants
       const scopeOrgIds = getMyScopeOrgIds(userProfile!.id, userProfile!.role, userProfile!.organizationId, orgs);
       // 팀 탭으로 분리할 "팀 단위" 조직 — TEAM 타입 또는 leader 인 조직만 (본부 descendants 중 leaf 만)
@@ -128,31 +126,11 @@ function MyGoalsView() {
         setActiveTeamOrgId(teamTabs[0].id);
       }
 
-      // 스코프 내 모든 멤버
-      const teamMemberIds = new Set(
-        allUsers
-          .filter(u => scopeOrgIds.includes(u.organizationId) && u.id !== userProfile!.id)
-          .map(u => u.id)
-      );
-      if (myOrg?.leaderId && myOrg.leaderId !== userProfile!.id) {
-        teamMemberIds.add(myOrg.leaderId);
-      }
+      // 스코프 내 모든 조직의 목표 — 조직 체인(organizationId / relatedOrgIds) 기준으로만 조회·판정.
+      // ※ 겸직자(예: home=인사팀이면서 전략기획팀 팀장)의 '사람 기준' 누수를 막기 위해
+      //   더 이상 getGoalsByUser(leaderId) 로 리더 개인 목표를 끌어오지 않는다(타 팀 목표 누수 원인).
+      const list = await getGoalsByOrganizations(scopeOrgIds, year);
 
-      // 스코프 내 모든 조직의 목표 + 팀장 userId 기반 목표 병렬 조회 (org 이동 누락 대비)
-      const leaderId = myOrg?.leaderId;
-      const [list, leadGoals] = await Promise.all([
-        getGoalsByOrganizations(scopeOrgIds, year),
-        leaderId && leaderId !== userProfile!.id
-          ? getGoalsByUser(leaderId, year)
-          : Promise.resolve([] as Goal[]),
-      ]);
-
-      // 중복 제거 (팀장이 같은 org에 있으면 list에도 포함될 수 있음)
-      const seenIds = new Set<string>();
-      const combined: Goal[] = [];
-      for (const g of [...list, ...leadGoals]) {
-        if (!seenIds.has(g.id)) { seenIds.add(g.id); combined.push(g); }
-      }
       // 핵심목표관리 팀 목표 탭 — 결재 진행 중 + 진행 중 + 완료 모두 표시
       // 신규 상신·승인 진행 중 목표도 산하 팀에 보이도록 PENDING_APPROVAL / LEAD_APPROVED / PENDING_MODIFY 포함
       // 숨김: 포기(ABANDONED) · 반려(REJECTED) · 임시저장(DRAFT) · 휴지통(trashedAt)
@@ -160,14 +138,13 @@ function MyGoalsView() {
         'PENDING_APPROVAL', 'LEAD_APPROVED', 'PENDING_MODIFY',
         'APPROVED', 'IN_PROGRESS', 'COMPLETED', 'PENDING_ABANDON',
       ]);
-      const active = combined.filter(g => {
+      const active = list.filter(g => {
         if (!VISIBLE_STATUSES.has(g.status) || g.trashedAt) return false;
-        // 본인이 owner 인 목표는 "내 목표" 탭에서 별도 처리 — 팀 탭에서는 제외
+        // 본인이 owner 인 목표는 "내 목표" 처리 — 팀 뷰에서는 제외
         if (g.userId === userProfile!.id) return false;
-        // owner 또는 공동 수행자 중 한 명이라도 스코프 내 인원이면 표시
-        if (teamMemberIds.has(g.userId)) return true;
-        if ((g.collaboratorIds ?? []).some(id => teamMemberIds.has(id))) return true;
-        // relatedOrgIds 가 스코프와 교차 (단, 본인 owner 는 위에서 이미 제외)
+        // 조직 체인 기준: 목표의 소속 조직(organizationId) 또는 연관 조직(relatedOrgIds = 수행자+공동수행자 소속)이
+        // 내 스코프와 교차할 때만 표시. (사람 owner 가 스코프에 있다는 이유만으로는 표시하지 않음 — 겸직 누수 차단)
+        if (scopeOrgIds.includes(g.organizationId)) return true;
         if ((g.relatedOrgIds ?? []).some(orgId => scopeOrgIds.includes(orgId))) return true;
         return false;
       });
