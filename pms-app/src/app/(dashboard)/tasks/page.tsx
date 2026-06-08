@@ -959,7 +959,7 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
     if (!userProfile) return;
     setLoading(true);
     (async () => {
-      const [allUsersList, allOrgsList] = await Promise.all([getAllUsers(), getOrganizations()]);
+      const [allUsersList, allOrgsList] = await Promise.all([getAllUsers(), getOrganizations().then(os => os.filter(o => !o.archivedAt))]);
       const scopeOrgIds: string[] = isAllOrgs
         ? allOrgsList.map(o => o.id)
         : (() => {
