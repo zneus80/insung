@@ -42,6 +42,8 @@ export interface AiMemberInput {
   inProgressCount: number;     // 추진중 핵심목표 수
   abandonedCount: number;      // 포기(확정) 핵심목표 수 — 미달성
   selfEvalTotal?: number;      // 자기평가 가중 환산 총점(0~100). 미제출/미입력이면 생략.
+  innovationCount?: number;    // 당해년도 혁신활동 참여 수(스마트프로젝트·TDS PM/멤버/수행 등) — 보조 가점
+  innovationNames?: string[];  // 참여 혁신활동명(최대 일부)
   weeklyHighlights: string[];  // 그 해 Has Done 주요 실적
   selfEvalComments: string[];  // 자기평가 의견(점수 포함)
   generalWorkComments?: string[]; // 자기평가 중 '일반업무'만 별도(요약에 반드시 반영)
@@ -91,6 +93,8 @@ function buildPrompt(members: AiMemberInput[]): string {
     inProgressCount: m.inProgressCount,
     abandonedCount: m.abandonedCount,
     selfEvalTotal: m.selfEvalTotal,
+    innovationCount: m.innovationCount,
+    innovationNames: m.innovationNames,
     goals: m.goals,
     weeklyHighlights: m.weeklyHighlights,
     selfEvalComments: m.selfEvalComments,
@@ -108,6 +112,13 @@ function buildPrompt(members: AiMemberInput[]): string {
     '  ★ 완료(completedCount)는 핵심 성과로 비중 있게 반영하세요. statusLabel 이 "완료"인 목표(특히 난도 높은 목표)를 끝낸 사람을 높게 평가합니다. 같은 난도·목표수라면 완료가 많은 사람이 우위입니다.',
     '  ★ 포기(abandonedCount, statusLabel "포기")는 미달성으로 간주하세요. 목표 수 가산에서 제외하며(coreGoalCount 에 이미 제외됨), 포기가 많으면 성과·이행도에 부정적으로 반영하고 summary 에 그 사실을 명시하세요.',
     '- 자기평가 점수(selfEvalTotal, 0~100)와 항목 점수(selfEvalComments)를 성과 판단에 함께 반영하세요. 단, 자기평가는 본인 주장이므로 핵심목표 완료·실적 등 객관 근거와 상충하면 객관 근거를 우선합니다.',
+    '- 당해년도 혁신활동 참여(innovationCount·innovationNames)는 보조 가점 요소로 작게 반영하세요(핵심목표·완료 실적보다 비중 낮게).',
+    '- ranking 은 본인이 부여한 suggestedGrade 와 일관되게 매기세요: 더 높은 등급(A>B>C…)을 받은 사람이 더 낮은 등급자보다 아래 순위로 가면 안 됩니다. 충돌하면 등급 또는 순위를 재조정해 일관성을 맞추세요.',
+    '- suggestedGrade(추천 등급) 부여 기준:',
+    '  · C = 일반적인 최하 등급(보통 수준). 대부분의 하위 성과자는 C 로 둡니다.',
+    '  · D = 포기가 많거나, 핵심목표 난도가 낮고 일반업무 중심의 성과자. 전체 인원의 약 5~10% 이내로만 부여하고, 꼭 둘 필요는 없습니다(해당자 없으면 D 없이 둬도 됨).',
+    '  · E = 성과 근거가 거의 전무한(아무것도 없는) 수준의 직원에게만 부여.',
+    '  · A·B 는 우수/양호 성과자에게 부여하세요.',
     '- summary(성과 요약)에는 ①핵심목표(완료/추진중/포기 현황 포함) ②일반업무(주간 별표, generalWorkComments) 성과를 반드시 함께 언급하세요. 핵심목표만 다루지 말고, 완료·포기 건수도 짚으세요.',
     '- 추측·과장 금지. 근거가 부족하면 그렇게 표기하세요.',
     '- mentoringSummary 에는 육성면담서(mentoring)를 균형있게 2~3문장으로 요약하세요: (1)직무정보(직위·주요담당업무) (2)경력개발 방향(careerPlan) (3)종합의견(selfOpinion). 한쪽에 치우치지 마세요.',

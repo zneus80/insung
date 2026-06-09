@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { createAuditLog } from '@/lib/firestore';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import type {
-  User, Goal, SelfEvaluation, IndividualEvaluation, MentoringForm, WeeklyTask,
+  User, Goal, SelfEvaluation, IndividualEvaluation, MentoringForm, WeeklyTask, InnovationActivity,
 } from '@/types';
 
 /**
@@ -29,6 +29,8 @@ interface Props {
   selfEvals: Record<string, SelfEvaluation>;
   mentoringForms: Record<string, MentoringForm>;
   indivEvals: Record<string, IndividualEvaluation>;
+  /** 당해년도 혁신활동 참여(멤버별) — 보조 가점용. 없으면 미반영. */
+  innovationsByMember?: Record<string, InnovationActivity[]>;
   /** 감사 로그 actor */
   actor: { id: string; name: string };
   /** 범위 안내 문구 (예: "산하 전체", "○○팀") */
@@ -37,7 +39,7 @@ interface Props {
 
 export default function AiEvalPanel({
   members, goalsByMember, weeklyTasksByMember, selfEvals, mentoringForms, indivEvals,
-  actor, scopeLabel,
+  innovationsByMember, actor, scopeLabel,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<import('@/lib/ai-eval').AiEvalResult | null>(null);
@@ -91,6 +93,8 @@ export default function AiEvalPanel({
           inProgressCount,
           abandonedCount,
           selfEvalTotal: computeSelfEvalTotal(se ?? null) ?? undefined,
+          innovationCount: (innovationsByMember?.[m.id] ?? []).length || undefined,
+          innovationNames: (innovationsByMember?.[m.id] ?? []).map(a => a.name).filter(Boolean).slice(0, 8),
           goals: coreGoals.map(g => ({
             title: g.title, statusLabel: statusLabelOf(g), progress: g.progress,
             weight: g.weights?.[m.id] ?? g.weight,
