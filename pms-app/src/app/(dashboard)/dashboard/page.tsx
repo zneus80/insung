@@ -424,17 +424,24 @@ function ExecDashboard() {
           setExecPendingCount(execPending.length + execWeightReqs.length);
 
           const scopeUsers = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
-          const scopeGoals = allGoals.filter(g => new Set(scopeUsers.map(u => u.id)).has(g.userId));
+          const scopeUserIds = new Set(scopeUsers.map(u => u.id));
+          // 목표 = owner 또는 공동수행자가 스코프 인원에 포함되면 포함(공동수행자 업무 누락 방지)
+          const scopeGoals = allGoals.filter(g =>
+            scopeUserIds.has(g.userId) || (g.collaboratorIds ?? []).some(c => scopeUserIds.has(c))
+          );
 
           const usersByOrg: Record<string, User[]> = {};
           for (const u of scopeUsers) {
             if (!usersByOrg[u.organizationId]) usersByOrg[u.organizationId] = [];
             usersByOrg[u.organizationId].push(u);
           }
+          // 목표를 owner + 공동수행자 각각에게 배정 (조직 트리 구성원 행에 표시되도록)
           const goalsByUser: Record<string, Goal[]> = {};
           for (const g of scopeGoals) {
-            if (!goalsByUser[g.userId]) goalsByUser[g.userId] = [];
-            goalsByUser[g.userId].push(g);
+            for (const uid of [g.userId, ...(g.collaboratorIds ?? [])]) {
+              if (!scopeUserIds.has(uid)) continue;
+              (goalsByUser[uid] ??= []).push(g);
+            }
           }
           const scopeOrgs = allOrgs.filter(o => scopeOrgIds.includes(o.id));
           setTreeNodes(buildTree(null, scopeOrgs, usersByOrg, goalsByUser));

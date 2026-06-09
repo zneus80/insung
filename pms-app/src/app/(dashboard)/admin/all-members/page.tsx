@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   getAllUsers, getOrganizations, getAllMileages, getAllAwards,
-  getAllIndividualEvaluations, getMentoringFormsByUsers, listInnovationActivities,
+  getAllIndividualEvaluations, getMentoringFormsByUsers, listAllInnovationActivities,
 } from '@/lib/firestore';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
@@ -182,7 +182,7 @@ function AllMembersContent() {
           getOrganizations(),
           getAllMileages(),
           getAllAwards(),
-          listInnovationActivities(activeYear),
+          listAllInnovationActivities(), // 승진 요건(누적 PM)은 연도 무관 — 전체 연도 집계
           ...yearsToShow.map(y => getAllIndividualEvaluations(y)),
         ]);
         // 사용자별 스마트프로젝트 PM/멤버 카운트 (innovationActivities 직접 집계)

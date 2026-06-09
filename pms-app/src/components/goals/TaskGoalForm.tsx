@@ -591,22 +591,15 @@ export default function TaskGoalForm({
           </div>
 
           {/* 수행자 (owner) — 본인 자동 기본값, 다른 사용자 지정 가능
-              UX: 수행자 변경 시 이전 수행자를 자동으로 공동수행자에 추가, 새 수행자가 기존 공동수행자였으면 제거.
-                  → 스왑 케이스(원 수행자 → 공동수행자, 공동수행자 → 수행자)도 한 번에 처리됨. */}
+              이관(수행자 변경) 시 이전 수행자는 자동으로 빠진다(공동수행자로 남기지 않음).
+              새 수행자가 기존 공동수행자였다면 공동수행자 목록에서 제거(중복 방지).
+              이전 수행자를 공동수행자로 남기려면 아래 공동수행자에서 직접 추가. */}
           <OwnerPicker
             users={users}
             value={ownerId || (userProfile?.id ?? '')}
             onChange={newOwnerId => {
-              const prevOwnerId = ownerId || (userProfile?.id ?? '');
               setOwnerId(newOwnerId);
-              if (prevOwnerId && prevOwnerId !== newOwnerId) {
-                setCollaboratorIds(curr => {
-                  const withoutNewOwner = curr.filter(id => id !== newOwnerId);
-                  return withoutNewOwner.includes(prevOwnerId)
-                    ? withoutNewOwner
-                    : [...withoutNewOwner, prevOwnerId];
-                });
-              }
+              setCollaboratorIds(curr => curr.filter(id => id !== newOwnerId));
             }}
             search={ownerSearch}
             onSearchChange={setOwnerSearch}

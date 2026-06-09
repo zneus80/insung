@@ -17,7 +17,7 @@ import {
   getOrganizations,
   getMileage,
   getAwardsByUser,
-  listInnovationActivities,
+  listAllInnovationActivities,
   getIndividualEvaluation,
 } from '@/lib/firestore';
 import { getPmIds } from '@/lib/innovation';
@@ -142,7 +142,7 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
         const [mileages, awardLists, innovations, gradeLists] = await Promise.all([
           Promise.all(scopeUsers.map(u => getMileage(u.id))),
           Promise.all(scopeUsers.map(u => getAwardsByUser(u.id))),
-          listInnovationActivities(activeYear),
+          listAllInnovationActivities(), // 승진 요건은 누적(연도 무관) — 전체 연도 PM 실적 집계
           // 3개년 등급 — 관리자만, ACL 경로(getIndividualEvaluation)로만 조회 → 권한 없으면 자동 미표시
           canSeeGrades
             ? Promise.all(scopeUsers.map(async u => {

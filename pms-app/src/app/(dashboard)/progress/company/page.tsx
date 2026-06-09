@@ -119,7 +119,13 @@ function Content({ embedded = false }: { embedded?: boolean }) {
         if ((g.relatedOrgIds ?? []).some(orgId => scopeIds.has(orgId))) return true;
         return false;
       })
-      .sort((a, b) => a.title.localeCompare(b.title));
+      // 완료된 업무를 상단으로 → 그 외(추진중)는 그 아래, 동일 그룹 내 제목순
+      .sort((a, b) => {
+        const ac = a.status === 'COMPLETED' ? 0 : 1;
+        const bc = b.status === 'COMPLETED' ? 0 : 1;
+        if (ac !== bc) return ac - bc;
+        return a.title.localeCompare(b.title);
+      });
   }
 
   function annualGoalForOrg(orgId: string): AnnualGoal | undefined {

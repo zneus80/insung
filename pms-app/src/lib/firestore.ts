@@ -2896,6 +2896,20 @@ export async function listInnovationActivities(year: number): Promise<Innovation
   });
 }
 
+/** 전체 연도 혁신활동 — 승진 요건(누적 PM 실적)처럼 연도 무관 집계에 사용. */
+export async function listAllInnovationActivities(): Promise<InnovationActivity[]> {
+  const snap = await getDocs(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES));
+  return snap.docs.map(d => {
+    const data = d.data();
+    return {
+      ...data,
+      id: d.id,
+      createdAt: fromTimestamp(data.createdAt) ?? new Date(),
+      updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
+    } as InnovationActivity;
+  });
+}
+
 export async function listInnovationActivitiesByYearRange(startYear: number, endYear: number): Promise<InnovationActivity[]> {
   const snap = await getDocs(query(
     collection(db, COLLECTIONS.INNOVATION_ACTIVITIES),
