@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { createAuditLog } from '@/lib/firestore';
+import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import type {
   User, Goal, SelfEvaluation, IndividualEvaluation, MentoringForm, WeeklyTask,
 } from '@/types';
@@ -70,19 +71,28 @@ export default function AiEvalPanel({
           .map(e => `${e.title}${e.score != null ? ` (${e.score}점)` : ''}: ${e.comment ?? ''}`)
           .filter(s => s.split(': ').slice(1).join(': ').trim());
         const JR: Record<string, string> = { EXPAND: '직무 확대', REDUCE: '직무 축소', CHANGE: '직무 변경', RELOCATE: '근무지 이동', SATISFIED: '만족' };
-        // 핵심목표(평가 대상) — 난도 추정용 가중치(본인 슬롯)·설명 포함
+        // 핵심목표(평가 대상) — 완료/추진중/포기(확정). 포기는 미달성으로 별도 카운트.
         const coreGoals = (goalsByMember[m.id] ?? []).filter(g =>
           g.status === 'APPROVED' || g.status === 'IN_PROGRESS' || g.status === 'COMPLETED' ||
           g.status === 'PENDING_ABANDON' || (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange)
         );
+        const isAbandoned = (g: Goal) => g.status === 'ABANDONED' || g.status === 'PENDING_ABANDON';
+        const statusLabelOf = (g: Goal) => g.status === 'COMPLETED' ? '완료' : isAbandoned(g) ? '포기' : '추진중';
+        const completedCount = coreGoals.filter(g => g.status === 'COMPLETED').length;
+        const abandonedCount = coreGoals.filter(isAbandoned).length;
+        const inProgressCount = coreGoals.length - completedCount - abandonedCount;
         return {
           userId: m.id,
           name: m.name,
           position: m.position,
           currentGrade: ie?.execGrade ?? ie?.hqGrade ?? ie?.leadGrade ?? undefined,
-          coreGoalCount: coreGoals.length,
+          coreGoalCount: completedCount + inProgressCount, // 유효 목표 수(포기 제외)
+          completedCount,
+          inProgressCount,
+          abandonedCount,
+          selfEvalTotal: computeSelfEvalTotal(se ?? null) ?? undefined,
           goals: coreGoals.map(g => ({
-            title: g.title, status: g.status, progress: g.progress,
+            title: g.title, statusLabel: statusLabelOf(g), progress: g.progress,
             weight: g.weights?.[m.id] ?? g.weight,
             description: g.description?.slice(0, 200),
             // 이 목표의 주간 진행사항(주간업무보고에서 goalId 연계된 항목) — 난도 추정 보조
