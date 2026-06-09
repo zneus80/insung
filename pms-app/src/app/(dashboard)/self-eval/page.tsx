@@ -28,6 +28,7 @@ export default function SelfEvalPage() {
   const locked = isYearLocked(year);
 
   const [goals, setGoals] = useState<Goal[]>([]);       // 완료 핵심목표
+  const [abandoned, setAbandoned] = useState<Goal[]>([]); // 포기 확정 핵심목표 (배지·제목만)
   const [starred, setStarred] = useState<Starred[]>([]); // 별표 일반업무
   const [innov, setInnov] = useState<Innov[]>([]);       // 참여 혁신활동
   const [goalMap, setGoalMap] = useState<Record<string, { comment: string; score: string }>>({});
@@ -56,6 +57,8 @@ export default function SelfEvalPage() {
       ]);
       const completed = goalsList.filter(g => g.status === 'COMPLETED');
       setGoals(completed);
+      // 포기 확정 핵심목표 (임원 승인 + 조직변경 자동포기 제외) — 배지·제목만 표기
+      setAbandoned(goalsList.filter(g => g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange));
       // 별표 일반업무(goalId 없는 hasDone important) — 항목 id 중복 제거
       const seen = new Set<string>();
       const stars = wtDocs
@@ -112,6 +115,7 @@ export default function SelfEvalPage() {
         goalEvals: goals.map(g => ({ goalId: g.id, goalTitle: g.title, comment: goalMap[g.id]?.comment ?? '', score: num(goalMap[g.id]?.score ?? ''), weight: coreEff(g.id) })),
         generalEvals: starred.map(s => ({ id: s.id, title: s.title, comment: genMap[s.id]?.comment ?? '', score: num(genMap[s.id]?.score ?? ''), weight: genEff })),
         innovationEvals: innov.map(a => ({ activityId: a.id, name: a.name, comment: innovMap[a.id] ?? '' })),
+        abandonedGoals: abandoned.map(g => ({ goalId: g.id, goalTitle: g.title })),
         status: submit ? 'SUBMITTED' : 'DRAFT',
         ...(submit ? { submittedAt: new Date() } : {}),
       });
@@ -242,6 +246,18 @@ export default function SelfEvalPage() {
                   onComment={v => setGoalMap(m => ({ ...m, [g.id]: { ...m[g.id], comment: v, score: m[g.id]?.score ?? '' } }))}
                   onScore={v => setGoalMap(m => ({ ...m, [g.id]: { ...m[g.id], score: v, comment: m[g.id]?.comment ?? '' } }))} />
               ))}
+              {/* 포기 확정 핵심목표 — 배지·제목만 (점수/가중치 없음) */}
+              {abandoned.length > 0 && (
+                <div className="pt-1 space-y-1.5">
+                  <p className="text-[11px] font-medium text-gray-400">포기된 핵심목표</p>
+                  {abandoned.map(g => (
+                    <div key={g.id} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
+                      <span className="shrink-0 rounded-full bg-gray-200 text-gray-500 px-2 py-0.5 text-[11px] font-medium">포기</span>
+                      <span className="text-sm text-gray-500 line-through truncate">{g.title}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
 

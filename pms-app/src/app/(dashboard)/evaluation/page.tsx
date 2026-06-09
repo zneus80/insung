@@ -136,11 +136,13 @@ function ExecutiveEvalView() {
     if (!userProfile) return;
     setLoading(true);
     try {
-      const [orgs, allUsers, allQuotas] = await Promise.all([
+      const [orgsRaw, allUsers, allQuotas] = await Promise.all([
         getOrganizations(),
         getAllUsers().then(us => { setExecUsersCache(us); return us; }),
         getAllDivisionGradeQuotas(year),
       ]);
+      // 보관(archived)된 조직은 평가 스코프에서 제외 — 옛 조직(예: 보관된 총무팀)이 산하 계산에 섞이는 문제 차단
+      const orgs = orgsRaw.filter(o => !o.archivedAt);
       setAllOrgs(orgs);
 
       // 내가 leaderId 인 조직 중 DIVISION 또는 (상위에 DIVISION 없는) HQ 만 — 최상위 임원 영역으로 한정
@@ -565,7 +567,10 @@ function ExecutiveEvalView() {
                               <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점)</span>
                             ); })()}
                           </p>
-                          <SelfEvalBody form={selfEvals[member.id] ?? null} />
+                          <SelfEvalBody form={selfEvals[member.id] ?? null}
+                            abandonedGoals={(goalsByMember[member.id] ?? [])
+                              .filter(g => g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange)
+                              .map(g => ({ goalId: g.id, goalTitle: g.title }))} />
                         </div>
 
                         {/* 육성면담서 (직무·경력·요청·종합의견) */}

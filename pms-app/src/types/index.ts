@@ -300,6 +300,8 @@ export interface SelfEvaluation {
   generalEvals?: GeneralWorkEval[];
   /** 참여 혁신활동 자기평가(서술만) — v0.9.2 */
   innovationEvals?: InnovationEval[];
+  /** 포기 확정된 핵심목표 (배지·제목만 — 점수/가중치 없음). 평가 참고용 표기. */
+  abandonedGoals?: { goalId: string; goalTitle: string }[];
   status: SelfEvalStatus;
   submittedAt?: Date;
   // 제출 후 수정 요청 (육성면담서와 동일): 평가 확정 전까지 개인이 HR에 수정 허가 요청 → 승인 시 DRAFT 로 재개방
