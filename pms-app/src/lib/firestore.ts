@@ -2300,10 +2300,18 @@ export async function approveWeightChangeRequest(userId: string, year: number, d
   const req = reviveWeightReq(snap.id, snap.data());
   if (req.status !== 'PENDING') throw new Error('이미 처리된 요청입니다.');
   // after 가중치를 각 목표의 "사람별 가중치 맵(weights[userId])"에 적용 (공동 목표에서 사람마다 다른 기여도)
-  await Promise.all(Object.entries(req.after).map(([goalId, w]) =>
-    updateGoal(goalId, { [`weights.${req.userId}`]: w } as Partial<Goal>)
-      .catch(e => console.error('[가중치 적용] 실패', goalId, e))
-  ));
+  // ★ 승인 시점 재검증: 제출 후 이관/공동수행자 해제 등으로 본인이 더 이상 소유·참여자가 아닌 목표는 건너뜀
+  //    (스냅샷 after 에 남아있어도 이관된 업무에 가중치를 다시 써넣지 않도록 — 잔존·합계 초과 재발 방지)
+  await Promise.all(Object.entries(req.after).map(async ([goalId, w]) => {
+    try {
+      const gSnap = await getDoc(doc(db, COLLECTIONS.GOALS, goalId));
+      if (!gSnap.exists()) return;
+      const g = gSnap.data() as Goal;
+      const isParticipant = g.userId === req.userId || (g.collaboratorIds ?? []).includes(req.userId);
+      if (!isParticipant) { console.warn('[가중치 적용] 건너뜀 — 비참여 목표', goalId); return; }
+      await updateGoal(goalId, { [`weights.${req.userId}`]: w } as Partial<Goal>);
+    } catch (e) { console.error('[가중치 적용] 실패', goalId, e); }
+  }));
   await updateDoc(doc(db, 'weightChangeRequests', id), {
     status: 'APPROVED', decidedBy, decidedAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
