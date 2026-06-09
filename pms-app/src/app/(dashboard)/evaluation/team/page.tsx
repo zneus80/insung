@@ -698,10 +698,17 @@ function TeamLeadEvalView() {
                       <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점)</span>
                     ); })()}
                   </p>
-                  <SelfEvalBody form={selfEvals[member.id] ?? null}
-                    abandonedGoals={(goalsByMember[member.id] ?? [])
-                      .filter(g => g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange)
-                      .map(g => ({ goalId: g.id, goalTitle: g.title }))} />
+                  {(() => {
+                    const cg = (goalsByMember[member.id] ?? []).filter(g =>
+                      g.status === 'APPROVED' || g.status === 'IN_PROGRESS' || g.status === 'COMPLETED' ||
+                      g.status === 'PENDING_ABANDON' || (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange));
+                    const completed = cg.filter(g => g.status === 'COMPLETED').length;
+                    return (
+                      <SelfEvalBody form={selfEvals[member.id] ?? null}
+                        abandonedGoals={cg.filter(g => g.status === 'ABANDONED').map(g => ({ goalId: g.id, goalTitle: g.title }))}
+                        goalSummary={{ total: cg.length, completed, notCompleted: cg.length - completed }} />
+                    );
+                  })()}
                 </div>
 
                 {/* 육성면담서 (직무·경력·요청·종합의견) */}
