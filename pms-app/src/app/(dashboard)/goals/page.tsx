@@ -240,7 +240,13 @@ function MyGoalsView() {
   function handleSave() { loadMy(); loadTeam(); }
 
   // 본인 활성 핵심목표 (가중치 배분 대상)
-  const weightTargets = myActive.filter(g => !['ABANDONED', 'REJECTED', 'DRAFT'].includes(g.status) && !g.trashedAt);
+  //  - 이관 상신 중(타인에게 넘기는) 목표 제외: 최종 승인 전엔 userId 가 본인이라도 pendingOwnerId 가 타인이면 더 이상 본인 업무가 아님
+  //  - 재지정 필요(orphan) 목표 제외
+  const weightTargets = myActive.filter(g =>
+    !['ABANDONED', 'REJECTED', 'DRAFT'].includes(g.status) && !g.trashedAt
+    && !(g.pendingOwnerId && g.pendingOwnerId !== userProfile?.id)
+    && !g.needsReassignment,
+  );
   function openWeightModal() {
     const uid = userProfile?.id ?? '';
     const src = weightPending?.status === 'PENDING' ? weightPending.after : null;
