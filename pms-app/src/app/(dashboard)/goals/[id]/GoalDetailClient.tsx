@@ -637,6 +637,10 @@ export default function GoalDetailPage() {
             organizationId: newOwnerOrgId,
             collaboratorIds: newCollabs,
             relatedOrgIds: newRelatedOrgIds,
+            // 이관 시 이전 수행자의 가중치 슬롯 제거(스왑이 아니고, 이전 수행자가 더 이상 참여자가 아닐 때)
+            ...(!isSwap && prevOwnerIdForBadge && !newCollabs.includes(prevOwnerIdForBadge)
+              ? { [`weights.${prevOwnerIdForBadge}`]: deleteField() }
+              : {}),
             // 스왑이 아닌 진짜 이관일 때만 previousOwnerId/transferredAt 설정
             ...(isSwap ? {
               previousOwnerId: deleteField(),
