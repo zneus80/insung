@@ -54,10 +54,12 @@ function ScoredRow({ title, comment, weight, score }: { title: string; comment?:
   );
 }
 
-export default function SelfEvalBody({ form, abandonedGoals }: {
+export default function SelfEvalBody({ form, abandonedGoals, goalSummary }: {
   form: SelfEvaluation | null;
   /** 포기 확정 핵심목표(평가화면에서 실시간 계산해 전달) — 없으면 저장 스냅샷(form.abandonedGoals) 사용 */
   abandonedGoals?: { goalId: string; goalTitle: string }[];
+  /** 핵심목표 현황 요약(평가화면에서 전달): 총 개수 / 완료 / 미완료·포기 */
+  goalSummary?: { total: number; completed: number; notCompleted: number };
 }) {
   if (!form) {
     return <p className="text-sm text-gray-400 px-1 py-4">제출된 자기평가가 없습니다.</p>;
@@ -73,7 +75,8 @@ export default function SelfEvalBody({ form, abandonedGoals }: {
       <div className="flex items-center justify-end text-xs text-gray-500">
         가중 환산 총점 <b className="ml-1 text-indigo-700 text-sm">{total}</b> / 100
       </div>
-      <Section title="핵심목표 (완료 · 80%)" color="blue">
+      <Section title="핵심목표 (완료 · 80%)" color="blue"
+        right={goalSummary ? `총 ${goalSummary.total}개 · 완료 ${goalSummary.completed}건 · 미완료·포기 ${goalSummary.notCompleted}건` : undefined}>
         {goals.length === 0 ? <p className="text-xs text-gray-400">없음</p>
           : goals.map(e => <ScoredRow key={e.goalId} title={e.goalTitle} comment={e.comment} weight={e.weight} score={e.score} />)}
         {abandoned.length > 0 && (
