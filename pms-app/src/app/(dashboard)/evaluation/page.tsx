@@ -218,7 +218,10 @@ function ExecutiveEvalView() {
       const gbMap: Record<string, Goal[]> = {};
       active.forEach(m => { gbMap[m.id] = []; });
       allGoals.forEach(g => {
-        if (gbMap[g.userId]) gbMap[g.userId].push(g);
+        // owner + 공동수행자 모두에게 배정 — AI 요약·카드에 공동수행 업무도 반영
+        for (const uid of [g.userId, ...(g.collaboratorIds ?? [])]) {
+          if (gbMap[uid] && !gbMap[uid].some(x => x.id === g.id)) gbMap[uid].push(g);
+        }
       });
       setGoalsByMember(gbMap);
 
@@ -402,6 +405,7 @@ function ExecutiveEvalView() {
                 selfEvals={selfEvals}
                 mentoringForms={mentoringForms}
                 indivEvals={indivEvals}
+                innovationsByMember={innovationsByMember}
                 actor={{ id: userProfile.id, name: userProfile.name }}
                 scopeLabel="산하 전체"
               />

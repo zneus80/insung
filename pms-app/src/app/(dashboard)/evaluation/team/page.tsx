@@ -240,7 +240,8 @@ function TeamLeadEvalView() {
       setLeadOpinionByMember(opByMember);
 
       const gMap: Record<string, Goal[]> = {};
-      active.forEach(m => { gMap[m.id] = allGoals.filter(g => g.userId === m.id); });
+      // owner + 공동수행자 모두에게 배정 — AI 요약·카드에 공동수행 업무 반영
+      active.forEach(m => { gMap[m.id] = allGoals.filter(g => g.userId === m.id || (g.collaboratorIds ?? []).includes(m.id)); });
       setGoalsByMember(gMap);
 
       const [seList, mfList, weeklyTasks, innovations] = await Promise.all([
