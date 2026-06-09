@@ -35,8 +35,8 @@ export interface AiMemberInput {
   name: string;
   position?: string;
   currentGrade?: string;       // 현재 입력된 등급(있으면)
-  // 핵심목표 — 난도 추정을 위해 가중치(개인 기여도%)·설명 포함
-  goals: { title: string; status: string; progress: number; weight?: number; description?: string }[];
+  // 핵심목표 — 난도 추정을 위해 가중치(개인 기여도%)·설명·주간 진행사항 포함
+  goals: { title: string; status: string; progress: number; weight?: number; description?: string; weeklyNotes?: string[] }[];
   coreGoalCount: number;       // 핵심목표 갯수(평가 대상 — 완료/진행/포기확정)
   weeklyHighlights: string[];  // 그 해 Has Done 주요 실적
   selfEvalComments: string[];  // 자기평가 의견(점수 포함)
@@ -95,7 +95,8 @@ function buildPrompt(members: AiMemberInput[]): string {
     '규칙:',
     '- 각 개인에 대해 아무것도 모르는 상태에서 시작하세요. 제공되는 데이터만을 기반으로 평가하고, 과도한 추론은 하지 마세요.',
     '- 사실(완료 목표 수, 진행률, 실적 항목, 자기평가 점수)에 근거하고, 표현의 화려함이 아니라 실제 성과 중심으로 평가하세요.',
-    '- 순위 산정 시 다음 두 요소의 비중을 특히 높게 두세요: ①핵심목표의 난도(목표의 가중치 weight·설명 description·범위로 추정 — 가중치가 높고 내용이 도전적일수록 난도 높음), ②핵심목표의 갯수(coreGoalCount 가 많을수록 높게).',
+    '- 순위 산정 시 다음 두 요소의 비중을 특히 높게 두세요: ①핵심목표의 난도, ②핵심목표의 갯수(coreGoalCount 가 많을수록 높게).',
+    '  난도는 가중치(weight)만이 아니라 목표의 설명(description)·범위와 주간 진행사항(goals[].weeklyNotes)·진행률(progress)을 함께 보고 종합 추정하세요. 가중치가 높고, 내용이 도전적이며, 주간 실적이 꾸준하고 구체적일수록 난도가 높다고 판단합니다.',
     '  같은 진행률이라도 난도가 높고 목표 수가 많은 사람을 더 높게 평가하세요. 진행률·실적은 그 다음 보조 요소입니다.',
     '- summary(성과 요약)에는 핵심목표뿐 아니라 ②일반업무(주간 별표, generalWorkComments) 성과도 반드시 함께 언급하세요. 핵심목표만 다루지 마세요.',
     '- 추측·과장 금지. 근거가 부족하면 그렇게 표기하세요.',

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getInvitation, createUser, deleteUser, markInvitationUsed } from '@/lib/firestore';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { getInvitation, createUser } from '@/lib/firestore';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +39,10 @@ export default function InvitePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!invitation) return;
+    // 비밀번호 정책: 8자 이상 + 영문 소문자 + 특수문자 포함
     if (password.length < 8) { toast.error('비밀번호는 8자 이상이어야 합니다.'); return; }
+    if (!/[a-z]/.test(password)) { toast.error('영문 소문자를 1자 이상 포함해야 합니다.'); return; }
+    if (!/[^A-Za-z0-9]/.test(password)) { toast.error('특수문자를 1자 이상 포함해야 합니다.'); return; }
     if (password !== confirm) { toast.error('비밀번호가 일치하지 않습니다.'); return; }
 
     setSubmitting(true);
@@ -57,7 +60,29 @@ export default function InvitePage() {
         } catch { /* getUser 실패 시 진행 — 신규 케이스 */ }
       }
 
-      const cred = await createUserWithEmailAndPassword(auth, invitation.email, password);
+      // Auth 계정 생성 — 이전 시도에서 이미 만들어졌다면(email-already-in-use) 같은 비번으로 로그인해 이어서 진행(재시도 안전)
+      let cred;
+      try {
+        cred = await createUserWithEmailAndPassword(auth, invitation.email, password);
+      } catch (err: any) {
+        if (err?.code === 'auth/email-already-in-use') {
+          try {
+            cred = await signInWithEmailAndPassword(auth, invitation.email, password);
+          } catch {
+            toast.error('이미 등록된 계정입니다. 비밀번호가 다르면 로그인 화면에서 비밀번호 재설정을 이용하세요.');
+            setSubmitting(false);
+            return;
+          }
+        } else if (err?.code === 'auth/weak-password') {
+          toast.error('비밀번호가 너무 약합니다. 더 복잡한 비밀번호를 사용하세요.');
+          setSubmitting(false);
+          return;
+        } else {
+          throw err;
+        }
+      }
+
+      // 본인 users 문서 생성/갱신 (owner 권한 — 허용)
       await createUser(cred.user.uid, {
         email: invitation.email,
         name: invitation.name,
@@ -68,10 +93,20 @@ export default function InvitePage() {
         wasActivated: true,
         passwordChangedAt: new Date(),
       });
-      if (invitation.userId && invitation.userId !== cred.user.uid) {
-        await deleteUser(invitation.userId);
+
+      // 권한 필요한 마무리(placeholder 삭제 + 초대 사용처리)는 서버(Admin)에서 — 신규 가입자는 남의 문서 삭제 권한이 없음
+      const idToken = await cred.user.getIdToken();
+      const res = await fetch('/api/invite/finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, idToken }),
+      });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: '' }));
+        console.error('[invite] finalize 실패:', error);
+        // 계정·문서는 생성됐으므로 진행은 계속(중복 placeholder 는 HR이 정리 가능)
       }
-      await markInvitationUsed(token, cred.user.uid);
+
       setDone(true);
       setTimeout(() => router.push('/dashboard'), 2000);
     } catch (e: any) {
@@ -147,9 +182,10 @@ export default function InvitePage() {
                     type="password"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    placeholder="8자 이상"
+                    placeholder="8자 이상 · 영문 소문자 + 특수문자 포함"
                     required
                   />
+                  <p className="text-[11px] text-gray-400">8자 이상이며, 영문 소문자와 특수문자(!@#$ 등)를 각각 1자 이상 포함해야 합니다.</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label>비밀번호 확인 *</Label>
