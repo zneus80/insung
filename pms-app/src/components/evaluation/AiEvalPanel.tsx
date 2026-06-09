@@ -140,7 +140,7 @@ export default function AiEvalPanel({
             AI 성과 요약 · 참고 순위
             {scopeLabel && <span className="ml-1.5 text-xs font-normal text-violet-500">({scopeLabel} {members.length}명 일괄)</span>}
           </p>
-          <p className="text-xs text-violet-500">목표·주간실적·자기평가·면담서를 AI가 요약합니다. 결과는 <b>참고용</b>이며 최종 등급은 직접 결정합니다.</p>
+          <p className="text-xs text-violet-500">목표, 주간실적, 자기평가, 면담서를 AI가 요약합니다. AI는 실수할 수 있으며, 결과는 <b>참고용</b>이므로 최종 등급은 직접 결정하여야 합니다.</p>
         </div>
         <Button size="sm" disabled={loading || members.length === 0}
           onClick={run}
