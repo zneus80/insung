@@ -619,6 +619,8 @@ export default function GoalDetailPage() {
             prevOwnerIdForBadge = goal.reassignFromId!;
             prevOwnerNameForBadge = goal.reassignFromName ?? '';
           }
+          // 안전: 새 수행자가 공동수행자 목록에 중복으로 남지 않도록 제거(수행자 ≠ 공동수행자)
+          newCollabs = (newCollabs ?? []).filter(uid => uid && uid !== newOwnerId);
           // relatedOrgIds 재계산 — 새 owner org + collab들의 org. usersMap 활용.
           const collabOrgIds = newCollabs
             .map(uid => usersMap[uid]?.organizationId)

@@ -69,7 +69,9 @@ export function buildTree(
     .map(org => {
       // 표준 정렬: 임원 → 팀장 → 팀원, 동일 역할은 입사일순
       const members = (usersByOrg[org.id] ?? []).slice().sort(compareUserByRoleHire);
-      const goals = members.flatMap(u => goalsByUser[u.id] ?? []);
+      // 구성원(owner 또는 공동수행자)에게 배정된 목표 — 같은 조직에 owner·공동수행자가 함께면 중복되므로 id 기준 dedup
+      const seen = new Set<string>();
+      const goals = members.flatMap(u => goalsByUser[u.id] ?? []).filter(g => !seen.has(g.id) && (seen.add(g.id), true));
       return { org, members, goals, children: buildTree(org.id, allOrgs, usersByOrg, goalsByUser) };
     });
 }
@@ -267,7 +269,7 @@ export function OrgTreeNode({
       {open && (
         <div className="ml-4 space-y-1 mt-1">
           {node.members.map(member => (
-            <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id)} persistKey={persistKey} defaultMemberOpen={defaultMemberOpen} currentOrgId={node.org.id} allOrgs={allOrgs} />
+            <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id || (g.collaboratorIds ?? []).includes(member.id))} persistKey={persistKey} defaultMemberOpen={defaultMemberOpen} currentOrgId={node.org.id} allOrgs={allOrgs} />
           ))}
           {node.children.map(child => (
             <OrgTreeNode key={child.org.id} node={child} depth={depth + 1} orgGoalMap={orgGoalMap} persistKey={persistKey} defaultOpenDepth={defaultOpenDepth} defaultMemberOpen={defaultMemberOpen} allOrgs={allOrgs} />
