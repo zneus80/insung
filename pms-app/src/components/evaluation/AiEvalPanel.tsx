@@ -58,23 +58,51 @@ export default function AiEvalPanel({
       const input = members.map(m => {
         const ie = indivEvals[m.id];
         const mf = mentoringForms[m.id];
-        // 근거 = ①핵심목표관리 ②주간업무보고 본인 작성분(authorId 로 이미 분해됨) ③본인 육성면담서(자기평가 통합)
-        const mentoringSelfEvals: string[] = [
-          ...(mf?.goalEvals ?? []).map(e => `[핵심목표] ${e.goalTitle}: ${e.comment}`),
-          ...(mf?.generalEvals ?? []).map(e => `[일반업무] ${e.title}: ${e.comment}`),
-          ...(mf?.innovationEvals ?? []).map(e => `[혁신] ${e.name}: ${e.comment}`),
+        const se = selfEvals[m.id];
+        // 근거 = ①핵심목표관리 각 목표 ②주간업무보고 ③자기평가(점수 포함). 육성면담서는 요약용 종합의견만 별도 전달.
+        const selfEvalComments: string[] = [
+          ...(se?.goalEvals ?? []).map(e => `[핵심목표] ${e.goalTitle}${e.score != null ? ` (${e.score}점)` : ''}: ${e.comment ?? ''}`),
+          ...(se?.generalEvals ?? []).map(e => `[일반업무] ${e.title}${e.score != null ? ` (${e.score}점)` : ''}: ${e.comment ?? ''}`),
+          ...(se?.innovationEvals ?? []).map(e => `[혁신] ${e.name}: ${e.comment ?? ''}`),
         ].filter(s => s.split(': ').slice(1).join(': ').trim());
+        // 일반업무만 별도 — 요약에서 핵심목표에 묻히지 않도록
+        const generalWorkComments: string[] = (se?.generalEvals ?? [])
+          .map(e => `${e.title}${e.score != null ? ` (${e.score}점)` : ''}: ${e.comment ?? ''}`)
+          .filter(s => s.split(': ').slice(1).join(': ').trim());
+        const JR: Record<string, string> = { EXPAND: '직무 확대', REDUCE: '직무 축소', CHANGE: '직무 변경', RELOCATE: '근무지 이동', SATISFIED: '만족' };
+        // 핵심목표(평가 대상) — 난도 추정용 가중치(본인 슬롯)·설명 포함
+        const coreGoals = (goalsByMember[m.id] ?? []).filter(g =>
+          g.status === 'APPROVED' || g.status === 'IN_PROGRESS' || g.status === 'COMPLETED' ||
+          g.status === 'PENDING_ABANDON' || (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange)
+        );
         return {
           userId: m.id,
           name: m.name,
           position: m.position,
           currentGrade: ie?.execGrade ?? ie?.hqGrade ?? ie?.leadGrade ?? undefined,
-          goals: (goalsByMember[m.id] ?? []).map(g => ({ title: g.title, status: g.status, progress: g.progress })),
+          coreGoalCount: coreGoals.length,
+          goals: coreGoals.map(g => ({
+            title: g.title, status: g.status, progress: g.progress,
+            weight: g.weights?.[m.id] ?? g.weight,
+            description: g.description?.slice(0, 200),
+          })),
           weeklyHighlights: (weeklyTasksByMember[m.id] ?? [])
             .flatMap(wt => (wt.hasDoneItems ?? []).map(i => (i.title || i.content)))
             .filter(Boolean).slice(0, 30),
-          selfEvalComments: mentoringSelfEvals,        // 본인 육성면담서의 업무실적 자기평가
-          mentoringOpinion: mf?.selfOpinion,           // 본인 육성면담서 종합의견
+          selfEvalComments,                            // 자기평가(점수 포함)
+          generalWorkComments,                         // 일반업무만 별도
+          mentoring: mf ? {
+            currentPosition: mf.currentPosition,
+            mainDuties: mf.mainDuties,
+            careerPlan: mf.careerPlan,
+            jobRequest: mf.jobRequest ? (JR[mf.jobRequest] ?? mf.jobRequest) : undefined,
+            jobChangeReason: mf.jobChangeReason,
+            desiredJobs: [mf.desiredJob1, mf.desiredJob2].filter(Boolean).join(' / ') || undefined,
+            desiredLocations: [mf.desiredLocation1, mf.desiredLocation2].filter(Boolean).join(' / ') || undefined,
+            locationChangeReason: mf.locationChangeReason,
+            selfOpinion: mf.selfOpinion,
+            interviewerOpinion: mf.interviewerOpinion,
+          } : undefined,
         };
       });
       const res = await summarizeAndRankMembers(input);
@@ -123,7 +151,13 @@ export default function AiEvalPanel({
               <span className="font-semibold">참고 순위:</span> {result.ranking.map(r => nameOf(r.userId)).join(' · ')}
             </p>
           )}
-          {result.summaries.map(s => {
+          {[...result.summaries].sort((a, b) => {
+            // 참고 순위 오름차순(1위 먼저) → 순위 없는 사람은 뒤로
+            const ra = result.ranking.find(r => r.userId === a.userId)?.rank ?? 999;
+            const rb = result.ranking.find(r => r.userId === b.userId)?.rank ?? 999;
+            return ra - rb;
+          }).map(s => {
+            const rank = result.ranking.find(r => r.userId === s.userId)?.rank;
             const isOpen = expanded.has(s.userId);
             return (
               <div key={s.userId} className="rounded-lg bg-white border border-violet-100">
@@ -133,6 +167,7 @@ export default function AiEvalPanel({
                   className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-violet-50/50 transition-colors"
                 >
                   <span className={`text-gray-400 transition-transform text-xs ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+                  {rank != null && <span className="text-[11px] font-bold text-violet-600 w-5 shrink-0">{rank}위</span>}
                   <span className="text-sm font-semibold text-gray-800">{nameOf(s.userId)}</span>
                   {s.suggestedGrade && <span className="text-[11px] rounded-full bg-violet-100 text-violet-700 px-2 py-0.5">추천 {s.suggestedGrade}</span>}
                 </button>
@@ -141,6 +176,9 @@ export default function AiEvalPanel({
                     <p className="text-xs text-gray-600 mt-0.5 whitespace-pre-wrap">{s.summary}</p>
                     {s.strengths?.length > 0 && <p className="text-[11px] text-green-600 mt-0.5">강점: {s.strengths.join(', ')}</p>}
                     {s.issues?.length > 0 && <p className="text-[11px] text-amber-600">보완: {s.issues.join(', ')}</p>}
+                    {s.mentoringSummary?.trim() && (
+                      <p className="text-[11px] text-violet-600 mt-1 pt-1 border-t border-violet-50">육성면담서 요약: {s.mentoringSummary}</p>
+                    )}
                   </div>
                 )}
               </div>

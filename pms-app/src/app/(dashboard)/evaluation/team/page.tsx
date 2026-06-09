@@ -139,7 +139,8 @@ function TeamLeadEvalView() {
     if (!userProfile) return;
     setLoading(true);
     try {
-      const allOrgs = await getOrganizations();
+      const allOrgsRaw = await getOrganizations();
+      const allOrgs = allOrgsRaw.filter(o => !o.archivedAt); // 보관 조직 제외 — 옛 조직이 스코프에 섞이는 문제 차단
       setAllOrgsCache(allOrgs);
       // 본부장 판별: leaderId 가 본인이고 HEADQUARTERS 인 조직 또는 본인 소속이 HQ
       // (role 이 TEAM_LEAD 든 EXECUTIVE 든 HQ leader 이면 본부장으로 간주 — CLAUDE.md 차순위 임원 케이스)
@@ -696,7 +697,10 @@ function TeamLeadEvalView() {
                       <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점)</span>
                     ); })()}
                   </p>
-                  <SelfEvalBody form={selfEvals[member.id] ?? null} />
+                  <SelfEvalBody form={selfEvals[member.id] ?? null}
+                    abandonedGoals={(goalsByMember[member.id] ?? [])
+                      .filter(g => g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange)
+                      .map(g => ({ goalId: g.id, goalTitle: g.title }))} />
                 </div>
 
                 {/* 육성면담서 (직무·경력·요청·종합의견) */}

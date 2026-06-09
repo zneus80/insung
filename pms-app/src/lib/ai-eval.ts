@@ -35,10 +35,25 @@ export interface AiMemberInput {
   name: string;
   position?: string;
   currentGrade?: string;       // 현재 입력된 등급(있으면)
-  goals: { title: string; status: string; progress: number }[];
+  // 핵심목표 — 난도 추정을 위해 가중치(개인 기여도%)·설명 포함
+  goals: { title: string; status: string; progress: number; weight?: number; description?: string }[];
+  coreGoalCount: number;       // 핵심목표 갯수(평가 대상 — 완료/진행/포기확정)
   weeklyHighlights: string[];  // 그 해 Has Done 주요 실적
-  selfEvalComments: string[];  // 자기평가 의견
-  mentoringOpinion?: string;   // 육성면담서 종합의견
+  selfEvalComments: string[];  // 자기평가 의견(점수 포함)
+  generalWorkComments?: string[]; // 자기평가 중 '일반업무'만 별도(요약에 반드시 반영)
+  // 육성면담서 — 직무정보·경력개발·직무요청(특이 케이스)·종합의견을 균형있게 요약하기 위한 원자료
+  mentoring?: {
+    currentPosition?: string;   // 직위/직책
+    mainDuties?: string;        // 주요담당업무
+    careerPlan?: string;        // 희망 Position·경력개발 방향
+    jobRequest?: string;        // 직무요청 유형(직무 확대/축소/변경/근무지 이동/만족)
+    jobChangeReason?: string;   // 직무 변경 희망 이유
+    desiredJobs?: string;       // 희망 직무 1·2순위
+    desiredLocations?: string;  // 희망 근무지 1·2순위
+    locationChangeReason?: string; // 근무지 변경 이유
+    selfOpinion?: string;       // 작성자 종합의견
+    interviewerOpinion?: string; // 면담자 종합의견
+  };
 }
 
 export interface AiMemberSummary {
@@ -47,6 +62,7 @@ export interface AiMemberSummary {
   strengths: string[];
   issues: string[];
   suggestedGrade?: string;     // 참고용 추천 등급
+  mentoringSummary?: string;   // 육성면담서 요약(종합의견 기반)
 }
 export interface AiRankItem {
   userId: string;
@@ -66,24 +82,33 @@ function buildPrompt(members: AiMemberInput[]): string {
     name: m.name,
     position: m.position,
     currentGrade: m.currentGrade,
+    coreGoalCount: m.coreGoalCount,
     goals: m.goals,
     weeklyHighlights: m.weeklyHighlights,
     selfEvalComments: m.selfEvalComments,
-    mentoringOpinion: m.mentoringOpinion,
+    generalWorkComments: m.generalWorkComments,
+    mentoring: m.mentoring,
   }));
   return [
-    '당신은 인사평가를 돕는 보조자입니다. 아래 구성원들의 한 해 업무 근거(핵심목표 진행, 주간 실적, 자기평가, 육성면담서)를 바탕으로,',
+    '당신은 인사평가를 돕는 보조자입니다. 분석 근거는 오직 ①핵심목표관리의 각 목표 ②주간업무보고 ③자기평가 입니다.',
     '각 개인의 성과를 객관적으로 요약하고, 성과 기준 참고 순위를 제안하세요.',
     '규칙:',
-    '- 사실(완료 목표 수, 진행률, 실적 항목)에 근거하고, 표현의 화려함이 아니라 실제 성과 중심으로 평가하세요.',
+    '- 각 개인에 대해 아무것도 모르는 상태에서 시작하세요. 제공되는 데이터만을 기반으로 평가하고, 과도한 추론은 하지 마세요.',
+    '- 사실(완료 목표 수, 진행률, 실적 항목, 자기평가 점수)에 근거하고, 표현의 화려함이 아니라 실제 성과 중심으로 평가하세요.',
+    '- 순위 산정 시 다음 두 요소의 비중을 특히 높게 두세요: ①핵심목표의 난도(목표의 가중치 weight·설명 description·범위로 추정 — 가중치가 높고 내용이 도전적일수록 난도 높음), ②핵심목표의 갯수(coreGoalCount 가 많을수록 높게).',
+    '  같은 진행률이라도 난도가 높고 목표 수가 많은 사람을 더 높게 평가하세요. 진행률·실적은 그 다음 보조 요소입니다.',
+    '- summary(성과 요약)에는 핵심목표뿐 아니라 ②일반업무(주간 별표, generalWorkComments) 성과도 반드시 함께 언급하세요. 핵심목표만 다루지 마세요.',
     '- 추측·과장 금지. 근거가 부족하면 그렇게 표기하세요.',
+    '- mentoringSummary 에는 육성면담서(mentoring)를 균형있게 2~3문장으로 요약하세요: (1)직무정보(직위·주요담당업무) (2)경력개발 방향(careerPlan) (3)종합의견(selfOpinion). 한쪽에 치우치지 마세요.',
+    '  ★ 특이 케이스는 반드시 먼저 명시: 직무요청이 직무 확대/축소/변경 이거나 근무지 이동을 희망하면 그 사유(jobChangeReason·locationChangeReason)와 희망(desiredJobs·desiredLocations)을 구체적으로 짚고, 그 외 특이 이슈가 있으면 강조하세요. 단순 "만족"이면 특이사항 없음으로 간단히.',
     '- 이것은 사람(임원)의 최종 결정을 돕는 참고 자료입니다. 단정적 판정 금지.',
     '- 각 항목은 반드시 입력 구성원의 idx 번호를 그대로 사용하세요(이름·식별자 임의 생성 금지).',
+    '- ranking 은 1위(최상위)부터 오름차순(rank=1,2,3…)으로 빠짐없이 부여하세요.',
     '- 반드시 아래 JSON 스키마로만 응답하세요(설명 텍스트 없이).',
     '',
     'JSON 스키마:',
-    '{"summaries":[{"idx":0,"summary":"2~3문장","strengths":["..."],"issues":["..."],"suggestedGrade":"A|B|C|D|E"}],',
-    ' "ranking":[{"idx":0,"rank":1,"reason":"근거 한 문장"}],',
+    '{"summaries":[{"idx":0,"summary":"2~3문장","strengths":["..."],"issues":["..."],"suggestedGrade":"A|B|C|D|E","mentoringSummary":"육성면담서 요약 1~2문장"}],',
+    ' "ranking":[{"idx":0,"rank":1,"reason":"근거 한 문장(난도·목표수 중심)"}],',
     ' "disclaimer":"본 결과는 AI 참고 자료이며 최종 평가는 평가권자가 결정합니다."}',
     '',
     '구성원 데이터(각 항목의 idx 로 식별):',
@@ -111,6 +136,7 @@ export async function summarizeAndRankMembers(members: AiMemberInput[]): Promise
       strengths: s.strengths ?? [],
       issues: s.issues ?? [],
       suggestedGrade: s.suggestedGrade,
+      mentoringSummary: s.mentoringSummary,
     }));
   const ranking: AiRankItem[] = (parsed.ranking ?? [])
     .filter(r => members[r.idx])

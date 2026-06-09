@@ -54,13 +54,18 @@ function ScoredRow({ title, comment, weight, score }: { title: string; comment?:
   );
 }
 
-export default function SelfEvalBody({ form }: { form: SelfEvaluation | null }) {
+export default function SelfEvalBody({ form, abandonedGoals }: {
+  form: SelfEvaluation | null;
+  /** 포기 확정 핵심목표(평가화면에서 실시간 계산해 전달) — 없으면 저장 스냅샷(form.abandonedGoals) 사용 */
+  abandonedGoals?: { goalId: string; goalTitle: string }[];
+}) {
   if (!form) {
     return <p className="text-sm text-gray-400 px-1 py-4">제출된 자기평가가 없습니다.</p>;
   }
   const goals = form.goalEvals ?? [];
   const general = form.generalEvals ?? [];
   const innov = form.innovationEvals ?? [];
+  const abandoned = (abandonedGoals && abandonedGoals.length > 0) ? abandonedGoals : (form.abandonedGoals ?? []);
   const total = computeSelfEvalTotal(form) ?? 0;
 
   return (
@@ -71,6 +76,17 @@ export default function SelfEvalBody({ form }: { form: SelfEvaluation | null }) 
       <Section title="핵심목표 (완료 · 80%)" color="blue">
         {goals.length === 0 ? <p className="text-xs text-gray-400">없음</p>
           : goals.map(e => <ScoredRow key={e.goalId} title={e.goalTitle} comment={e.comment} weight={e.weight} score={e.score} />)}
+        {abandoned.length > 0 && (
+          <div className="pt-1 space-y-1">
+            <p className="text-[11px] font-medium text-gray-400">포기된 핵심목표</p>
+            {abandoned.map(a => (
+              <div key={a.goalId} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-1.5">
+                <span className="shrink-0 rounded-full bg-gray-200 text-gray-500 px-2 py-0.5 text-[11px] font-medium">포기</span>
+                <span className="text-sm text-gray-500 line-through truncate">{a.goalTitle}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
       <Section title="주요 일반업무 (★ · 20%)" color="amber">
         {general.length === 0 ? <p className="text-xs text-gray-400">없음</p>
