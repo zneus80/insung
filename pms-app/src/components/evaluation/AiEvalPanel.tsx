@@ -85,6 +85,10 @@ export default function AiEvalPanel({
             title: g.title, status: g.status, progress: g.progress,
             weight: g.weights?.[m.id] ?? g.weight,
             description: g.description?.slice(0, 200),
+            // 이 목표의 주간 진행사항(주간업무보고에서 goalId 연계된 항목) — 난도 추정 보조
+            weeklyNotes: (weeklyTasksByMember[m.id] ?? [])
+              .flatMap(wt => (wt.hasDoneItems ?? []).filter(i => i.goalId === g.id).map(i => (i.title || i.content || '').trim()))
+              .filter(Boolean).slice(0, 12),
           })),
           weeklyHighlights: (weeklyTasksByMember[m.id] ?? [])
             .flatMap(wt => (wt.hasDoneItems ?? []).map(i => (i.title || i.content)))

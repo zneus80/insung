@@ -15,12 +15,13 @@ import {
   getGoalsByOrganization,
   getAllUsers,
   getOrganizations,
+  updateGoal,
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star, Printer, Save, Lock,
+  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star, Printer, Save, Lock, ChevronUp, ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
@@ -450,10 +451,37 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
     getGoalsByOrganization(orgId, year)
       // 진행 목표 + 완료 목표(완료 주차까지만 표시하기 위해 포함) — 주차별 가시성은 renderSection 에서 필터
       // organizationId 일치만: 공동과제(relatedOrgIds)로 다른 팀 목표가 잡혀 부모/타 팀 폼에 중복되는 것 방지
-      .then(list => { if (alive) setActiveGoals(list.filter(g => g.organizationId === orgId && (WEEKLY_GOAL_STATUSES.has(g.status) || g.status === 'COMPLETED'))); })
+      .then(list => {
+        if (!alive) return;
+        const filtered = list.filter(g => g.organizationId === orgId && (WEEKLY_GOAL_STATUSES.has(g.status) || g.status === 'COMPLETED'));
+        // 핵심업무 골 블록 표시 순서 — weeklyOrder 오름차순(미설정은 기존 순서 유지)
+        filtered.sort((a, b) => (a.weeklyOrder ?? 1e9) - (b.weeklyOrder ?? 1e9));
+        setActiveGoals(filtered);
+      })
       .catch(() => {});
     return () => { alive = false; };
   }, [orgId, year]);
+
+  // 핵심업무 골 블록 순서 변경 (▲▼) — weeklyOrder 재인덱싱 후 변경된 골만 저장
+  const [reordering, setReordering] = useState(false);
+  async function moveGoalBlock(goalId: string, dir: 'up' | 'down') {
+    if (reordering) return;
+    const ordered = [...activeGoals];
+    const idx = ordered.findIndex(g => g.id === goalId);
+    const swap = dir === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || swap < 0 || swap >= ordered.length) return;
+    [ordered[idx], ordered[swap]] = [ordered[swap], ordered[idx]];
+    const prevOrder = new Map(activeGoals.map(g => [g.id, g.weeklyOrder]));
+    const reindexed = ordered.map((g, i) => ({ ...g, weeklyOrder: i }));
+    setActiveGoals(reindexed); // 낙관적 반영
+    setReordering(true);
+    try {
+      // weeklyOrder 가 실제로 바뀐 골만 저장
+      await Promise.all(reindexed
+        .filter(g => prevOrder.get(g.id) !== g.weeklyOrder)
+        .map(g => updateGoal(g.id, { weeklyOrder: g.weeklyOrder }).catch(() => {})));
+    } finally { setReordering(false); }
+  }
 
   // 팀 문서 실시간 구독 (동시 편집 반영)
   useEffect(() => {
@@ -671,6 +699,24 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
               return (
                 <div key={g.id} className="border-b last:border-b-0">
                   <div className="flex items-center gap-2 px-3 py-2 bg-gray-50/60">
+                    {/* 골 블록 순서 변경 — Has Done 섹션에서만 노출(순서는 양쪽 공통 반영) */}
+                    {isGreen && !isBodyLocked && (() => {
+                      const gi = activeGoals.findIndex(x => x.id === g.id);
+                      return (
+                        <div className="flex flex-col -my-1 shrink-0">
+                          <button type="button" disabled={reordering || gi <= 0}
+                            onClick={() => moveGoalBlock(g.id, 'up')}
+                            className="rounded p-0.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="위로">
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button type="button" disabled={reordering || gi < 0 || gi >= activeGoals.length - 1}
+                            onClick={() => moveGoalBlock(g.id, 'down')}
+                            className="rounded p-0.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="아래로">
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })()}
                     <span className="flex-1 text-sm font-semibold text-gray-800 truncate" title={g.title}>{g.title}</span>
                     {isGreen && (
                       <div className="flex items-center gap-1.5 shrink-0">

@@ -883,7 +883,8 @@ function UsersContent() {
                 링크는 <span className="font-semibold">7일간</span> 유효합니다.
               </p>
               <div className="flex items-center gap-2 rounded-lg border bg-gray-50 px-3 py-2">
-                <p className="flex-1 text-xs text-gray-600 break-all font-mono">{inviteLink}</p>
+                <a href={inviteLink ?? '#'} target="_blank" rel="noopener noreferrer"
+                  className="flex-1 text-xs text-blue-600 underline break-all font-mono hover:text-blue-700">{inviteLink}</a>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1 gap-1.5" onClick={copyLink}>

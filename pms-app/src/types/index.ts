@@ -149,6 +149,7 @@ export interface Goal {
   linkedOrgGoalTitle?: string;
   weight?: number;             // (legacy) owner 가중치 % — weights 미설정 시 fallback
   weights?: Record<string, number>; // 사람별 가중치 % (userId→%). 공동 목표에서 참여자마다 다른 기여도. 각자 본인 핵심목표 합 100%.
+  weeklyOrder?: number;        // 주간업무보고 핵심업무 영역에서의 골 블록 표시 순서(오름차순). 미설정 시 기존 순서.
 
   // 일반업무(GENERAL) 전용
   generalType?: GeneralType;
