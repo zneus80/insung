@@ -69,7 +69,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     console.error('[invite/finalize] 실패:', e);
-    const msg = e instanceof Error ? e.message : '초대 마무리 실패';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

@@ -176,9 +176,10 @@ service cloud.firestore {
 
     // 초대 토큰 (토큰을 아는 사람만 읽기 가능 - UUID가 보안 역할)
     match /invitations/{token} {
-      allow read: if true;
+      allow read: if true; // 비로그인 초대 링크에서 토큰으로 조회 필요(UUID 가 보안 역할)
       allow create: if isHrAdmin() || isCeo();
-      allow update: if true; // 초대 수락 시 usedAt 업데이트
+      // 수락 마무리(usedAt/userId 갱신)는 서버 Admin(/api/invite/finalize)에서 처리 → 클라이언트 update 차단
+      allow update: if isHrAdmin() || isCeo();
     }
 
     // 알림

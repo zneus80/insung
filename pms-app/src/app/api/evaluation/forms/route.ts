@@ -123,6 +123,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid mode' }, { status: 400 });
   } catch (e: any) {
     console.error('[evaluation/forms] failed:', e?.message, e?.stack);
-    return NextResponse.json({ error: e?.message ?? 'failed' }, { status: 500 });
+    console.error('[evaluation/forms] 실패:', e);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

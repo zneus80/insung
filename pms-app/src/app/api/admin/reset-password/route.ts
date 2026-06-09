@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
     await adminAuth.getAuth().updateUser(uid, { password: RESET_PASSWORD });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error('[reset-password] 실패:', e);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
