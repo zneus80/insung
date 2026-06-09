@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { getUser, getMileage, getOrganizations, getAwardsByUser, listInnovationActivities } from '@/lib/firestore';
+import { getUser, getMileage, getOrganizations, getAwardsByUser, listInnovationActivitiesByUser } from '@/lib/firestore';
 import { getTier } from '@/lib/mileage-tier';
-import { getPmIds, getPerformerIds, isInvolved } from '@/lib/innovation';
+import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import type { User, Mileage, Organization, Award, InnovationActivity } from '@/types';
@@ -61,14 +61,13 @@ export default function MemberInfoModal({ userId, userName, targetRole, renderTr
     if (data) return; // 이미 로드된 경우 재사용
     setLoading(true);
     try {
-      const [user, mileage, orgs, awards, allInnovations] = await Promise.all([
+      const [user, mileage, orgs, awards, innovations] = await Promise.all([
         getUser(userId),
         getMileage(userId),
         getOrganizations(),
         getAwardsByUser(userId),
-        listInnovationActivities(activeYear),
+        listInnovationActivitiesByUser(userId), // 전체 연도 누적 — 과거 혁신활동까지 반영
       ]);
-      const innovations = allInnovations.filter(a => isInvolved(a, userId));
       setData({ user, mileage, orgs, awards, innovations });
     } finally {
       setLoading(false);
@@ -237,7 +236,7 @@ function InnovationSection({ userId, year, items }: { userId: string; year: numb
 
   return (
     <div>
-      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">혁신활동 실적 ({year}년)</h3>
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">혁신활동 실적 (누적)</h3>
       <div className="rounded-xl border bg-gray-50 overflow-hidden">
         <div className="grid grid-cols-2 divide-x divide-y">
           {cells.map(c => {
