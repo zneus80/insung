@@ -150,6 +150,13 @@ function ProgressContent() {
       .filter(p => p.name);
   }
 
+  // 보기 모드 — 기본 '팀 목표별'(현재), '개인별'(병렬 카드)
+  const [viewMode, setViewMode] = useState<'team' | 'person'>('team');
+  // 개인별: 활성 팀의 각 구성원 목표(owner 또는 공동수행자)
+  function goalsOfUser(uid: string): Goal[] {
+    return scopedGoals.filter(g => g.userId === uid || (g.collaboratorIds ?? []).includes(uid));
+  }
+
   return (
     <div className="flex flex-col h-full">
       <Header title="핵심목표 진행현황" />
@@ -186,6 +193,17 @@ function ProgressContent() {
                     </button>
                   );
                 })}
+                {/* 보기 모드 토글 — 팀 목표별 / 개인별 */}
+                <div className="ml-auto flex items-center gap-1 self-center pb-1">
+                  <button onClick={() => setViewMode('team')}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${viewMode === 'team' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                    팀 목표별
+                  </button>
+                  <button onClick={() => setViewMode('person')}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${viewMode === 'person' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                    개인별
+                  </button>
+                </div>
               </div>
 
               {activeTeam && (
@@ -213,21 +231,34 @@ function ProgressContent() {
                     <Progress value={teamAvg} className="h-2 mt-3" />
                   </div>
 
-                  {/* 팀 목표별 나열 — 완료/추진중(+포기 토글), 각 목표에 진행률·수행자 표시 */}
-                  {teamGoals.length > 0 ? (
-                    <div className="p-4 space-y-4">
-                      {teamCounts.completed.length > 0 && (
-                        <GoalGroup label="완료" color="green" goals={teamCounts.completed} partsOf={participantsDetailOf} />
-                      )}
-                      {teamCounts.inProgress.length > 0 && (
-                        <GoalGroup label="추진중" color="blue" goals={teamCounts.inProgress} partsOf={participantsDetailOf} />
-                      )}
-                      {teamCounts.abandoned.length > 0 && (
-                        <AbandonedGroup goals={teamCounts.abandoned} partsOf={participantsDetailOf} />
-                      )}
-                    </div>
+                  {viewMode === 'person' ? (
+                    /* 개인별 — 팀장→팀원 병렬 카드 */
+                    teamMembers.length > 0 ? (
+                      <div className="p-4 grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                        {[...teamLeads, ...teamMembersOnly].map(user => (
+                          <UserCard key={user.id} user={user} goals={goalsOfUser(user.id)} isLead={teamLeads.some(l => l.id === user.id)} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="px-5 py-6 text-xs text-gray-400 text-center">소속 인원이 없습니다.</p>
+                    )
                   ) : (
-                    <p className="px-5 py-6 text-xs text-gray-400 text-center">등록된 팀 목표가 없습니다.</p>
+                    /* 팀 목표별 나열 — 완료/추진중(+포기 토글), 각 목표에 진행률·수행자 표시 */
+                    teamGoals.length > 0 ? (
+                      <div className="p-4 space-y-4">
+                        {teamCounts.completed.length > 0 && (
+                          <GoalGroup label="완료" color="green" goals={teamCounts.completed} partsOf={participantsDetailOf} />
+                        )}
+                        {teamCounts.inProgress.length > 0 && (
+                          <GoalGroup label="추진중" color="blue" goals={teamCounts.inProgress} partsOf={participantsDetailOf} />
+                        )}
+                        {teamCounts.abandoned.length > 0 && (
+                          <AbandonedGroup goals={teamCounts.abandoned} partsOf={participantsDetailOf} />
+                        )}
+                      </div>
+                    ) : (
+                      <p className="px-5 py-6 text-xs text-gray-400 text-center">등록된 팀 목표가 없습니다.</p>
+                    )
                   )}
                 </div>
               )}
@@ -235,6 +266,49 @@ function ProgressContent() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** 개인별 보기 — 사용자 1명 카드. 완료/추진중 펼침, 포기는 접힘 토글. 팀장 강조. */
+function UserCard({ user, goals, isLead }: { user: User; goals: Goal[]; isLead?: boolean }) {
+  const { completed, inProgress, abandoned } = bucketize(goals);
+  const userAvg = avgProgressExcludingAbandoned(goals);
+  const [showAbandoned, setShowAbandoned] = useState(false);
+  return (
+    <div className={`rounded-xl border bg-white p-3 flex flex-col ${isLead ? 'border-amber-300 ring-1 ring-amber-100' : ''}`}>
+      <div className="flex items-center gap-1.5 mb-1">
+        {isLead && <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+        <MemberInfoModal userId={user.id} userName={user.name} targetRole={user.role} />
+        {user.position && <span className="text-xs text-gray-400">{user.position}</span>}
+      </div>
+      <div className="flex items-center gap-2 mb-2">
+        <Progress value={userAvg} className="h-1.5 flex-1" />
+        <span className="text-xs font-semibold text-gray-600 w-8 text-right">{userAvg}%</span>
+      </div>
+      <p className="text-[11px] text-gray-500 mb-2">
+        전체 {goals.length}건 · 완료 <span className="font-medium text-green-600">{completed.length}</span>
+        {' '}/ 추진중 <span className="font-medium text-blue-600">{inProgress.length}</span>
+        {' '}/ 포기 <span className="font-medium text-gray-500">{abandoned.length}</span>
+      </p>
+      {goals.length === 0 ? (
+        <p className="text-xs text-gray-400">등록된 목표가 없습니다.</p>
+      ) : (
+        <div className="space-y-2 flex-1">
+          {completed.length > 0 && <GoalGroup label="완료" color="green" goals={completed} />}
+          {inProgress.length > 0 && <GoalGroup label="추진중" color="blue" goals={inProgress} />}
+          {abandoned.length > 0 && (
+            <div>
+              <button type="button" onClick={() => setShowAbandoned(v => !v)}
+                className="text-[11px] font-semibold inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-500 hover:bg-gray-100">
+                포기 {abandoned.length}
+                {showAbandoned ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              </button>
+              {showAbandoned && <div className="mt-1"><GoalGroup label="" color="gray" goals={abandoned} muted hideLabel /></div>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
