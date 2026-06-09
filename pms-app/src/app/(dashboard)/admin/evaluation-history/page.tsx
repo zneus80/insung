@@ -27,6 +27,13 @@ const GRADE_COLORS: Record<EvaluationGrade, string> = {
 
 const YEARS = Array.from({ length: 3 }, (_, i) => new Date().getFullYear() - i);
 
+/** 임원 최종 확정 등급 — status 가 확정(EXEC_CONFIRMED/PUBLISHED)일 때만 인정.
+ *  쿼터 재확정 등으로 무효화되면 status 가 이전 단계로 복원되므로, 남아있는 execGrade 는 '확정'으로 보지 않는다. */
+function confirmedGrade(e?: IndividualEvaluation | null): EvaluationGrade | undefined {
+  if (!e) return undefined;
+  return (e.status === 'EXEC_CONFIRMED' || e.status === 'PUBLISHED') ? e.execGrade : undefined;
+}
+
 export default function EvaluationHistoryPage() {
   return (
     <AuthGuard allowedRoles={['CEO']} requireHrMaster>
@@ -185,8 +192,9 @@ function EvaluationHistoryContent() {
     .sort((a, b) => {
       if (sortByGrade !== 'NONE') {
         const rank: Record<string, number> = { A: 1, B: 2, C: 3, D: 4, E: 5 };
-        const av = a.execGrade ? rank[a.execGrade] : 99;
-        const bv = b.execGrade ? rank[b.execGrade] : 99;
+        const ag = confirmedGrade(a); const bg = confirmedGrade(b);
+        const av = ag ? rank[ag] : 99;
+        const bv = bg ? rank[bg] : 99;
         if (av !== bv) return sortByGrade === 'ASC' ? av - bv : bv - av;
       }
       // 부문/공장 우선순위 → 팀 우선순위 → 직책 → 이름 가나다순
@@ -285,8 +293,8 @@ function EvaluationHistoryContent() {
                     '이름': user?.name ?? '-',
                     '팀': getTeamName(user?.organizationId),
                     '직책': user?.position ?? '-',
-                    [`${selectedYear}년 최종등급`]: e.execGrade ?? '-',
-                    [`${selectedYear - 1}년 최종등급`]: prev?.execGrade ?? '-',
+                    [`${selectedYear}년 최종등급`]: confirmedGrade(e) ?? '-',
+                    [`${selectedYear - 1}년 최종등급`]: confirmedGrade(prev) ?? '-',
                     '임원 최종등급의견': e.execComment?.trim() ?? '',
                   };
                 });
@@ -399,18 +407,14 @@ function EvaluationHistoryContent() {
                       <td className="px-4 py-3 text-gray-500">{teamName}</td>
                       <td className="px-4 py-3 text-gray-500">{user?.position ?? '-'}</td>
                       <td className="px-4 py-3 text-center">
-                        {e.execGrade ? (
-                          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLORS[e.execGrade]}`}>
-                            {e.execGrade}
-                          </span>
-                        ) : <span className="text-gray-300">-</span>}
+                        {(() => { const g = confirmedGrade(e); return g ? (
+                          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLORS[g]}`}>{g}</span>
+                        ) : <span className="text-gray-300">-</span>; })()}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        {prev?.execGrade ? (
-                          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLORS[prev.execGrade]}`}>
-                            {prev.execGrade}
-                          </span>
-                        ) : <span className="text-gray-300">-</span>}
+                        {(() => { const g = confirmedGrade(prev); return g ? (
+                          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLORS[g]}`}>{g}</span>
+                        ) : <span className="text-gray-300">-</span>; })()}
                       </td>
                       <td className="px-4 py-3 text-gray-600 text-xs whitespace-pre-wrap max-w-md">
                         {e.execComment?.trim() ? e.execComment : <span className="text-gray-300">-</span>}
@@ -470,6 +474,9 @@ function EvaluationHistoryContent() {
                 const user = users[e.userId];
                 const org = orgs[user?.organizationId ?? ''];
                 const rowHasHQ = hasHQInChain(e.userId);
+                // 임원 확정은 status 기준으로만 인정 — 쿼터 재확정 등으로 무효화되면 status 가 이전 단계로 복원됨.
+                // (execGrade 필드가 남아 있어도 status 가 확정이 아니면 '확정'으로 표시하지 않음)
+                const execConfirmed = e.status === 'EXEC_CONFIRMED' || e.status === 'PUBLISHED';
                 return (
                   <tr key={e.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">
@@ -496,14 +503,19 @@ function EvaluationHistoryContent() {
                       </td>
                     )}
                     <td className="px-4 py-3 text-center">
-                      {e.execGrade ? (
+                      {execConfirmed && e.execGrade ? (
                         <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${GRADE_COLORS[e.execGrade]}`}>
+                          {e.execGrade}
+                        </span>
+                      ) : e.execGrade ? (
+                        // 무효화됨 — 이전 확정 등급이 남아있으나 status 가 확정 아님(재확정 필요)
+                        <span className="inline-block rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-400 line-through" title="임원 확정 무효화 — 재확정 필요">
                           {e.execGrade}
                         </span>
                       ) : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">
-                      {e.execConfirmedAt ? format(e.execConfirmedAt, 'yy.MM.dd', { locale: ko }) : '-'}
+                      {execConfirmed && e.execConfirmedAt ? format(e.execConfirmedAt, 'yy.MM.dd', { locale: ko }) : '-'}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
