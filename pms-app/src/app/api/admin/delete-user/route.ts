@@ -327,6 +327,7 @@ export async function POST(req: NextRequest) {
       orphanCounts,             // 고아 참조 정리 건수 (collaborator/innovation/orgLeader)
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error('[delete-user] 실패:', e);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

@@ -154,6 +154,7 @@ export async function POST(req: NextRequest) {
       written: writtenStats,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'failed' }, { status: 500 });
+    console.error('[backup/restore] 실패:', e);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

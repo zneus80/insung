@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, uid: authUser.uid, password: resetPassword ? RESET_PASSWORD : undefined });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error('[link-auth] 실패:', e);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

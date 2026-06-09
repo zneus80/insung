@@ -226,7 +226,8 @@ export async function POST(req: NextRequest) {
       const db = getFirestore(app);
       await notifyBackupFailure(db, 'system', '시스템', true, `백업 예외: ${e?.message ?? 'unknown'}`);
     } catch { /* 알림 실패 시에도 무시 — 원래 에러 반환이 우선 */ }
-    return NextResponse.json({ error: e?.message ?? 'failed', code: e?.code }, { status: 500 });
+    console.error('[backup/snapshot] 실패:', e);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
 
