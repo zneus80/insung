@@ -267,9 +267,12 @@ function ExecutiveEvalView() {
   }, []);
 
   function getUsed(grade: EvaluationGrade): number {
-    return Object.values(indivEvals).filter(ie =>
-      members.some(m => m.id === ie.userId) && ie.execGrade === grade
-    ).length;
+    // 잔여는 '등급 확정'을 눌러 저장된 확정 등급만 집계 — 단순 선택(confirmInputs)은 반영하지 않음.
+    // 확정 상태(EXEC_CONFIRMED/PUBLISHED)만 인정 — 쿼터 재확정 등으로 무효화된 건 제외.
+    return members.filter(m => {
+      const ie = indivEvals[m.id];
+      return ie?.execGrade === grade && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED');
+    }).length;
   }
 
   function getQuotaCount(grade: EvaluationGrade): number {
