@@ -422,7 +422,7 @@ export default function NotificationsPage() {
 
         {/* 카테고리 필터 */}
         <div className="flex flex-wrap gap-2">
-          {(['ALL', 'GOAL', 'WEEKLY_TASK', 'ONEONONE', 'EVALUATION', 'MENTORING', 'SECURITY'] as const).map(c => (
+          {(['ALL', 'GOAL', 'WEEKLY_TASK', 'EVALUATION', 'MENTORING', 'SECURITY'] as const).map(c => (
             <button
               key={c}
               onClick={() => setFilter(c)}

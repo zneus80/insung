@@ -2096,17 +2096,19 @@ export async function deleteAnnouncement(id: string) {
 
 // ─── 포상 이력 ────────────────────────────────
 export async function getAwardsByUser(userId: string): Promise<Award[]> {
+  // orderBy 를 쿼리에서 빼고 메모리 정렬 — awardDate 필드가 없는(과거) 포상이 Firestore orderBy 에서 누락되는 문제 방지
   const snap = await getDocs(query(
     collection(db, COLLECTIONS.AWARDS),
     where('userId', '==', userId),
-    orderBy('awardDate', 'desc'),
   ));
-  return snap.docs.map(d => ({
-    ...d.data(),
-    id: d.id,
-    createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
-    updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-  } as Award));
+  return snap.docs
+    .map(d => ({
+      ...d.data(),
+      id: d.id,
+      createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
+      updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
+    } as Award))
+    .sort((a, b) => String(b.awardDate ?? '').localeCompare(String(a.awardDate ?? ''))); // 최신순(날짜 없는 건 뒤로)
 }
 
 /** 전체 포상 이력 — 전사 인원현황 등 대량 조회용. awardDate 내림차순 정렬. */
