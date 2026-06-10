@@ -443,6 +443,14 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
   const saturday = new Date(start); saturday.setDate(start.getDate() + 5); saturday.setHours(0, 0, 0, 0);
   // 검토자(read-only)는 항상 본문 잠금. 편집 가능자도 해당 주 토요일 이후 잠금.
   const isBodyLocked = !editable || new Date() >= saturday;
+  // 핵심업무(골 연동) 항목은 해당 목표의 수행자(owner)+공동수행자만 추가/수정/삭제 가능.
+  // 일반업무(goalId 없음)는 팀 공용이므로 누구나(편집권자) 가능.
+  function canWriteGoalItem(goalId?: string): boolean {
+    if (!goalId) return true;
+    const g = activeGoals.find(x => x.id === goalId);
+    if (!g) return true; // 목표 정보 없으면(예외) 차단하지 않음
+    return g.userId === currentUser.id || (g.collaboratorIds ?? []).includes(currentUser.id);
+  }
 
   // 팀 목표 로드 (핵심업무 그룹)
   useEffect(() => {
@@ -644,7 +652,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
           )}
         </div>
         <AuthorBadge name={item.authorName} />
-        {!isBodyLocked && (
+        {!isBodyLocked && canWriteGoalItem(item.goalId) && (
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
             <button onClick={() => openEdit(section, item)} className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
             <button onClick={() => deleteItem(section, item.id)} className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -661,6 +669,10 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
       return <div className="p-3"><SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew coreMode={isCore} /></div>;
     }
     if (isBodyLocked) return null;
+    // 핵심업무는 해당 목표의 수행자/공동수행자만 추가 가능
+    if (isCore && !canWriteGoalItem(goalId)) {
+      return <div className="px-3 py-1.5 text-[11px] text-gray-300">수행자만 진행사항을 추가할 수 있습니다.</div>;
+    }
     return (
       <div className="px-3 py-2">
         <button onClick={() => openNew(section, goalId)} className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors">
