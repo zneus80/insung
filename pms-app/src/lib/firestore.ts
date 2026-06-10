@@ -2691,6 +2691,13 @@ function explodeTeamDocsToMembers(
 }
 
 /** 멤버들의 연간 주간실적 — 팀 문서(authorId 귀속) + 레거시 개인 문서 병합. 평가/AI 조회용. */
+/** 해당 연도의 모든 주간업무 문서(팀+레거시)를 단일 쿼리로 조회 — 전사 집계(AI 분석 등)용.
+ *  멤버별 함수는 조직×53주 getDoc 을 발사해 전사 범위에선 과부하(resource-exhausted)가 나므로 이 함수를 사용. */
+export async function getAllWeeklyTasksByYear(year: number): Promise<WeeklyTask[]> {
+  const snap = await getDocs(query(collection(db, COLLECTIONS.WEEKLY_TASKS), where('year', '==', year)));
+  return snap.docs.map(d => toWeeklyTask(d));
+}
+
 export async function getWeeklyTasksByMembersAndYear(
   members: WeeklyMember[], year: number
 ): Promise<WeeklyTask[]> {

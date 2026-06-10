@@ -127,12 +127,12 @@ function UsersContent() {
   // ── 양식 다운로드 ────────────────────────────
   function downloadTemplate() {
     const ws = XLSX.utils.aoa_to_sheet([
-      ['이름*', '이메일*', '역할*', '직책', '소속조직명'],
-      ['-- 아래에 데이터를 입력하세요 --', '', '', '', ''],
-      ['홍길동', 'hong@insung.co.kr', '팀원', '선임연구원', orgs[0]?.name ?? 'INSUNG'],
-      ['김팀장', 'kim@insung.co.kr', '팀장', '팀장', orgs[0]?.name ?? 'INSUNG'],
+      ['이름*', '이메일*', '역할*', '직책', '소속조직명', '입사일(YYYY-MM-DD)'],
+      ['-- 아래에 데이터를 입력하세요 --', '', '', '', '', ''],
+      ['홍길동', 'hong@insung.co.kr', '팀원', '선임연구원', orgs[0]?.name ?? 'INSUNG', '2020-03-02'],
+      ['김팀장', 'kim@insung.co.kr', '팀장', '팀장', orgs[0]?.name ?? 'INSUNG', '2015-01-05'],
     ]);
-    ws['!cols'] = [{ wch: 12 }, { wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 20 }];
+    ws['!cols'] = [{ wch: 12 }, { wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 18 }];
     const ws2 = XLSX.utils.aoa_to_sheet([
       ['역할값 (영문/한글 모두 허용)'],
       ['팀원 (MEMBER)'], ['팀장 (TEAM_LEAD)'], ['임원 (EXECUTIVE)'], ['최고관리자 (CEO)'], ['HR관리자 (HR_ADMIN)'],
@@ -190,7 +190,21 @@ function UsersContent() {
     setUploadResult(null);
     try {
       const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array' });
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+      // 입사일 셀 정규화 — Date/엑셀serial/문자열 모두 'YYYY-MM-DD' 로
+      const toDateStr = (v: unknown): string => {
+        if (v == null || v === '') return '';
+        if (v instanceof Date) {
+          const z = (n: number) => String(n).padStart(2, '0');
+          return `${v.getFullYear()}-${z(v.getMonth() + 1)}-${z(v.getDate())}`;
+        }
+        if (typeof v === 'number') {
+          const d = new Date(Date.UTC(1899, 11, 30) + v * 86400000);
+          const z = (n: number) => String(n).padStart(2, '0');
+          return `${d.getUTCFullYear()}-${z(d.getUTCMonth() + 1)}-${z(d.getUTCDate())}`;
+        }
+        return String(v).trim();
+      };
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' }) as string[][];
       const dataRows = rows.slice(2).filter(r => r[0]?.toString().trim() && !r[0].startsWith('--'));
@@ -207,6 +221,7 @@ function UsersContent() {
         const roleRaw = row[2]?.toString().trim();
         const position = row[3]?.toString().trim();
         const orgName = row[4]?.toString().trim();
+        const hireDate = toDateStr(row[5]);
 
         if (!name) { failed.push({ row: rowNum, reason: '이름이 비어있습니다.' }); continue; }
         if (!email || !email.includes('@')) { failed.push({ row: rowNum, reason: '이메일이 올바르지 않습니다.' }); continue; }
@@ -219,13 +234,14 @@ function UsersContent() {
         try {
           if (existingEmails.has(email)) {
             const existing = users.find(u => u.email.toLowerCase() === email)!;
-            await updateUser(existing.id, { name, role, organizationId, position: position || '' });
+            await updateUser(existing.id, { name, role, organizationId, position: position || '', ...(hireDate ? { hireDate } : {}) });
           } else {
             // 사용자 정보만 저장 (초대는 별도로 진행)
             await createUser(crypto.randomUUID(), {
               email, name, role,
               organizationId: organizationId || '',
               position: position || '',
+              hireDate: hireDate || '',
               isActive: false,
             });
             existingEmails.add(email);
