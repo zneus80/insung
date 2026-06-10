@@ -24,7 +24,14 @@ function model(): GenerativeModel {
     const ai = getAI(app, { backend: new VertexAIBackend() }); // 리전 미지정 = 기본(us-central1). 데이터 레지던시 필요 시 인자로 지정.
     _model = getGenerativeModel(ai, {
       model: MODEL,
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+      // thinkingBudget 제한 — 미지정 시 auto 사고가 길어져 응답이 수십 초까지 늘어남(챗봇과 동일 이슈).
+      // 1024 로 캡해 품질 유지하며 지연을 크게 줄임. maxOutputTokens 도 넉넉히 둬 다인원 JSON 잘림 방지.
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.2,
+        maxOutputTokens: 32768,
+        thinkingConfig: { thinkingBudget: 1024 },
+      },
     });
   }
   return _model;
