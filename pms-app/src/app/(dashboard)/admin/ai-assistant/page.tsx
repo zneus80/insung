@@ -11,7 +11,7 @@ import { Sparkles, Send, Loader2, Database, Square } from 'lucide-react';
 import {
   getAllUsers, getOrganizations, getAllGoalsByYear, getAllIndividualEvaluations,
   getSelfEvaluationsByUsers, getMentoringFormsByUsers, getAllWeeklyTasksByYear,
-  listInnovationActivities, getAllAwards, createAuditLog,
+  listInnovationActivities, getAllAwards, getAllMileages, createAuditLog,
 } from '@/lib/firestore';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
@@ -101,6 +101,10 @@ function AssistantContent() {
       const allAwards: Award[] = await getAllAwards().catch(() => []);
       const awardsByUser: Record<string, Award[]> = {};
       for (const a of allAwards) { (awardsByUser[a.userId] ??= []).push(a); }
+      // 마일리지 — 누적값(연도 무관) 단일 조회 후 사용자별 매핑
+      const allMileages = await getAllMileages().catch(() => []);
+      const mileageByUser: Record<string, number> = {};
+      for (const m of allMileages) { mileageByUser[m.userId] = m.points; }
 
       const JR: Record<string, string> = { EXPAND: '직무확대', REDUCE: '직무축소', CHANGE: '직무변경', RELOCATE: '근무지이동', SATISFIED: '만족' };
       const dossierArr = people.map(u => {
@@ -126,6 +130,9 @@ function AssistantContent() {
             coreGoals: evalGoals.map(g => ({ t: g.title, s: g.status === 'COMPLETED' ? '완료' : (g.status === 'ABANDONED' || g.status === 'PENDING_ABANDON') ? '포기' : '추진중', p: g.progress, w: g.weights?.[u.id] ?? g.weight })).slice(0, 15),
             goalStat: { total: completed + (evalGoals.length - completed - abandoned), 완료: completed, 포기: abandoned },
             selfEvalScore: computeSelfEvalTotal(se ?? null) ?? undefined,
+            // 자기평가 상세 — 핵심목표·일반업무 항목별 점수·의견(요약)
+            selfEvalCore: (se?.goalEvals ?? []).map(g => ({ t: g.goalTitle, 점수: g.score, 의견: (g.comment || '').slice(0, 100) })).slice(0, 15),
+            generalWork: (se?.generalEvals ?? []).map(g => ({ t: g.title, 점수: g.score, 의견: (g.comment || '').slice(0, 100) })).slice(0, 10),
             weeklyHighlights: weeklyHi,
             mentoring: mf ? { 직무: mf.mainDuties?.slice(0, 120), 경력개발: mf.careerPlan?.slice(0, 120), 직무요청: mf.jobRequest ? (JR[mf.jobRequest] ?? mf.jobRequest) : undefined, 종합의견: mf.selfOpinion?.slice(0, 150) } : undefined,
             innovation: innovNames,
@@ -133,7 +140,7 @@ function AssistantContent() {
         }
         if (Object.keys(yrs).length === 0) return null;
         const awards = (awardsByUser[u.id] ?? []).map(a => `${a.title}(${a.awardDate ?? ''})`).slice(0, 6);
-        return { name: u.name, position: u.position ?? '', org: orgName(u.organizationId), role: u.role, awards, years: yrs };
+        return { name: u.name, position: u.position ?? '', org: orgName(u.organizationId), role: u.role, mileage: mileageByUser[u.id] ?? 0, awards, years: yrs };
       }).filter(Boolean);
 
       const json = JSON.stringify(dossierArr);
