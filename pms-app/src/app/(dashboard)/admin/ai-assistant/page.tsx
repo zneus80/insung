@@ -209,19 +209,30 @@ function AssistantContent() {
             </div>
           )}
 
-          {turns.map((t, i) => (
-            <div key={i} className={t.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-              <div className={t.role === 'user'
-                ? 'max-w-[85%] rounded-2xl rounded-tr-sm bg-violet-600 text-white px-4 py-2.5 text-sm whitespace-pre-wrap'
-                : 'max-w-[90%] rounded-2xl rounded-tl-sm bg-white border px-4 py-3 text-sm text-gray-800 leading-relaxed'}>
-                {t.role === 'user'
-                  ? t.content
-                  : t.content
-                    ? <MarkdownLite content={t.content} />
-                    : <Loader2 className="h-4 w-4 animate-spin text-violet-500" />}
+          {turns.map((t, i) => {
+            const streaming = asking && t.role === 'assistant' && i === turns.length - 1;
+            return (
+              <div key={i} className={t.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                <div className={t.role === 'user'
+                  ? 'max-w-[85%] rounded-2xl rounded-tr-sm bg-violet-600 text-white px-4 py-2.5 text-sm whitespace-pre-wrap'
+                  : 'max-w-[90%] rounded-2xl rounded-tl-sm bg-white border px-4 py-3 text-sm text-gray-800 leading-relaxed'}>
+                  {t.role === 'user'
+                    ? t.content
+                    : (
+                      <>
+                        {t.content && <MarkdownLite content={t.content} />}
+                        {streaming && (
+                          <div className={`flex items-center gap-1.5 text-xs text-violet-500 ${t.content ? 'mt-1.5' : ''}`}>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span className="animate-pulse">답변 작성 중…</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
