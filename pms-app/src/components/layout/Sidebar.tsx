@@ -27,6 +27,8 @@ import {
   ShieldAlert,
   FileText,
   Sparkles,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -380,6 +382,24 @@ export default function Sidebar() {
   const [announcementsNew, setAnnouncementsNew] = useState(false);
   const [weeklyNew, setWeeklyNew] = useState(false);
 
+  // 메뉴 그룹 접기/펼치기 — 길어지는 관리자 그룹은 기본 접힘. localStorage 저장.
+  const DEFAULT_CLOSED_GROUPS = ['기본정보입력', '인사평가 설정', '시스템 설정'];
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(DEFAULT_CLOSED_GROUPS));
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('sidebarCollapsedGroups');
+      if (raw) setCollapsedGroups(new Set(JSON.parse(raw) as string[]));
+    } catch { /* 무시 */ }
+  }, []);
+  function toggleGroup(g: string) {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      next.has(g) ? next.delete(g) : next.add(g);
+      try { localStorage.setItem('sidebarCollapsedGroups', JSON.stringify([...next])); } catch { /* 무시 */ }
+      return next;
+    });
+  }
+
   // 알림 미읽음 카운트 — 페이지 변경마다 갱신 (가벼운 query)
   useEffect(() => {
     if (!userProfile) return;
@@ -518,13 +538,20 @@ export default function Sidebar() {
             const isActive = pathOk && modeOk;
             const showGroupHeader = item.group && item.group !== lastGroup;
             if (item.group) lastGroup = item.group;
+            const groupCollapsed = !!item.group && collapsedGroups.has(item.group);
             return (
               <div key={`${item.href}__${item.group ?? ''}__${item.label}`}>
                 {showGroupHeader && (
-                  <p className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                    {item.group}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(item.group!)}
+                    className="mt-4 mb-1 w-full flex items-center gap-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    {groupCollapsed ? <ChevronRight className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
+                    <span className="flex-1 text-left">{item.group}</span>
+                  </button>
                 )}
+                {!groupCollapsed && (
                 <Link
                   href={item.href}
                   className={cn(
@@ -555,6 +582,7 @@ export default function Sidebar() {
                     <span className="h-2 w-2 rounded-full bg-red-500" title="새 작성 내용" />
                   )}
                 </Link>
+                )}
               </div>
             );
           });
