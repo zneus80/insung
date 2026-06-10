@@ -13,16 +13,33 @@ import { SHARED_EVAL_CRITERIA } from './ai-eval';
  */
 const MODEL = 'gemini-2.5-flash';
 
-let _model: GenerativeModel | null = null;
-function model(): GenerativeModel {
-  if (!_model) {
+// (출력한도, 사고예산) 조합별 모델 캐시 — 둘 다 작을수록 빨리 끝난다.
+const _models = new Map<string, GenerativeModel>();
+function model(maxOutputTokens: number, thinkingBudget: number): GenerativeModel {
+  const key = `${maxOutputTokens}:${thinkingBudget}`;
+  let m = _models.get(key);
+  if (!m) {
     const ai = getAI(app, { backend: new VertexAIBackend() });
-    _model = getGenerativeModel(ai, {
+    m = getGenerativeModel(ai, {
       model: MODEL,
-      generationConfig: { temperature: 0.3, maxOutputTokens: 32768 },
+      // thinkingBudget: 비교·서열 같은 분석은 사고를 어느 정도 켜 품질 유지, 단순 질문은 0 으로 빠르게.
+      generationConfig: { temperature: 0.3, maxOutputTokens, thinkingConfig: { thinkingBudget } },
     });
+    _models.set(key, m);
   }
-  return _model;
+  return m;
+}
+
+// 분석·서열·JD·비교 등 추론이 필요한 질문인지 — 출력 한도와 사고 예산을 함께 키운다.
+function isAnalytical(question: string): boolean {
+  return /서열|순위|랭킹|전체|전\s*직원|모든|모두|비교|JD|직무\s*기술|분석|평가|원인|추천|우수|미흡/.test(question);
+}
+function pickMaxTokens(question: string): number {
+  return isAnalytical(question) ? 32768 : 8192;
+}
+// 분석형은 사고 예산을 부여(품질↑), 단순형은 0(속도↑). 기본 자동값보다는 작게 잡아 지연을 억제.
+function pickThinkingBudget(question: string): number {
+  return isAnalytical(question) ? 2048 : 0;
 }
 
 export interface AssistantTurn { role: 'user' | 'assistant'; content: string; }
@@ -40,11 +57,15 @@ const SYSTEM = [
   '- 이것은 사람(경영진/HR)의 의사결정을 돕는 참고 자료입니다. 단정적 인사조치를 지시하지 말고, 한계가 있으면 밝히세요.',
 ].join('\n');
 
+const TRUNC_NOTICE = '\n\n…(응답이 길어 일부가 잘렸습니다. 범위를 좁혀(예: 특정 팀·상위 N명) 다시 질문해 주세요.)';
+
 export async function askAssistant(opts: {
   question: string;
   history: AssistantTurn[];
   dossier: string;     // JSON 문자열 (구성원 데이터)
   yearLabel: string;   // 예: "2025년" 또는 "전체 누적"
+  /** 스트리밍 중 누적 텍스트를 받는 콜백(글자가 흐르듯 표시). 미지정 시 완성본만 반환. */
+  onChunk?: (accumulated: string) => void;
 }): Promise<string> {
   const convo = opts.history
     .map(t => `${t.role === 'user' ? '사용자' : 'AI'}: ${t.content}`)
@@ -59,11 +80,21 @@ export async function askAssistant(opts: {
     convo ? `이전 대화:\n${convo}\n` : '',
     `사용자 질문: ${opts.question}`,
   ].join('\n');
-  const res = await model().generateContent(prompt);
-  const text = res.response.text();
-  const finish = res.response.candidates?.[0]?.finishReason;
-  if (finish === 'MAX_TOKENS') {
-    return text + '\n\n…(응답이 길어 일부가 잘렸습니다. 범위를 좁혀(예: 특정 팀·상위 N명) 다시 질문해 주세요.)';
+
+  const m = model(pickMaxTokens(opts.question), pickThinkingBudget(opts.question));
+  const { stream, response } = await m.generateContentStream(prompt);
+  let acc = '';
+  for await (const chunk of stream) {
+    let t = '';
+    try { t = chunk.text(); } catch { /* 일부 청크는 텍스트 없음 */ }
+    if (t) { acc += t; opts.onChunk?.(acc); }
   }
-  return text;
+  const final = await response;
+  const finish = final.candidates?.[0]?.finishReason;
+  if (finish === 'MAX_TOKENS') {
+    const out = acc + TRUNC_NOTICE;
+    opts.onChunk?.(out);
+    return out;
+  }
+  return acc;
 }

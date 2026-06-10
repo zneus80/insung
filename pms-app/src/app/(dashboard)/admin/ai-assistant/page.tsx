@@ -43,6 +43,7 @@ function AssistantContent() {
   const [dossier, setDossier] = useState<string | null>(null);
   const [dossierYear, setDossierYear] = useState<number | 'all' | null>(null);
   const [memberCount, setMemberCount] = useState(0);
+  const [dossierChars, setDossierChars] = useState(0);
   const [building, setBuilding] = useState(false);
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const [input, setInput] = useState('');
@@ -97,29 +98,33 @@ function AssistantContent() {
           const mf = d.mf.find(e => e.userId === u.id);
           const weeklyHi = d.wt
             .flatMap(w => (w.hasDoneItems ?? []).filter(i => (i.authorId ?? w.userId) === u.id).map(i => (i.title || i.content || '').trim()))
-            .filter(Boolean).slice(0, 15);
+            .filter(Boolean).slice(0, 8);
           const innovNames = d.innov
             .filter(a => getPmIds(a).includes(u.id) || (a.memberIds ?? []).includes(u.id) || getPerformerIds(a).includes(u.id) || a.instructorId === u.id)
-            .map(a => `${a.type === 'SMART_PROJECT' ? (getPmIds(a).includes(u.id) ? 'SP-PM' : 'SP') : 'TDS'}:${a.name}`).slice(0, 10);
+            .map(a => `${a.type === 'SMART_PROJECT' ? (getPmIds(a).includes(u.id) ? 'SP-PM' : 'SP') : 'TDS'}:${a.name}`).slice(0, 6);
           yrs[y] = {
             grade: ie && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') ? ie.execGrade : undefined,
-            coreGoals: evalGoals.map(g => ({ t: g.title, s: g.status === 'COMPLETED' ? '완료' : (g.status === 'ABANDONED' || g.status === 'PENDING_ABANDON') ? '포기' : '추진중', p: g.progress, w: g.weights?.[u.id] ?? g.weight })).slice(0, 20),
+            coreGoals: evalGoals.map(g => ({ t: g.title, s: g.status === 'COMPLETED' ? '완료' : (g.status === 'ABANDONED' || g.status === 'PENDING_ABANDON') ? '포기' : '추진중', p: g.progress, w: g.weights?.[u.id] ?? g.weight })).slice(0, 15),
             goalStat: { total: completed + (evalGoals.length - completed - abandoned), 완료: completed, 포기: abandoned },
             selfEvalScore: computeSelfEvalTotal(se ?? null) ?? undefined,
             weeklyHighlights: weeklyHi,
-            mentoring: mf ? { 직무: mf.mainDuties?.slice(0, 150), 경력개발: mf.careerPlan?.slice(0, 150), 직무요청: mf.jobRequest ? (JR[mf.jobRequest] ?? mf.jobRequest) : undefined, 종합의견: mf.selfOpinion?.slice(0, 200) } : undefined,
+            mentoring: mf ? { 직무: mf.mainDuties?.slice(0, 120), 경력개발: mf.careerPlan?.slice(0, 120), 직무요청: mf.jobRequest ? (JR[mf.jobRequest] ?? mf.jobRequest) : undefined, 종합의견: mf.selfOpinion?.slice(0, 150) } : undefined,
             innovation: innovNames,
           };
         }
         if (Object.keys(yrs).length === 0) return null;
-        const awards = (awardsByUser[u.id] ?? []).map(a => `${a.title}(${a.awardDate ?? ''})`).slice(0, 10);
+        const awards = (awardsByUser[u.id] ?? []).map(a => `${a.title}(${a.awardDate ?? ''})`).slice(0, 6);
         return { name: u.name, position: u.position ?? '', org: orgName(u.organizationId), role: u.role, awards, years: yrs };
       }).filter(Boolean);
 
-      setDossier(JSON.stringify(dossierArr));
+      const json = JSON.stringify(dossierArr);
+      setDossier(json);
       setMemberCount(dossierArr.length);
+      setDossierChars(json.length);
       setDossierYear(year);
       setTurns([]);
+      // 입력 크기 실측 — 한글 기준 대략 글자수÷2 ≈ 토큰
+      console.log(`[AI dossier] ${dossierArr.length}명 · ${json.length.toLocaleString()}자 · 약 ${Math.round(json.length / 2).toLocaleString()}토큰 추정`);
       toast.success(`${dossierArr.length}명 데이터 준비 완료 (${yearLabel})`);
     } catch (e) {
       console.error('[AI 어시스턴트] 데이터 준비 실패:', e);
@@ -133,11 +138,22 @@ function AssistantContent() {
     if (!dossier) { toast.error('먼저 "데이터 준비"를 눌러주세요.'); return; }
     setInput('');
     const history = turns;
-    setTurns(prev => [...prev, { role: 'user', content: question }]);
+    // 사용자 메시지 + 스트리밍용 빈 AI 말풍선 추가
+    setTurns(prev => [...prev, { role: 'user', content: question }, { role: 'assistant', content: '' }]);
     setAsking(true);
+    // 마지막(AI) 말풍선 내용만 갱신
+    const setLast = (content: string) => setTurns(prev => {
+      const copy = prev.slice();
+      copy[copy.length - 1] = { role: 'assistant', content };
+      return copy;
+    });
     try {
-      const answer = await askAssistant({ question, history, dossier, yearLabel: dossierYear === 'all' ? '전체 누적' : `${dossierYear}년` });
-      setTurns(prev => [...prev, { role: 'assistant', content: answer }]);
+      const answer = await askAssistant({
+        question, history, dossier,
+        yearLabel: dossierYear === 'all' ? '전체 누적' : `${dossierYear}년`,
+        onChunk: setLast,
+      });
+      setLast(answer);
       createAuditLog({
         action: 'AI_EVAL_SUMMARY',
         actorId: userProfile!.id, actorName: userProfile!.name,
@@ -149,7 +165,7 @@ function AssistantContent() {
       if (/not.*enabled|permission|403|API|backend/i.test(msg)) {
         toast.error('Firebase AI Logic(Vertex AI)이 활성화되지 않았습니다.');
       } else { toast.error('AI 응답 생성에 실패했습니다.'); }
-      setTurns(prev => [...prev, { role: 'assistant', content: '⚠️ 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' }]);
+      setLast('⚠️ 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.');
     } finally { setAsking(false); }
   }
 
@@ -173,7 +189,11 @@ function AssistantContent() {
                 {building ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
                 {building ? '준비 중…' : '데이터 준비'}
               </Button>
-              {dossier && !stale && <span className="text-xs text-green-600 font-medium">✓ {memberCount}명 준비됨</span>}
+              {dossier && !stale && (
+                <span className="text-xs text-green-600 font-medium">
+                  ✓ {memberCount}명 준비됨 · {dossierChars.toLocaleString()}자 (입력 약 {Math.round(dossierChars / 2).toLocaleString()}토큰)
+                </span>
+              )}
               {stale && <span className="text-xs text-amber-600">기간이 변경됨 — 다시 준비하세요</span>}
             </div>
           </div>
@@ -194,11 +214,14 @@ function AssistantContent() {
               <div className={t.role === 'user'
                 ? 'max-w-[85%] rounded-2xl rounded-tr-sm bg-violet-600 text-white px-4 py-2.5 text-sm whitespace-pre-wrap'
                 : 'max-w-[90%] rounded-2xl rounded-tl-sm bg-white border px-4 py-3 text-sm text-gray-800 leading-relaxed'}>
-                {t.role === 'user' ? t.content : <MarkdownLite content={t.content} />}
+                {t.role === 'user'
+                  ? t.content
+                  : t.content
+                    ? <MarkdownLite content={t.content} />
+                    : <Loader2 className="h-4 w-4 animate-spin text-violet-500" />}
               </div>
             </div>
           ))}
-          {asking && <div className="flex justify-start"><div className="rounded-2xl bg-white border px-4 py-3"><Loader2 className="h-4 w-4 animate-spin text-violet-500" /></div></div>}
         </div>
       </div>
 
