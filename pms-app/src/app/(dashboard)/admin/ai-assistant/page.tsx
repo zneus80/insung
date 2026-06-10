@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import AuthGuard from '@/components/layout/AuthGuard';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Sparkles, Send, Loader2, Database } from 'lucide-react';
+import { Sparkles, Send, Loader2, Database, Square } from 'lucide-react';
 import {
   getAllUsers, getOrganizations, getAllGoalsByYear, getAllIndividualEvaluations,
   getSelfEvaluationsByUsers, getMentoringFormsByUsers, getAllWeeklyTasksByYear,
@@ -48,12 +48,31 @@ function AssistantContent() {
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const [input, setInput] = useState('');
   const [asking, setAsking] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  // 스트리밍 자동 스크롤 — 사용자가 위로 올려 읽는 중이면 따라가지 않음
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
+  useEffect(() => {
+    if (followRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [turns]);
+
+  function stop() {
+    abortRef.current?.abort();
+  }
 
   const yearLabel = year === 'all' ? '전체 누적' : `${year}년`;
 
   // 구성원 데이터(dossier) 구성 — CEO·HR마스터(전 직원 열람권) 범위
   async function buildDossier() {
     setBuilding(true);
+    const tStart = performance.now();
     try {
       const years = year === 'all' ? [NOW_YEAR, NOW_YEAR - 1, NOW_YEAR - 2] : [year];
       const [allUsers, orgs] = await Promise.all([getAllUsers(), getOrganizations()]);
@@ -124,7 +143,7 @@ function AssistantContent() {
       setDossierYear(year);
       setTurns([]);
       // 입력 크기 실측 — 한글 기준 대략 글자수÷2 ≈ 토큰
-      console.log(`[AI dossier] ${dossierArr.length}명 · ${json.length.toLocaleString()}자 · 약 ${Math.round(json.length / 2).toLocaleString()}토큰 추정`);
+      console.log(`[AI dossier] ${dossierArr.length}명 · ${json.length.toLocaleString()}자 · 약 ${Math.round(json.length / 2).toLocaleString()}토큰 추정 · 준비시간 ${Math.round(performance.now() - tStart)}ms`);
       toast.success(`${dossierArr.length}명 데이터 준비 완료 (${yearLabel})`);
     } catch (e) {
       console.error('[AI 어시스턴트] 데이터 준비 실패:', e);
@@ -141,6 +160,9 @@ function AssistantContent() {
     // 사용자 메시지 + 스트리밍용 빈 AI 말풍선 추가
     setTurns(prev => [...prev, { role: 'user', content: question }, { role: 'assistant', content: '' }]);
     setAsking(true);
+    followRef.current = true;   // 새 답변은 처음부터 따라가기
+    const controller = new AbortController();
+    abortRef.current = controller;
     // 마지막(AI) 말풍선 내용만 갱신
     const setLast = (content: string) => setTurns(prev => {
       const copy = prev.slice();
@@ -152,7 +174,12 @@ function AssistantContent() {
         question, history, dossier,
         yearLabel: dossierYear === 'all' ? '전체 누적' : `${dossierYear}년`,
         onChunk: setLast,
+        signal: controller.signal,
       });
+      if (controller.signal.aborted) {
+        setLast(answer ? `${answer}\n\n_⏹ 중지됨_` : '_⏹ 중지됨_');
+        return;
+      }
       setLast(answer);
       createAuditLog({
         action: 'AI_EVAL_SUMMARY',
@@ -166,7 +193,7 @@ function AssistantContent() {
         toast.error('Firebase AI Logic(Vertex AI)이 활성화되지 않았습니다.');
       } else { toast.error('AI 응답 생성에 실패했습니다.'); }
       setLast('⚠️ 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.');
-    } finally { setAsking(false); }
+    } finally { setAsking(false); abortRef.current = null; }
   }
 
   const stale = dossier && dossierYear !== year;
@@ -174,7 +201,7 @@ function AssistantContent() {
   return (
     <div className="flex flex-col h-full">
       <Header title="AI 인사·성과 분석" showBack />
-      <div className="flex-1 overflow-y-auto p-6">
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto space-y-4">
           <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 space-y-2">
             <p className="text-sm font-semibold text-violet-700 flex items-center gap-1.5"><Sparkles className="h-4 w-4" /> 누적 업무 실적 기반 AI 분석</p>
@@ -248,9 +275,15 @@ function AssistantContent() {
             disabled={!dossier || asking}
             className="resize-none flex-1"
           />
-          <Button onClick={() => send()} disabled={!dossier || asking || !input.trim()} className="gap-1.5 shrink-0 bg-violet-600 hover:bg-violet-700">
-            <Send className="h-4 w-4" /> 전송
-          </Button>
+          {asking ? (
+            <Button onClick={stop} className="gap-1.5 shrink-0 bg-red-600 hover:bg-red-700">
+              <Square className="h-4 w-4 fill-current" /> 중지
+            </Button>
+          ) : (
+            <Button onClick={() => send()} disabled={!dossier || !input.trim()} className="gap-1.5 shrink-0 bg-violet-600 hover:bg-violet-700">
+              <Send className="h-4 w-4" /> 전송
+            </Button>
+          )}
         </div>
       </div>
     </div>
