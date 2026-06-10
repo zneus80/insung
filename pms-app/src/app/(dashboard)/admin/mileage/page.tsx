@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { getAllUsers, getAllMileages, setMileage } from '@/lib/firestore';
+import { resolveUserByName } from '@/lib/excel-helpers';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
@@ -11,7 +13,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Pencil, Lock, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Pencil, Lock, ChevronUp, ChevronDown, ChevronsUpDown, Download, Upload, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -58,6 +60,11 @@ function MileageContent() {
   const [points, setPoints] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // ── 엑셀 일괄 입력 ─────────────────────────────
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ success: number; failed: { row: number; reason: string }[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
   const previewPoints = parseInt(points, 10) || 0;
   const previewTier = getTier(previewPoints);
 
@@ -102,6 +109,85 @@ function MileageContent() {
       toast.error(`저장 실패: ${e?.code ?? e?.message ?? '알 수 없는 오류'}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  // ── 양식 다운로드: 등록 사용자 기본정보 + 현재 마일리지, '입력 마일리지' 칸만 채워 업로드 ──
+  function downloadTemplate() {
+    const sorted = users.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['이름', '직책', '이메일', '현재 마일리지', '입력 마일리지(숫자)'],
+      ...sorted.map(u => [u.name, u.position ?? '', u.email, mileages[u.id]?.points ?? 0, '']),
+    ]);
+    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 26 }, { wch: 14 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '마일리지');
+    XLSX.writeFile(wb, 'INSUNG_마일리지_등록양식.xlsx');
+  }
+
+  // 이메일 우선 매칭(동명이인 안전), 없으면 이름으로
+  function resolveRow(name: string, email: string): { id: string; org: string } | { error: string } {
+    const em = email.trim().toLowerCase();
+    if (em) {
+      const matches = users.filter(u => u.email.toLowerCase() === em);
+      if (matches.length === 1) return { id: matches[0].id, org: matches[0].organizationId };
+      if (matches.length === 0) return { error: `이메일 "${email}" 사용자를 찾을 수 없습니다.` };
+    }
+    const r = resolveUserByName(name, users);
+    if ('error' in r) return r;
+    const u = users.find(x => x.id === r.id)!;
+    return { id: u.id, org: u.organizationId };
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !userProfile) return;
+    e.target.value = '';
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][];
+      const dataRows = rows.slice(1); // 1행은 헤더
+      let success = 0;
+      const failed: { row: number; reason: string }[] = [];
+
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rowNum = i + 2;
+        const name = row[0]?.toString().trim();
+        const email = row[2]?.toString().trim() ?? '';
+        const rawPts = row[4];
+        if (!name && !email) continue;                 // 빈 줄
+        const ptsStr = rawPts?.toString().trim() ?? '';
+        if (ptsStr === '') continue;                   // 입력 마일리지 비어있으면 변경 안 함
+        const parsed = parseInt(ptsStr, 10);
+        if (isNaN(parsed) || parsed < 0) { failed.push({ row: rowNum, reason: `마일리지 "${rawPts}"가 올바른 숫자가 아닙니다.` }); continue; }
+        const r = resolveRow(name, email);
+        if ('error' in r) { failed.push({ row: rowNum, reason: r.error }); continue; }
+        try {
+          await setMileage(r.id, {
+            userId: r.id,
+            organizationId: r.org,
+            points: parsed,
+            entries: mileages[r.id]?.entries ?? [],   // 지급 내역 보존
+            updatedBy: userProfile.id,
+          });
+          success++;
+        } catch (err: any) {
+          failed.push({ row: rowNum, reason: err?.message ?? '처리 실패' });
+        }
+      }
+      setUploadResult({ success, failed });
+      if (success > 0) { toast.success(`${success}명 마일리지 반영 완료`); await load(); }
+      if (failed.length > 0) toast.error(`${failed.length}건 실패`);
+      if (success === 0 && failed.length === 0) toast.info('입력된 마일리지 값이 없습니다.');
+    } catch {
+      toast.error('파일을 읽는 중 오류가 발생했습니다.');
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -154,6 +240,36 @@ function MileageContent() {
           <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700 shrink-0">
             <Lock className="h-4 w-4 shrink-0" />
             최고관리자는 마일리지를 조회만 할 수 있습니다. 수정은 HR관리자 계정으로 로그인하세요.
+          </div>
+        )}
+
+        {!isReadOnly && (
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 space-y-2 shrink-0">
+            <p className="text-sm font-semibold text-indigo-700">엑셀로 일괄 입력</p>
+            <p className="text-xs text-indigo-600/90">
+              양식을 받으면 등록된 사용자 기본정보가 미리 채워져 있습니다. <b>‘입력 마일리지’ 칸에만 총점을 적어</b> 업로드하세요.
+              값을 비워둔 사람은 변경되지 않습니다. (이름 동명이인은 이메일로 매칭)
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="outline" onClick={downloadTemplate} disabled={loading} className="gap-1.5">
+                <Download className="h-4 w-4" /> 양식 다운로드
+              </Button>
+              <Button size="sm" onClick={() => fileRef.current?.click()} disabled={uploading} className="gap-1.5">
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {uploading ? '업로드 중…' : '엑셀 업로드'}
+              </Button>
+              <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleUpload} className="hidden" />
+            </div>
+            {uploadResult && (
+              <div className="text-xs space-y-1 pt-1">
+                <p className="font-medium text-gray-700">결과: 성공 {uploadResult.success}명 / 실패 {uploadResult.failed.length}건</p>
+                {uploadResult.failed.length > 0 && (
+                  <ul className="max-h-28 overflow-y-auto list-disc ml-4 text-red-500">
+                    {uploadResult.failed.map((f, i) => <li key={i}>{f.row}행: {f.reason}</li>)}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         )}
 

@@ -163,6 +163,8 @@ export default function ProgressPage() {
   const [loading, setLoading] = useState(true);
   const [myGoals, setMyGoals] = useState<Goal[]>([]);
   const [treeNodes, setTreeNodes] = useState<ReturnType<typeof buildTree>>([]);
+  // 팀 업무 기준 트리(최고관리자·HR)에서 목표별 수행자 이름 표시용
+  const [usersById, setUsersById] = useState<Record<string, User>>({});
   // 임원용
   const [execLeads, setExecLeads] = useState<User[]>([]);
   const [execMembers, setExecMembers] = useState<User[]>([]);
@@ -290,6 +292,7 @@ export default function ProgressPage() {
             goalsByUser[g.userId].push(g);
           }
           const scopeOrgs = allOrgs.filter(o => scopeOrgIds.includes(o.id));
+          setUsersById(Object.fromEntries(allUsers.map(u => [u.id, u])));
           setTreeNodes(buildTree(null, scopeOrgs, usersByOrg, goalsByUser));
         } else {
           setMyGoals(await getGoalsByUser(profile.id, year));
@@ -303,6 +306,8 @@ export default function ProgressPage() {
   }, [userProfile, year]);
 
   const isOrgTree = role === 'TEAM_LEAD' || isHrAdmin || role === 'CEO';
+  // 최고관리자·HR: 조직목표현황을 개인별이 아닌 팀(조직) 업무 기준으로 표시
+  const teamGoalView = role === 'CEO' || isHrAdmin;
 
   return (
     <div className="flex flex-col h-full">
@@ -386,7 +391,7 @@ export default function ProgressPage() {
                     if (!sel) return null;
                     return (
                       <div className="rounded-xl border bg-white p-4 space-y-1">
-                        <OrgTreeNode node={sel} persistKey="progress" defaultOpenDepth={99} defaultMemberOpen />
+                        <OrgTreeNode node={sel} persistKey="progress" defaultOpenDepth={99} defaultMemberOpen teamGoalView={teamGoalView} usersById={usersById} />
                       </div>
                     );
                   })()}
