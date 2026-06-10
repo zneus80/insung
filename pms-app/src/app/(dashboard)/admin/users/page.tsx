@@ -967,7 +967,7 @@ function UsersContent() {
 
         {/* 추가/수정 다이얼로그 */}
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
-          <DialogContent>
+          <DialogContent className="sm:max-w-[589px]">
             <DialogHeader>
               <DialogTitle>{editing ? '사용자 수정' : '사용자 추가'}</DialogTitle>
             </DialogHeader>
@@ -1154,10 +1154,10 @@ function OrgPicker({
     <div className="space-y-1.5">
       <Label>소속 <span className="text-gray-400 text-xs font-normal">(나중에 지정 가능 · 검색 가능)</span></Label>
       {selected ? (
-        <div className="flex items-center gap-2 rounded-lg border px-3 py-2 bg-gray-50">
-          <span className="text-sm font-medium">{selected.name}</span>
-          <span className="text-xs text-gray-400 truncate">{orgPathLabel(selected)}</span>
-          <button type="button" onClick={() => { onChange(''); onSearchChange(''); }} className="ml-auto text-gray-400 hover:text-red-500 text-xs">
+        <div className="flex items-center gap-2 rounded-lg border px-3 py-2 bg-gray-50 min-w-0">
+          <span className="text-sm font-medium shrink-0 break-all">{selected.name}</span>
+          <span className="text-xs text-gray-400 truncate min-w-0 flex-1">{orgPathLabel(selected)}</span>
+          <button type="button" onClick={() => { onChange(''); onSearchChange(''); }} className="ml-auto shrink-0 text-gray-400 hover:text-red-500 text-xs">
             해제 ✕
           </button>
         </div>
@@ -1177,10 +1177,10 @@ function OrgPicker({
                   key={o.id}
                   type="button"
                   onClick={() => { onChange(o.id); onSearchChange(''); }}
-                  className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm"
+                  className="flex w-full items-center gap-2 text-left px-3 py-2 hover:bg-blue-50 text-sm min-w-0"
                 >
-                  <span className="font-medium">{o.name}</span>
-                  <span className="text-xs text-gray-400 ml-2">{orgPathLabel(o)}</span>
+                  <span className="font-medium shrink-0 break-all">{o.name}</span>
+                  <span className="text-xs text-gray-400 truncate min-w-0 flex-1">{orgPathLabel(o)}</span>
                 </button>
               ))}
             </div>
