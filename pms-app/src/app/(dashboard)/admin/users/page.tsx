@@ -205,23 +205,42 @@ function UsersContent() {
         }
         return String(v).trim();
       };
+      // 유효한 입사일만 통과(YYYY-MM-DD, 1900~2100) — '0001-01-01' 같은 깨진 값 차단
+      const validHire = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && +s.slice(0, 4) >= 1900 && +s.slice(0, 4) <= 2100 ? s : '';
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' }) as string[][];
-      const dataRows = rows.slice(2).filter(r => r[0]?.toString().trim() && !r[0].startsWith('--'));
+      const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][];
+      // 컬럼 위치를 헤더 이름으로 탐지(고정 인덱스 가정 제거 — 열 순서·구버전 양식 대응)
+      const header = (rows[0] ?? []).map((h: unknown) => String(h ?? '').trim());
+      const findCol = (kws: string[], fallback: number) => {
+        const i = header.findIndex(h => kws.some(k => h.includes(k)));
+        return i >= 0 ? i : fallback;
+      };
+      const C = {
+        name: findCol(['이름'], 0),
+        email: findCol(['이메일', '메일'], 1),
+        role: findCol(['역할'], 2),
+        position: findCol(['직책'], 3),
+        org: findCol(['소속', '조직'], 4),
+        // 입사일 헤더가 없으면 -1 → 입사일 미적용(구버전 양식 안전 처리)
+        hire: findCol(['입사'], -1),
+      };
+      const dataRows = rows.slice(2).filter(r => r[C.name]?.toString().trim() && !r[C.name].toString().startsWith('--'));
       const orgNameMap = Object.fromEntries(orgs.map(o => [o.name.trim(), o.id]));
       const existingEmails = new Set(users.map(u => u.email.toLowerCase()));
       let success = 0;
+      let hireApplied = 0;
       const failed: { row: number; reason: string }[] = [];
+      const hireColMissing = C.hire < 0;
 
       for (let i = 0; i < dataRows.length; i++) {
         const row = dataRows[i];
         const rowNum = i + 3;
-        const name = row[0]?.toString().trim();
-        const email = row[1]?.toString().trim().toLowerCase();
-        const roleRaw = row[2]?.toString().trim();
-        const position = row[3]?.toString().trim();
-        const orgName = row[4]?.toString().trim();
-        const hireDate = toDateStr(row[5]);
+        const name = row[C.name]?.toString().trim();
+        const email = row[C.email]?.toString().trim().toLowerCase();
+        const roleRaw = row[C.role]?.toString().trim();
+        const position = row[C.position]?.toString().trim();
+        const orgName = row[C.org]?.toString().trim();
+        const hireDate = C.hire >= 0 ? validHire(toDateStr(row[C.hire])) : '';
 
         if (!name) { failed.push({ row: rowNum, reason: '이름이 비어있습니다.' }); continue; }
         if (!email || !email.includes('@')) { failed.push({ row: rowNum, reason: '이메일이 올바르지 않습니다.' }); continue; }
@@ -246,14 +265,19 @@ function UsersContent() {
             });
             existingEmails.add(email);
           }
+          if (hireDate) hireApplied++;
           success++;
         } catch (err: any) {
           failed.push({ row: rowNum, reason: err?.message ?? '처리 실패' });
         }
       }
       setUploadResult({ success, failed });
-      if (success > 0) { toast.success(`${success}명 처리 완료`); await load(); }
+      if (success > 0) {
+        toast.success(`${success}명 처리 완료 (입사일 ${hireApplied}명 반영)`);
+        await load();
+      }
       if (failed.length > 0) { toast.error(`${failed.length}건 실패`); }
+      if (hireColMissing) toast.warning('양식에 "입사일" 열이 없어 입사일은 반영되지 않았습니다. 최신 양식을 다시 받아 입력해 주세요.');
     } catch {
       toast.error('파일을 읽는 중 오류가 발생했습니다.');
     } finally { setUploading(false); }
@@ -760,6 +784,7 @@ function UsersContent() {
                   소속 <SortIcon col="org" />
                 </th>
                 <th className="px-4 py-3 text-left">직책</th>
+                <th className="px-4 py-3 text-left">입사일</th>
                 <th className="px-4 py-3 text-left cursor-pointer select-none hover:text-gray-700" onClick={() => handleSort('status')}>
                   상태 <SortIcon col="status" />
                 </th>
@@ -769,7 +794,7 @@ function UsersContent() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 [1, 2, 3].map(i => (
-                  <tr key={i}><td colSpan={7} className="px-4 py-3">
+                  <tr key={i}><td colSpan={8} className="px-4 py-3">
                     <div className="h-4 animate-pulse rounded bg-gray-100" />
                   </td></tr>
                 ))
@@ -802,6 +827,7 @@ function UsersContent() {
                   </td>
                   <td className="px-4 py-3 text-gray-500">{orgs.find(o => o.id === user.organizationId)?.name ?? '-'}</td>
                   <td className="px-4 py-3 text-gray-500">{user.position ?? '-'}</td>
+                  <td className="px-4 py-3 text-gray-500">{user.hireDate || '-'}</td>
                   <td className="px-4 py-3">
                     {user.isActive ? (
                       <span className="text-xs text-green-600">활성</span>
