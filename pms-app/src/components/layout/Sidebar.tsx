@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   FileText,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -134,6 +135,22 @@ const navItems: NavItem[] = [
     href: '/admin/all-members',
     icon: <Users className="h-5 w-5" />,
     requireHrMaster: true,
+  },
+
+  // ══ AI 챗봇 (CEO + HR 마스터) ═══════════════
+  {
+    label: 'AI 인사·성과 분석',
+    href: '/admin/ai-assistant',
+    icon: <Sparkles className="h-5 w-5" />,
+    roles: ['CEO'],
+    group: 'AI 챗봇',
+  },
+  {
+    label: 'AI 인사·성과 분석',
+    href: '/admin/ai-assistant',
+    icon: <Sparkles className="h-5 w-5" />,
+    requireHrMaster: true,
+    group: 'AI 챗봇',
   },
 
   // ══ EGG Meeting ═════════════════════════════
