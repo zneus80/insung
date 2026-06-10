@@ -32,7 +32,7 @@ function model(maxOutputTokens: number, thinkingBudget: number): GenerativeModel
 
 // 분석·서열·JD·비교 등 추론이 필요한 질문인지 — 출력 한도와 사고 예산을 함께 키운다.
 function isAnalytical(question: string): boolean {
-  return /서열|순위|랭킹|전체|전\s*직원|모든|모두|비교|JD|직무\s*기술|분석|평가|원인|추천|우수|미흡/.test(question);
+  return /서열|순위|랭킹|전체|전\s*직원|모든|모두|비교|JD|직무\s*기술|분석|평가|원인|추천|우수|미흡|인재|최고|최우수|베스트|best|top|상위|하위|누가|누구|뽑|선정|후보/i.test(question);
 }
 function pickMaxTokens(question: string): number {
   return isAnalytical(question) ? 32768 : 8192;
