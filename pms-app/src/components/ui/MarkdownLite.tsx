@@ -11,8 +11,8 @@ import React from 'react';
 // 인라인: **굵게**, `코드` 처리
 function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  // **bold** 와 `code` 를 토큰화
-  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  // **bold** · `code` · <br> 를 토큰화 (AI가 HTML 줄바꿈을 섞어 내보내는 경우 대응)
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`|<br\s*\/?>)/gi;
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
@@ -21,6 +21,8 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
     const tok = m[0];
     if (tok.startsWith('**')) {
       nodes.push(<strong key={`${keyPrefix}-b${i}`} className="font-semibold text-gray-900">{tok.slice(2, -2)}</strong>);
+    } else if (/^<br/i.test(tok)) {
+      nodes.push(<br key={`${keyPrefix}-br${i}`} />);
     } else {
       nodes.push(<code key={`${keyPrefix}-c${i}`} className="rounded bg-gray-100 px-1 py-0.5 text-[0.85em] text-violet-700">{tok.slice(1, -1)}</code>);
     }
