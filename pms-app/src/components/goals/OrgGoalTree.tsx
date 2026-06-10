@@ -205,6 +205,70 @@ function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false, cur
   );
 }
 
+// ── 팀(조직) 업무 기준 목표 목록 ───────────────────
+// 사람별로 쪼개지 않고, 해당 조직의 업무(목표)를 진행중→완료→포기 순으로 나열.
+// 각 목표 행에는 수행자(owner + 공동수행자) 이름을 함께 표기한다.
+function TeamGoalRows({ goals, usersById }: { goals: Goal[]; usersById?: Record<string, User> }) {
+  const [showAbandoned, setShowAbandoned] = useState(false);
+  if (goals.length === 0) return null;
+  const inProgressGoals = goals.filter(g => g.status !== 'COMPLETED' && g.status !== 'ABANDONED');
+  const completedGoals = goals.filter(g => g.status === 'COMPLETED');
+  const abandonedGoals = goals.filter(g => g.status === 'ABANDONED');
+
+  const renderGoal = (goal: Goal) => {
+    const badge = goal.status === 'COMPLETED'
+      ? { label: '완료', cls: 'bg-green-100 text-green-700' }
+      : goal.status === 'ABANDONED'
+        ? { label: '포기', cls: 'bg-gray-100 text-gray-500' }
+        : { label: '최종승인/진행중', cls: 'bg-blue-100 text-blue-700' };
+    const names = [goal.userId, ...(goal.collaboratorIds ?? [])]
+      .map(id => usersById?.[id]?.name)
+      .filter((n): n is string => !!n);
+    return (
+      <Link key={goal.id} href={`/goals/${goal.id}`}>
+        <div className="flex items-center gap-3 rounded-lg border bg-white px-3 py-2 hover:shadow-sm transition-shadow">
+          <span className={cn('inline-block rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0', badge.cls)}>
+            {badge.label}
+          </span>
+          <span className="flex-1 min-w-0 text-sm text-gray-800 truncate flex items-center gap-1.5">
+            {goal.isConfidential && <span title="대내비"><Lock className="h-3 w-3 shrink-0 text-red-500" /></span>}
+            {goal.title}
+          </span>
+          {names.length > 0 && (
+            <span className="hidden sm:flex items-center gap-1 text-xs text-gray-400 shrink-0 max-w-[40%] truncate" title={names.join(', ')}>
+              <Users className="h-3 w-3 shrink-0" />{names.join(', ')}
+            </span>
+          )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Progress value={goal.progress} className="h-1.5 w-16" />
+            <span className="text-sm text-gray-500 w-8 text-right">{goal.progress}%</span>
+          </div>
+        </div>
+      </Link>
+    );
+  };
+
+  return (
+    <div className="ml-9 space-y-1 mt-1 mb-2">
+      {inProgressGoals.map(renderGoal)}
+      {completedGoals.map(renderGoal)}
+      {abandonedGoals.length > 0 && (
+        <div className="pt-0.5">
+          <button
+            type="button"
+            onClick={e => { e.preventDefault(); setShowAbandoned(v => !v); }}
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-1 py-1"
+          >
+            {showAbandoned ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            포기 {abandonedGoals.length}개
+          </button>
+          {showAbandoned && <div className="space-y-1 mt-1">{abandonedGoals.map(renderGoal)}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 조직 트리 노드 ────────────────────────────────
 export function OrgTreeNode({
   node,
@@ -214,6 +278,8 @@ export function OrgTreeNode({
   defaultOpenDepth = 2,
   defaultMemberOpen = false,
   allOrgs,
+  teamGoalView = false,
+  usersById,
 }: {
   node: OrgNode;
   depth?: number;
@@ -225,6 +291,10 @@ export function OrgTreeNode({
   defaultMemberOpen?: boolean;
   /** 전체 조직 (겸직 배지 계산용) — 미지정 시 배지 표시 안 함 */
   allOrgs?: Organization[];
+  /** true 면 개인별 행 대신 조직(팀) 업무 기준 목표 목록으로 표시 */
+  teamGoalView?: boolean;
+  /** 수행자 이름 표시용 (teamGoalView 일 때) */
+  usersById?: Record<string, User>;
 }) {
   const [open, setOpen] = useState(() => readOpen(persistKey, 'org', node.org.id, depth < defaultOpenDepth));
   const avg = avgProgress(node.goals);
@@ -268,11 +338,13 @@ export function OrgTreeNode({
 
       {open && (
         <div className="ml-4 space-y-1 mt-1">
-          {node.members.map(member => (
-            <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id || (g.collaboratorIds ?? []).includes(member.id))} persistKey={persistKey} defaultMemberOpen={defaultMemberOpen} currentOrgId={node.org.id} allOrgs={allOrgs} />
-          ))}
+          {teamGoalView
+            ? <TeamGoalRows goals={node.goals} usersById={usersById} />
+            : node.members.map(member => (
+                <MemberGoalRow key={member.id} user={member} goals={node.goals.filter(g => g.userId === member.id || (g.collaboratorIds ?? []).includes(member.id))} persistKey={persistKey} defaultMemberOpen={defaultMemberOpen} currentOrgId={node.org.id} allOrgs={allOrgs} />
+              ))}
           {node.children.map(child => (
-            <OrgTreeNode key={child.org.id} node={child} depth={depth + 1} orgGoalMap={orgGoalMap} persistKey={persistKey} defaultOpenDepth={defaultOpenDepth} defaultMemberOpen={defaultMemberOpen} allOrgs={allOrgs} />
+            <OrgTreeNode key={child.org.id} node={child} depth={depth + 1} orgGoalMap={orgGoalMap} persistKey={persistKey} defaultOpenDepth={defaultOpenDepth} defaultMemberOpen={defaultMemberOpen} allOrgs={allOrgs} teamGoalView={teamGoalView} usersById={usersById} />
           ))}
         </div>
       )}

@@ -1,5 +1,6 @@
 import { getAI, getGenerativeModel, VertexAIBackend, type GenerativeModel } from 'firebase/ai';
 import app from './firebase';
+import { SHARED_EVAL_CRITERIA } from './ai-eval';
 
 /**
  * AI 인사·성과 분석 어시스턴트 (CEO·HR 마스터 전용).

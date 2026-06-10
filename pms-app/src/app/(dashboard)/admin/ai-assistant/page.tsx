@@ -16,6 +16,7 @@ import {
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { askAssistant, type AssistantTurn } from '@/lib/ai-assistant';
+import MarkdownLite from '@/components/ui/MarkdownLite';
 import type { Goal, IndividualEvaluation, SelfEvaluation, MentoringForm, WeeklyTask, InnovationActivity, Award } from '@/types';
 
 const NOW_YEAR = new Date().getFullYear();
@@ -192,8 +193,8 @@ function AssistantContent() {
             <div key={i} className={t.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
               <div className={t.role === 'user'
                 ? 'max-w-[85%] rounded-2xl rounded-tr-sm bg-violet-600 text-white px-4 py-2.5 text-sm whitespace-pre-wrap'
-                : 'max-w-[90%] rounded-2xl rounded-tl-sm bg-white border px-4 py-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed'}>
-                {t.content}
+                : 'max-w-[90%] rounded-2xl rounded-tl-sm bg-white border px-4 py-3 text-sm text-gray-800 leading-relaxed'}>
+                {t.role === 'user' ? t.content : <MarkdownLite content={t.content} />}
               </div>
             </div>
           ))}
