@@ -11,35 +11,33 @@ import { SHARED_EVAL_CRITERIA } from './ai-eval';
  * 데이터 거버넌스: Vertex 백엔드는 입력을 학습에 쓰지 않음. 호출 화면이 CEO·HR마스터(전 직원 열람 권한)만
  * 접근하므로 §6-1 가시성 범위 내. 결과는 '참고용' — 최종 판단은 사람이 한다.
  */
-const MODEL = 'gemini-2.5-flash';
+const FLASH = 'gemini-2.5-flash';   // 단순 질문 — 빠름
+const PRO = 'gemini-2.5-pro';       // 분석·서열·JD 등 — 추론 품질↑(느림)
 
-// (출력한도, 사고예산) 조합별 모델 캐시 — 둘 다 작을수록 빨리 끝난다.
+// (모델, 출력한도, 사고예산) 조합별 모델 캐시
 const _models = new Map<string, GenerativeModel>();
-function model(maxOutputTokens: number, thinkingBudget: number): GenerativeModel {
-  const key = `${maxOutputTokens}:${thinkingBudget}`;
+function model(modelName: string, maxOutputTokens: number, thinkingBudget?: number): GenerativeModel {
+  const key = `${modelName}:${maxOutputTokens}:${thinkingBudget ?? 'auto'}`;
   let m = _models.get(key);
   if (!m) {
     const ai = getAI(app, { backend: new VertexAIBackend() });
     m = getGenerativeModel(ai, {
-      model: MODEL,
-      // thinkingBudget: 비교·서열 같은 분석은 사고를 어느 정도 켜 품질 유지, 단순 질문은 0 으로 빠르게.
-      generationConfig: { temperature: 0.3, maxOutputTokens, thinkingConfig: { thinkingBudget } },
+      model: modelName,
+      // thinkingBudget 지정 시 그 값으로(0=끄기), 미지정 시 모델 기본(자동). Pro 는 사고를 끌 수 없어 자동 사용.
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens,
+        ...(thinkingBudget !== undefined ? { thinkingConfig: { thinkingBudget } } : {}),
+      },
     });
     _models.set(key, m);
   }
   return m;
 }
 
-// 분석·서열·JD·비교 등 추론이 필요한 질문인지 — 출력 한도와 사고 예산을 함께 키운다.
+// 분석·서열·JD·비교 등 추론이 필요한 질문인지 — Pro 모델 + 큰 출력한도로 처리.
 function isAnalytical(question: string): boolean {
   return /서열|순위|랭킹|전체|전\s*직원|모든|모두|비교|JD|직무\s*기술|분석|평가|원인|추천|우수|미흡|인재|최고|최우수|베스트|best|top|상위|하위|누가|누구|뽑|선정|후보/i.test(question);
-}
-function pickMaxTokens(question: string): number {
-  return isAnalytical(question) ? 32768 : 8192;
-}
-// 분석형은 사고 예산을 부여(품질↑), 단순형은 0(속도↑). 기본 자동값보다는 작게 잡아 지연을 억제.
-function pickThinkingBudget(question: string): number {
-  return isAnalytical(question) ? 2048 : 0;
 }
 
 export interface AssistantTurn { role: 'user' | 'assistant'; content: string; }
@@ -49,6 +47,8 @@ const SYSTEM = [
   '아래 "구성원 데이터(JSON)"는 사내 누적 업무 실적입니다(핵심목표·주간업무보고·자기평가·육성면담서·평가등급·혁신활동·포상).',
   '이 데이터와 일반적인 직무·KPI 이론 지식을 활용해 사용자의 질문에 한국어로 답하세요.',
   '원칙:',
+  '- ⛔ 입력으로 받은 구성원 데이터(JSON)를 그대로 출력하거나 복사·나열하지 마세요. 절대 JSON 코드블록을 답으로 내보내지 마세요. 반드시 사람이 읽을 한국어 분석 결과(문장·표·목록)로만 답합니다.',
+  '- 질문이 모호하거나 단순히 "보여줘" 류여도, 데이터를 그대로 덤프하지 말고 핵심을 요약·정리해 답하세요.',
   '- 사실(실적·점수·등급·완료/포기 등)은 반드시 제공된 데이터에 근거하고, 데이터에 없는 성과를 지어내지 마세요. 근거가 부족하면 "데이터 부족"이라고 명시하세요.',
   '- 성과 서열/평가를 요청받으면 핵심목표의 난도·완료 실적·갯수, 주간 추진내용의 효율성·실효성·중대성, 자기평가·혁신·포상을 종합해 근거와 함께 제시하세요. 직책·입사일 같은 비성과 요소로 순위를 매기지 마세요.',
   '- 직무 JD(직무기술서) 작성을 요청받으면 해당 직무/직책 인원들의 실제 핵심목표·주간 추진내용을 근거로 주요 업무·필요 역량·성과지표(KPI)를 구성하세요.',
@@ -66,6 +66,8 @@ export async function askAssistant(opts: {
   yearLabel: string;   // 예: "2025년" 또는 "전체 누적"
   /** 스트리밍 중 누적 텍스트를 받는 콜백(글자가 흐르듯 표시). 미지정 시 완성본만 반환. */
   onChunk?: (accumulated: string) => void;
+  /** 중지 신호 — abort() 시 진행 중 응답을 멈추고 지금까지의 부분 텍스트를 반환. */
+  signal?: AbortSignal;
 }): Promise<string> {
   const convo = opts.history
     .map(t => `${t.role === 'user' ? '사용자' : 'AI'}: ${t.content}`)
@@ -79,22 +81,46 @@ export async function askAssistant(opts: {
     '',
     convo ? `이전 대화:\n${convo}\n` : '',
     `사용자 질문: ${opts.question}`,
+    '',
+    '위 데이터를 분석해 질문에 한국어로 답하세요. 입력 JSON을 그대로 출력하지 말고, 분석 결과(문장·표·목록)만 작성하세요.',
   ].join('\n');
 
-  const m = model(pickMaxTokens(opts.question), pickThinkingBudget(opts.question));
-  const { stream, response } = await m.generateContentStream(prompt);
+  // 분석 질문 → Pro(자동 사고, 큰 출력한도) / 단순 질문 → Flash(사고 끔, 작은 한도·빠름)
+  const analytical = isAnalytical(opts.question);
+  const m = analytical
+    ? model(PRO, 16384, 1024)  // Pro: 사고 예산 제한(자동이면 25s+ → 컷). 품질 유지하며 지연↓
+    : model(FLASH, 8192, 0);   // Flash: 사고 끔(빠름)
   let acc = '';
-  for await (const chunk of stream) {
-    let t = '';
-    try { t = chunk.text(); } catch { /* 일부 청크는 텍스트 없음 */ }
-    if (t) { acc += t; opts.onChunk?.(acc); }
+  // ── 지연 계측: 요청→첫글자(모델 사고) / 첫글자→완료(출력 생성) ──
+  const t0 = (typeof performance !== 'undefined' ? performance.now() : 0);
+  let tFirst = 0;
+  const elapsed = () => Math.round((typeof performance !== 'undefined' ? performance.now() : 0) - t0);
+  try {
+    const { stream, response } = await m.generateContentStream(
+      prompt,
+      opts.signal ? { signal: opts.signal } : undefined,
+    );
+    for await (const chunk of stream) {
+      let t = '';
+      try { t = chunk.text(); } catch { /* 일부 청크는 텍스트 없음 */ }
+      if (t) {
+        if (!tFirst) { tFirst = elapsed(); console.log(`[AI 계측] 모델=${analytical ? 'pro' : 'flash'} · 요청→첫글자 ${tFirst}ms`); }
+        acc += t; opts.onChunk?.(acc);
+      }
+    }
+    console.log(`[AI 계측] 첫글자→완료 ${elapsed() - tFirst}ms · 총 ${elapsed()}ms · 출력 ${acc.length}자`);
+    const final = await response;
+    const finish = final.candidates?.[0]?.finishReason;
+    if (finish === 'MAX_TOKENS') {
+      const out = acc + TRUNC_NOTICE;
+      opts.onChunk?.(out);
+      return out;
+    }
+    return acc;
+  } catch (e: unknown) {
+    // 사용자가 중지한 경우: 에러로 던지지 않고 지금까지의 부분 응답을 반환
+    const aborted = opts.signal?.aborted || (e as { name?: string })?.name === 'AbortError';
+    if (aborted) return acc;
+    throw e;
   }
-  const final = await response;
-  const finish = final.candidates?.[0]?.finishReason;
-  if (finish === 'MAX_TOKENS') {
-    const out = acc + TRUNC_NOTICE;
-    opts.onChunk?.(out);
-    return out;
-  }
-  return acc;
 }

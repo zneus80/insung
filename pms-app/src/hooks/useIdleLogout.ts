@@ -16,13 +16,13 @@ import { toast } from 'sonner';
 interface Options {
   /** true 일 때만 타이머 동작 (로그인 상태에만 활성화) */
   enabled: boolean;
-  /** 무활동 임계 (ms). 기본 30분 */
+  /** 무활동 임계 (ms). 기본 5분 */
   timeoutMs?: number;
   /** 로그아웃 직전 경고 노출 시간 (ms). 기본 60초 — 이 시간 안에 활동 있으면 취소 */
   warnBeforeMs?: number;
 }
 
-const DEFAULT_TIMEOUT = 30 * 60 * 1000;   // 30분
+const DEFAULT_TIMEOUT = 5 * 60 * 1000;    // 5분
 const DEFAULT_WARN_BEFORE = 60 * 1000;    // 60초 전 경고
 
 export function useIdleLogout({ enabled, timeoutMs = DEFAULT_TIMEOUT, warnBeforeMs = DEFAULT_WARN_BEFORE }: Options) {
