@@ -21,6 +21,7 @@ import {
   TrendingUp, MapPin, MessageSquare, RefreshCw, Plus, X, AlertCircle,
 } from 'lucide-react';
 import type { MentoringForm, JobRequestType } from '@/types';
+import { shiftEnterSubmit } from '@/lib/utils';
 
 const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
 
@@ -350,7 +351,8 @@ function MentoringContent() {
                 rows={3}
                 value={editRequestInputValue}
                 onChange={e => setEditRequestInputValue(e.target.value)}
-                placeholder="수정이 필요한 사유를 구체적으로 입력하세요"
+                onKeyDown={shiftEnterSubmit(submitEditRequest, !saving && !!editRequestInputValue.trim())}
+                placeholder="수정이 필요한 사유를 구체적으로 입력하세요 (Shift+Enter 요청)"
               />
               <div className="flex gap-2 justify-end">
                 <Button size="sm" variant="ghost" onClick={() => { setShowEditRequestInput(false); setEditRequestInputValue(''); }} disabled={saving}>
@@ -433,7 +435,8 @@ function MentoringContent() {
               <Field label="주요 담당업무">
                 <Textarea placeholder="현재 담당하고 있는 주요 업무를 세부적으로 기재하세요."
                   value={form.mainDuties} disabled={isSubmitted} rows={3}
-                  className="resize-none" onChange={e => set('mainDuties', e.target.value)} />
+                  className="resize-none" onChange={e => set('mainDuties', e.target.value)}
+                onKeyDown={shiftEnterSubmit(() => handleSave(false), !isSubmitted && !saving)} />
               </Field>
             </div>
           </SectionCard>
@@ -446,7 +449,8 @@ function MentoringContent() {
               hint="향후 3~5년 이내의 희망 Position 및 경력개발 방향에 대하여 기술하세요.">
               <Textarea placeholder="예) 3년 내 팀장 직책을 목표로, 영업 전문성을 강화하고 리더십 역량을 키우고자 합니다..."
                 value={form.careerPlan} disabled={isSubmitted} rows={5}
-                className="resize-none" onChange={e => set('careerPlan', e.target.value)} />
+                className="resize-none" onChange={e => set('careerPlan', e.target.value)}
+                onKeyDown={shiftEnterSubmit(() => handleSave(false), !isSubmitted && !saving)} />
             </Field>
           </SectionCard>
 
@@ -473,7 +477,8 @@ function MentoringContent() {
                 <Field label="선택 이유">
                   <Textarea placeholder="직무 확대 또는 축소를 희망하는 이유를 기술하세요."
                     value={form.jobRequestReason} disabled={isSubmitted} rows={3}
-                    className="resize-none" onChange={e => set('jobRequestReason', e.target.value)} />
+                    className="resize-none" onChange={e => set('jobRequestReason', e.target.value)}
+                onKeyDown={shiftEnterSubmit(() => handleSave(false), !isSubmitted && !saving)} />
                 </Field>
               )}
 
@@ -493,7 +498,8 @@ function MentoringContent() {
                   <Field label="변경 희망 이유">
                     <Textarea placeholder="직무 변경을 희망하는 이유를 기술하세요."
                       value={form.jobChangeReason} disabled={isSubmitted} rows={3}
-                      className="resize-none" onChange={e => set('jobChangeReason', e.target.value)} />
+                      className="resize-none" onChange={e => set('jobChangeReason', e.target.value)}
+                onKeyDown={shiftEnterSubmit(() => handleSave(false), !isSubmitted && !saving)} />
                   </Field>
                 </div>
               )}
@@ -514,7 +520,8 @@ function MentoringContent() {
                   <Field label="변경 희망 이유">
                     <Textarea placeholder="근무지 변경을 희망하는 이유를 기술하세요."
                       value={form.locationChangeReason} disabled={isSubmitted} rows={3}
-                      className="resize-none" onChange={e => set('locationChangeReason', e.target.value)} />
+                      className="resize-none" onChange={e => set('locationChangeReason', e.target.value)}
+                onKeyDown={shiftEnterSubmit(() => handleSave(false), !isSubmitted && !saving)} />
                   </Field>
                 </div>
               )}
@@ -527,7 +534,8 @@ function MentoringContent() {
               hint="1년간의 자기평가와 함께 회사에 대한 요청사항 등을 자유롭게 기술하세요.">
               <Textarea placeholder="본인의 1년간 성과와 성장에 대한 자기평가, 회사에 대한 요청사항 등을 자유롭게 작성하세요."
                 value={form.selfOpinion} disabled={isSubmitted} rows={6}
-                className="resize-none" onChange={e => set('selfOpinion', e.target.value)} />
+                className="resize-none" onChange={e => set('selfOpinion', e.target.value)}
+                onKeyDown={shiftEnterSubmit(() => handleSave(false), !isSubmitted && !saving)} />
             </Field>
           </SectionCard>
 

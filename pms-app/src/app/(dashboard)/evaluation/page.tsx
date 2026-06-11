@@ -38,7 +38,7 @@ import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/Self
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, shiftEnterSubmit } from '@/lib/utils';
 import type {
   EvaluationCycle, Goal, SelfEvaluation, IndividualEvaluation,
   EvaluationGrade, User, Organization, DivisionGradeQuota, MentoringForm, WeeklyTask,
@@ -550,9 +550,10 @@ function ExecutiveEvalView() {
                             <textarea
                               value={input.comment}
                               onChange={e => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
+                              onKeyDown={shiftEnterSubmit(() => handleConfirm(member.id), !isConfirmed && saving !== member.id && !!input.grade && !locked)}
                               disabled={isConfirmed || saving === member.id || locked}
                               rows={2}
-                              placeholder="등급 부여 이유 또는 의견을 작성해주세요"
+                              placeholder="등급 부여 이유 또는 의견을 작성해주세요 (Shift+Enter 확정)"
                               className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50" />
                           </div>
                           <div className="flex justify-end">

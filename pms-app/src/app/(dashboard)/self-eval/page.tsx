@@ -11,6 +11,7 @@ import {
 } from '@/lib/firestore';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import { normalizeWeights } from '@/lib/goal-weight';
+import { shiftEnterSubmit } from '@/lib/utils';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -244,7 +245,8 @@ export default function SelfEvalPage() {
                   comment={goalMap[g.id]?.comment ?? ''} score={goalMap[g.id]?.score ?? ''}
                   readOnly={readOnly}
                   onComment={v => setGoalMap(m => ({ ...m, [g.id]: { ...m[g.id], comment: v, score: m[g.id]?.score ?? '' } }))}
-                  onScore={v => setGoalMap(m => ({ ...m, [g.id]: { ...m[g.id], score: v, comment: m[g.id]?.comment ?? '' } }))} />
+                  onScore={v => setGoalMap(m => ({ ...m, [g.id]: { ...m[g.id], score: v, comment: m[g.id]?.comment ?? '' } }))}
+                  onShiftEnter={() => handleSave(false)} />
               ))}
               {/* 포기 확정 핵심목표 — 배지·제목만 (점수/가중치 없음) */}
               {abandoned.length > 0 && (
@@ -273,7 +275,8 @@ export default function SelfEvalPage() {
                   comment={genMap[s.id]?.comment ?? ''} score={genMap[s.id]?.score ?? ''}
                   readOnly={readOnly}
                   onComment={v => setGenMap(m => ({ ...m, [s.id]: { ...m[s.id], comment: v, score: m[s.id]?.score ?? '' } }))}
-                  onScore={v => setGenMap(m => ({ ...m, [s.id]: { ...m[s.id], score: v, comment: m[s.id]?.comment ?? '' } }))} />
+                  onScore={v => setGenMap(m => ({ ...m, [s.id]: { ...m[s.id], score: v, comment: m[s.id]?.comment ?? '' } }))}
+                  onShiftEnter={() => handleSave(false)} />
               ))}
             </div>
           </section>
@@ -290,7 +293,8 @@ export default function SelfEvalPage() {
                   <p className="text-sm font-medium text-gray-800">{a.name}</p>
                   <Textarea rows={2} disabled={readOnly} value={innovMap[a.id] ?? ''}
                     onChange={e => setInnovMap(m => ({ ...m, [a.id]: e.target.value }))}
-                    placeholder="역할·기여도·주요 실적을 작성하세요" className="resize-none mt-1.5" />
+                    onKeyDown={shiftEnterSubmit(() => handleSave(false), !readOnly && !saving)}
+                    placeholder="역할·기여도·주요 실적을 작성하세요 (Shift+Enter 임시저장)" className="resize-none mt-1.5" />
                 </div>
               ))}
             </div>
@@ -313,7 +317,9 @@ export default function SelfEvalPage() {
             <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-blue-700"><Pencil className="h-4 w-4" /> HR 수정 요청</div>
               <p className="text-xs text-gray-600">제출된 자기평가를 수정하려면 HR 관리자에게 사유와 함께 요청하세요. 평가 확정 전까지 HR 승인 후 다시 작성 가능 상태로 전환됩니다.</p>
-              <Textarea rows={3} value={editRequestInputValue} onChange={e => setEditRequestInputValue(e.target.value)} placeholder="수정이 필요한 사유를 구체적으로 입력하세요" className="resize-none" />
+              <Textarea rows={3} value={editRequestInputValue} onChange={e => setEditRequestInputValue(e.target.value)}
+                onKeyDown={shiftEnterSubmit(submitEditRequest, !saving && !!editRequestInputValue.trim())}
+                placeholder="수정이 필요한 사유를 구체적으로 입력하세요 (Shift+Enter 요청)" className="resize-none" />
               <div className="flex gap-2 justify-end">
                 <Button size="sm" variant="ghost" disabled={saving} onClick={() => { setShowEditRequestInput(false); setEditRequestInputValue(''); }}>취소</Button>
                 <Button size="sm" disabled={saving || !editRequestInputValue.trim()} onClick={submitEditRequest}>{saving ? '요청 중...' : 'HR에 요청 보내기'}</Button>
@@ -349,9 +355,11 @@ export default function SelfEvalPage() {
   );
 }
 
-function ItemRow({ title, weight, comment, score, readOnly, onComment, onScore }: {
+function ItemRow({ title, weight, comment, score, readOnly, onComment, onScore, onShiftEnter }: {
   title: string; weight: number; comment: string; score: string; readOnly: boolean;
   onComment: (v: string) => void; onScore: (v: string) => void;
+  /** Shift+Enter 시 실행할 액션(임시저장) */
+  onShiftEnter?: () => void;
 }) {
   const weighted = Math.round((Math.max(0, Math.min(100, Number(score) || 0)) * (weight / 100)) * 10) / 10;
   return (
@@ -363,7 +371,8 @@ function ItemRow({ title, weight, comment, score, readOnly, onComment, onScore }
         </span>
       </div>
       <Textarea rows={2} disabled={readOnly} value={comment} onChange={e => onComment(e.target.value)}
-        placeholder="역할·기여도·주요 실적을 작성하세요" className="resize-none" />
+        onKeyDown={onShiftEnter ? shiftEnterSubmit(onShiftEnter, !readOnly) : undefined}
+        placeholder="역할·기여도·주요 실적을 작성하세요 (Shift+Enter 임시저장)" className="resize-none" />
       <div className="flex items-center gap-2">
         <span className="text-xs text-gray-500">자기평가 점수</span>
         <Input type="number" min="0" max="100" disabled={readOnly} value={score}

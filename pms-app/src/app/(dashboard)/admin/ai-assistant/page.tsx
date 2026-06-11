@@ -276,8 +276,8 @@ function AssistantContent() {
           <Textarea
             value={input}
             onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-            placeholder={dossier ? '질문을 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)' : '먼저 위에서 데이터 준비를 눌러주세요'}
+            onKeyDown={e => { if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); send(); } }}
+            placeholder={dossier ? '질문을 입력하세요 (Enter 줄바꿈, Shift+Enter 전송)' : '먼저 위에서 데이터 준비를 눌러주세요'}
             rows={2}
             disabled={!dossier || asking}
             className="resize-none flex-1"

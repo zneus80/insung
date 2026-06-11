@@ -8,6 +8,7 @@ import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { shiftEnterSubmit } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Send, Save, CheckCircle2, ClipboardList, ListChecks } from 'lucide-react';
 import type { Goal, YearEndEval, TaskSummaryEntry } from '@/types';
@@ -263,7 +264,8 @@ function PerformanceContent() {
                         <Textarea
                           value={summaries[goal.id] ?? ''}
                           onChange={e => setSummaries(prev => ({ ...prev, [goal.id]: e.target.value }))}
-                          placeholder="이 과제에 대한 세부 성과를 작성해주세요."
+                          onKeyDown={shiftEnterSubmit(() => handleSave(false), !saving)}
+                          placeholder="이 과제에 대한 세부 성과를 작성해주세요. (Shift+Enter 임시저장)"
                           className="resize-none text-sm min-h-[80px]"
                         />
                       )}

@@ -14,6 +14,7 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { shiftEnterSubmit } from '@/lib/utils';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Building2, Pencil, Check, X, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -212,7 +213,8 @@ function AnnualGoalsContent() {
                       rows={4}
                       value={it.detail ?? ''}
                       onChange={e => updateCompanyItem(it.id, { detail: e.target.value })}
-                      placeholder={`세부 추진 전략·계획·KPI 등을 입력하세요.\n· 줄바꿈으로 항목 구분 가능`}
+                      onKeyDown={shiftEnterSubmit(saveCompanyGoal, !saving)}
+                      placeholder={`세부 추진 전략·계획·KPI 등을 입력하세요.\n· 줄바꿈으로 항목 구분 가능 (Shift+Enter 저장)`}
                       className="text-sm bg-white"
                     />
                   </div>
@@ -321,7 +323,8 @@ function AnnualGoalsContent() {
                               rows={4}
                               value={it.detail ?? ''}
                               onChange={e => updateOrgItem(it.id, { detail: e.target.value })}
-                              placeholder={`세부 추진 전략·계획·KPI 등을 입력하세요.\n· 줄바꿈으로 항목 구분 가능`}
+                              onKeyDown={shiftEnterSubmit(() => saveOrgGoal(org.id), !saving)}
+                              placeholder={`세부 추진 전략·계획·KPI 등을 입력하세요.\n· 줄바꿈으로 항목 구분 가능 (Shift+Enter 저장)`}
                               className="text-sm bg-white"
                             />
                           </div>
