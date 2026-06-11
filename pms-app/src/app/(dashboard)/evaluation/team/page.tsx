@@ -37,7 +37,7 @@ import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/Self
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, shiftEnterSubmit } from '@/lib/utils';
 import type {
   Goal, SelfEvaluation, IndividualEvaluation,
   EvaluationGrade, User, MentoringForm, WeeklyTask, InnovationActivity,
@@ -667,7 +667,8 @@ function TeamLeadEvalView() {
                       <p className="text-xs text-gray-500 mb-1.5">의견 <span className="text-[11px] font-normal text-gray-400">— 육성면담서와 인사평가 등급에 대한 종합의견을 작성하십시오 (필수)</span></p>
                       <textarea value={op.comment}
                         onChange={e => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
-                        disabled={isReviewed || saving === member.id || locked} rows={2} placeholder="등급 의견의 이유를 작성해주세요"
+                        onKeyDown={shiftEnterSubmit(() => handleSubmitOpinion(member.id), !isReviewed && saving !== member.id && !!op.grade && !locked)}
+                        disabled={isReviewed || saving === member.id || locked} rows={2} placeholder="등급 의견의 이유를 작성해주세요 (Shift+Enter 제출)"
                         className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
                     </div>
                     <div className="flex justify-end items-center gap-2 flex-wrap">

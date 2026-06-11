@@ -19,7 +19,7 @@ import {
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { cn, shiftEnterSubmit } from '@/lib/utils';
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star, Printer, Save, Lock, ChevronUp, ChevronDown,
 } from 'lucide-react';
@@ -380,6 +380,7 @@ function SimpleItemForm({
             type="text"
             value={value.title}
             onChange={e => onChange({ ...value, title: e.target.value })}
+            onKeyDown={shiftEnterSubmit(onSave, canSave)}
             placeholder="업무명을 입력하세요"
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
           />
@@ -391,7 +392,8 @@ function SimpleItemForm({
           rows={3}
           value={value.content}
           onChange={e => onChange({ ...value, content: e.target.value })}
-          placeholder={coreMode ? '진행사항을 입력하세요' : '업무 상세내용을 입력하세요'}
+          onKeyDown={shiftEnterSubmit(onSave, canSave)}
+          placeholder={coreMode ? '진행사항을 입력하세요 (Shift+Enter 저장)' : '업무 상세내용을 입력하세요 (Shift+Enter 저장)'}
           className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
         />
       </div>

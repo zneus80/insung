@@ -24,7 +24,7 @@ import { Plus, Trash2, X, ChevronDown, ChevronRight, Search, User as UserIcon, C
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { cn } from '@/lib/utils';
+import { cn, shiftEnterSubmit } from '@/lib/utils';
 import { resolveUserByName } from '@/lib/excel-helpers';
 import type { User, Award } from '@/types';
 
@@ -334,7 +334,7 @@ function AwardsContent() {
             </div>
             <div className="space-y-1.5 md:col-span-2">
               <Label>내용</Label>
-              <Textarea rows={3} value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="포상 내용 (선택)" />
+              <Textarea rows={3} value={formDesc} onChange={e => setFormDesc(e.target.value)} onKeyDown={shiftEnterSubmit(handleAdd, !saving)} placeholder="포상 내용 (선택 · Shift+Enter 저장)" />
             </div>
           </div>
           <div className="flex justify-end">

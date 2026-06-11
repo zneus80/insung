@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ChevronDown, ChevronUp, Pencil, Trash2, Plus } from 'lucide-react';
 import type { Announcement } from '@/types';
+import { shiftEnterSubmit } from '@/lib/utils';
 
 export default function AnnouncementsPage() {
   const { userProfile } = useAuth();
@@ -249,7 +250,8 @@ export default function AnnouncementsPage() {
                   id="ann-content"
                   value={formContent}
                   onChange={e => setFormContent(e.target.value)}
-                  placeholder="내용을 입력하세요"
+                  onKeyDown={shiftEnterSubmit(handleSave, !saving)}
+                  placeholder="내용을 입력하세요 (Shift+Enter 저장)"
                   rows={6}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
                 />
