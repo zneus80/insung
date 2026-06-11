@@ -169,7 +169,7 @@ export default function TaskGoalForm({
           ch.collaboratorIds = { from: editGoal.collaboratorIds ?? [], to: newCollabs };
         }
 
-        // 대내비 토글 비교
+        // 대내외비 토글 비교
         const oldConfidential = !!editGoal.isConfidential;
         if (oldConfidential !== isConfidential) {
           ch.isConfidential = { from: oldConfidential, to: isConfidential };
@@ -615,7 +615,7 @@ export default function TaskGoalForm({
             onSearchChange={setUserSearch}
           />
 
-          {/* 대내비 — 전사 업무추진현황에서 제목 마스킹 */}
+          {/* 대내외비 — 전사 업무추진현황에서 제목 마스킹 */}
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -623,7 +623,7 @@ export default function TaskGoalForm({
               onChange={e => setIsConfidential(e.target.checked)}
               className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
-            <span className="text-sm text-gray-700">대내비 (전사 업무추진현황에서 CONFIDENTIAL 로 마스킹)</span>
+            <span className="text-sm text-gray-700">대내외비 (전사 업무추진현황에서 CONFIDENTIAL 로 마스킹)</span>
           </label>
 
           {/* 수정 요청 의견 (승인된 목표 수정 시) */}

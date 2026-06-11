@@ -140,7 +140,7 @@ export interface Goal {
   dueDate: Date;
   status: GoalStatus;
   progress: number;   // 0~100
-  /** 대내비 표시 — 전사 업무추진현황 등 외부 노출 화면에서 제목/내용 마스킹 */
+  /** 대내외비 표시 — 전사 업무추진현황 등 외부 노출 화면에서 제목/내용 마스킹 */
   isConfidential?: boolean;
 
   // 과제업무(TASK) 전용
@@ -205,7 +205,7 @@ export interface GoalFieldChanges {
   progress?: { from: number; to: number };
   ownerId?: { from: string; to: string };           // 수행자 userId
   collaboratorIds?: { from: string[]; to: string[] };  // 공동수행자
-  isConfidential?: { from: boolean; to: boolean };  // 대내비 토글
+  isConfidential?: { from: boolean; to: boolean };  // 대내외비 토글
 }
 
 export interface GoalHistory {
@@ -419,7 +419,7 @@ export interface InnovationActivity {
   id: string;
   type: InnovationActivityType;
   name: string;                  // 프로젝트명 / TDS명
-  isConfidential: boolean;       // 대내비 — 제목 CONFIDENTIAL 로 마스킹
+  isConfidential: boolean;       // 대내외비 — 제목 CONFIDENTIAL 로 마스킹
   status: InnovationActivityStatus;
   year: number;
   // SMART_PROJECT

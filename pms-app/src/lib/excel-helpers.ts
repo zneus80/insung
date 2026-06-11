@@ -31,5 +31,5 @@ export function resolveUserNames(raw: string, users: User[]): { ids: string[]; e
 /** 'Y'/'예'/'O'/'true'/'1' → true, 그 외 false */
 export function parseBoolCell(v: unknown): boolean {
   const s = String(v ?? '').trim().toLowerCase();
-  return ['y', 'yes', '예', 'o', 'true', '1', '대내비'].includes(s);
+  return ['y', 'yes', '예', 'o', 'true', '1', '대내외비'].includes(s);
 }

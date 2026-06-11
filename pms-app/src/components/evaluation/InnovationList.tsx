@@ -36,7 +36,7 @@ export default function InnovationList({ items, memberId, revealConfidential = f
       {items.map(a => {
         const role = roleOf(a, memberId);
         const masked = a.isConfidential && !revealConfidential;
-        const displayName = masked ? 'CONFIDENTIAL (대내비)' : a.name;
+        const displayName = masked ? 'CONFIDENTIAL (대내외비)' : a.name;
         return (
           <div key={a.id} className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs">
             <span className={cn('shrink-0 rounded-full px-2 py-0.5 font-medium', TYPE_COLOR[a.type])}>
@@ -48,7 +48,7 @@ export default function InnovationList({ items, memberId, revealConfidential = f
             <span className={cn('flex-1 truncate', masked ? 'text-gray-400 italic' : 'text-gray-800')}>
               {displayName}
               {a.isConfidential && revealConfidential && (
-                <span className="ml-1.5 text-[10px] text-amber-600 font-medium">[대내비]</span>
+                <span className="ml-1.5 text-[10px] text-amber-600 font-medium">[대내외비]</span>
               )}
             </span>
             <span className={cn(

@@ -209,7 +209,7 @@ function InnovationContent() {
   }
 
   function downloadTemplate() {
-    const headers = ['수행년도*', '진행상태*(추진중/완료)', nameCol, '대내비(Y/N)', peopleCol1, peopleCol2];
+    const headers = ['수행년도*', '진행상태*(추진중/완료)', nameCol, '대내외비(Y/N)', peopleCol1, peopleCol2];
     const example = tab === 'SMART_PROJECT'
       ? [String(activeYear), '추진중', '예시 프로젝트', 'N', users[0]?.name ?? '홍길동', `${users[1]?.name ?? '김팀원'};${users[2]?.name ?? '이팀원'}`]
       : [String(activeYear), '완료', '예시 TDS', 'N', `${users[0]?.name ?? '홍길동'};${users[1]?.name ?? '김수행'}`, users[2]?.name ?? '박지시'];
@@ -302,7 +302,7 @@ function InnovationContent() {
         '수행년도': String(it.year),
         '진행상태': STATUS_LABEL[it.status],
         [tab === 'SMART_PROJECT' ? '프로젝트명' : 'TDS명']: it.name,
-        '대내비': it.isConfidential ? 'Y' : 'N',
+        '대내외비': it.isConfidential ? 'Y' : 'N',
       };
       if (tab === 'SMART_PROJECT') {
         base['PM'] = getPmIds(it).map(id => usersById.get(id)?.name).filter(Boolean).join('; ');
@@ -437,7 +437,7 @@ function InnovationContent() {
                 onChange={e => setFormConfidential(e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
-              <span className="text-sm font-medium text-gray-700">대내비 (전사 업무추진현황에서 CONFIDENTIAL 로 마스킹)</span>
+              <span className="text-sm font-medium text-gray-700">대내외비 (전사 업무추진현황에서 CONFIDENTIAL 로 마스킹)</span>
             </label>
           </div>
           <div className="flex justify-end gap-2">
@@ -587,7 +587,7 @@ function InnovationItemRow({ it, usersById, onEdit, onDelete, deleting, showYear
             {STATUS_LABEL[it.status]}
           </span>
           {it.isConfidential && (
-            <span className="text-xs font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-700">대내비</span>
+            <span className="text-xs font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-700">대내외비</span>
           )}
           <span className="font-medium text-gray-900">{it.name}</span>
         </div>
@@ -724,7 +724,7 @@ function InnovationDialog({
               onChange={e => setIsConfidential(e.target.checked)}
               className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
-            <span className="text-sm font-medium text-gray-700">대내비 (제목을 CONFIDENTIAL 로 노출)</span>
+            <span className="text-sm font-medium text-gray-700">대내외비 (제목을 CONFIDENTIAL 로 노출)</span>
           </label>
 
           <div className="space-y-1.5">

@@ -107,7 +107,7 @@ export default function SelfEvalGoalList({ goals, goalEvals, usersById, memberId
     if (h.fieldChanges.progress) keys.push('진행률');
     if (h.fieldChanges.ownerId) keys.push('수행자');
     if (h.fieldChanges.collaboratorIds) keys.push('공동수행자');
-    if (h.fieldChanges.isConfidential) keys.push('대내비');
+    if (h.fieldChanges.isConfidential) keys.push('대내외비');
     return keys.length ? keys.join(' · ') : null;
   }
 
