@@ -144,6 +144,9 @@ export default function MemberInfoModal({ userId, userName, targetRole, renderTr
                     <Row label="소속 조직" value={orgName} />
                   </Section>
 
+                  {/* 승진요건 충족여부 — 전사 인원현황과 동일 기준 (연도 무관 누적) */}
+                  <PromotionSection user={data.user} mileage={data.mileage} innovations={data.innovations} />
+
                   {/* 포상이력 */}
                   <Section title="포상이력">
                     {data.awards.length === 0 ? (
@@ -213,6 +216,44 @@ function Row({ label, value }: { label: string; value?: string }) {
     <div className="px-4 py-3 flex items-start gap-3">
       <span className="text-xs font-medium text-gray-500 shrink-0 min-w-[80px]">{label}</span>
       <span className={isEmpty ? 'text-sm text-gray-300' : 'text-sm text-gray-800'}>{display}</span>
+    </div>
+  );
+}
+
+// 승진요건 충족여부 — 전사 인원현황 computePromotion 과 동일 기준 (연도 무관 누적).
+// 정식 팀장 → 임원 승진조건(SP PM 1회) / 팀원·팀장대행 → 팀장 승진조건(SP 1회 참여 + ISKMS 마일리지 200점).
+function PromotionSection({ user, mileage, innovations }: { user: User; mileage: Mileage | null; innovations: InnovationActivity[] }) {
+  // 임원·CEO 는 승진요건 대상 아님
+  if (user.role === 'EXECUTIVE' || user.role === 'CEO') return null;
+
+  const spPmCount = innovations.filter(a => a.type === 'SMART_PROJECT' && getPmIds(a).includes(user.id)).length;
+  const spMemberCount = innovations.filter(a => a.type === 'SMART_PROJECT' && (a.memberIds ?? []).includes(user.id)).length;
+  const points = mileage?.points ?? 0;
+  const isLeadTrack = user.role === 'TEAM_LEAD' && !user.isActingLead;
+
+  const rows = isLeadTrack
+    ? [{ label: '스마트 프로젝트 PM 1회', actual: `${spPmCount}회`, met: spPmCount >= 1 }]
+    : [
+        { label: '스마트 프로젝트 1회 참여', actual: `${spPmCount + spMemberCount}회`, met: spPmCount + spMemberCount >= 1 },
+        { label: 'ISKMS 마일리지 200점', actual: `${points.toLocaleString()}점`, met: points >= 200 },
+      ];
+
+  return (
+    <div>
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+        승진요건 충족여부 <span className="normal-case font-normal">({isLeadTrack ? '임원 승진조건' : '팀장 승진조건'})</span>
+      </h3>
+      <div className="rounded-xl border bg-gray-50 divide-y">
+        {rows.map(r => (
+          <div key={r.label} className="px-4 py-3 flex items-center gap-2">
+            <span className="text-sm text-gray-800 flex-1 min-w-0">{r.label}</span>
+            <span className="text-xs text-gray-500 shrink-0">실적 <b className={r.met ? 'text-green-700' : 'text-gray-600'}>{r.actual}</b></span>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${r.met ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+              {r.met ? '충족' : '미충족'}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
