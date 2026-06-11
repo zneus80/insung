@@ -453,7 +453,7 @@ function ApprovalRow({ goal, requester, requesterOrgName, approvalRole, actionLo
   return (
     <div className="rounded-xl border bg-white p-4 hover:shadow-sm transition-shadow">
       <div className="flex items-center justify-between gap-3">
-        <Link href={`/goals/${goal.id}`} className="flex-1 min-w-0">
+        <Link href={`/goals/${goal.id}?from=approvals`} className="flex-1 min-w-0">
           <div className="space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
               {typeBadge && (
@@ -511,7 +511,7 @@ function ApprovalRow({ goal, requester, requesterOrgName, approvalRole, actionLo
               </Button>
             </div>
           ) : (
-            <Link href={`/goals/${goal.id}`}>
+            <Link href={`/goals/${goal.id}?from=approvals`}>
               <span className="text-xs text-blue-600 font-medium">검토하기 →</span>
             </Link>
           )}

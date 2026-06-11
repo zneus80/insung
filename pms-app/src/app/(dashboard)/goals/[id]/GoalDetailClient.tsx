@@ -125,15 +125,14 @@ export default function GoalDetailPage() {
   const [activeTab, setActiveTab] = useState<'progress' | 'history'>('progress');
   const [tabInitialized, setTabInitialized] = useState(false);
 
-  // 초기 탭 결정:
-  //  - 결재 대기 상태(승인요청·완료요청·포기요청·수정요청·1차승인) → '변경 이력' 기본 (결재자가 변경 내용·요청 의견 즉시 확인)
-  //  - 그 외 (진행 중·승인 완료 등 업무 보기) → '진행상황' 기본
+  // 초기 탭 결정 — 진입 경로(소스) 기준:
+  //  - 승인대기함에서 열림(?from=approvals) → '변경 이력' 기본 (결재자가 변경 내용·요청 의견 즉시 확인)
+  //  - 그 외(핵심목표 관리·진행현황 등) → '진행상황' 기본
   useEffect(() => {
     if (loading || !goal || tabInitialized) return;
-    const PENDING_STATES = ['PENDING_APPROVAL', 'LEAD_APPROVED', 'COMPLETED', 'PENDING_ABANDON', 'PENDING_MODIFY'];
-    if (PENDING_STATES.includes(goal.status)) {
-      setActiveTab('history');
-    }
+    let fromApprovals = false;
+    try { fromApprovals = new URLSearchParams(window.location.search).get('from') === 'approvals'; } catch { /* 무시 */ }
+    if (fromApprovals) setActiveTab('history');
     setTabInitialized(true);
   }, [loading, goal, tabInitialized]);
 
