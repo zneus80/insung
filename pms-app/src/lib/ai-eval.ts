@@ -159,7 +159,13 @@ function buildPrompt(members: AiMemberInput[]): string {
 
 export async function summarizeAndRankMembers(members: AiMemberInput[]): Promise<AiEvalResult> {
   if (members.length === 0) return { summaries: [], ranking: [], disclaimer: '' };
-  const res = await model().generateContent(buildPrompt(members));
+  const prompt = buildPrompt(members);
+  const t0 = (typeof performance !== 'undefined' ? performance.now() : 0);
+  const res = await model().generateContent(prompt);
+  const ms = Math.round((typeof performance !== 'undefined' ? performance.now() : 0) - t0);
+  const um = res.response.usageMetadata as undefined | { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+  // 계측: 입력 크기·소요·토큰(특히 thoughtsTokenCount 로 thinkingBudget 실제 적용 여부 확인)
+  console.log(`[AI요약 계측] ${members.length}명 · 입력 ${prompt.length.toLocaleString()}자 · 소요 ${ms}ms · 토큰{입력:${um?.promptTokenCount ?? '?'}, 사고:${um?.thoughtsTokenCount ?? '?'}, 출력:${um?.candidatesTokenCount ?? '?'}} · finish:${res.response.candidates?.[0]?.finishReason ?? '?'}`);
   const text = res.response.text();
   // JSON 파싱 (혹시 코드펜스로 감싸오면 제거)
   const clean = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
