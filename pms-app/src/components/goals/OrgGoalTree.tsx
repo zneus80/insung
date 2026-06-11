@@ -168,7 +168,7 @@ function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false, cur
                   {badge.label}
                 </span>
                 <span className="flex-1 text-sm text-gray-800 truncate flex items-center gap-1.5">
-                  {goal.isConfidential && <span title="대내비"><Lock className="h-3 w-3 shrink-0 text-red-500" /></span>}
+                  {goal.isConfidential && <span title="대내외비"><Lock className="h-3 w-3 shrink-0 text-red-500" /></span>}
                   {goal.title}
                 </span>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -231,7 +231,7 @@ function TeamGoalRows({ goals, usersById }: { goals: Goal[]; usersById?: Record<
             {badge.label}
           </span>
           <span className="flex-1 min-w-0 text-sm text-gray-800 truncate flex items-center gap-1.5">
-            {goal.isConfidential && <span title="대내비"><Lock className="h-3 w-3 shrink-0 text-red-500" /></span>}
+            {goal.isConfidential && <span title="대내외비"><Lock className="h-3 w-3 shrink-0 text-red-500" /></span>}
             {goal.title}
           </span>
           {names.length > 0 && (

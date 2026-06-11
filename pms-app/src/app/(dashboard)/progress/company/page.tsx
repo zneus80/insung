@@ -7,7 +7,7 @@
  *  - 부문/공장(DIVISION)별 연간목표 + 그 산하 팀장·팀원의 핵심목표(추진중·완료) 리스트
  *  - 혁신활동: 스마트 프로젝트 / TDS (HR 입력)
  *  - 세부내용은 노출하지 않음 (제목·소유자·진행률·상태)
- *  - 대내비(혁신활동)는 제목을 CONFIDENTIAL 로 표기
+ *  - 대내외비(혁신활동)는 제목을 CONFIDENTIAL 로 표기
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -52,7 +52,7 @@ export function CompanyProgressBody({ embedded = false }: { embedded?: boolean }
 function Content({ embedded = false }: { embedded?: boolean }) {
   const { activeYear } = useActiveYear();
   const { userProfile } = useAuth();
-  // 최고관리자(CEO) 는 대내비도 정상 노출
+  // 최고관리자(CEO) 는 대내외비도 정상 노출
   const revealConfidential = userProfile?.role === 'CEO';
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -246,7 +246,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                               const owner = usersById.get(g.userId);
                               const ownerOrg = orgsById.get(g.organizationId);
                               const masked = g.isConfidential && !revealConfidential;
-                              const titleText = masked ? 'CONFIDENTIAL (대내비)' : g.title;
+                              const titleText = masked ? 'CONFIDENTIAL (대내외비)' : g.title;
                               return (
                                 <div key={g.id} className="px-3 py-2 flex items-start gap-2">
                                   <span className={cn(

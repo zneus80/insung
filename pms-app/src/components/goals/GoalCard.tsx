@@ -79,14 +79,14 @@ export default function GoalCard({ goal, ownerName, participantNames, effectiveW
               </span>
             )}
 
-            {/* 대내비 — 전사 업무추진현황에서 마스킹됨 */}
+            {/* 대내외비 — 전사 업무추진현황에서 마스킹됨 */}
             {goal.isConfidential && (
               <span
                 className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700"
-                title="대내비 — 전사 업무추진현황에서 CONFIDENTIAL 로 표시됩니다"
+                title="대내외비 — 전사 업무추진현황에서 CONFIDENTIAL 로 표시됩니다"
               >
                 <Lock className="h-3 w-3" />
-                대내비
+                대내외비
               </span>
             )}
           </div>
@@ -95,6 +95,7 @@ export default function GoalCard({ goal, ownerName, participantNames, effectiveW
             {effectiveWeight !== undefined && (
               <span className="inline-flex items-baseline gap-0.5 rounded-md bg-indigo-50 px-2 py-0.5 text-indigo-700 font-bold"
                 title="본인 핵심목표 합계 100% 기준 환산 가중치">
+                <span className="text-[10px] font-semibold mr-0.5">가중치</span>
                 <span className="text-sm">{effectiveWeight}</span><span className="text-[10px]">%</span>
               </span>
             )}
@@ -105,7 +106,8 @@ export default function GoalCard({ goal, ownerName, participantNames, effectiveW
         {/* ── 제목 + 진행률(우측 인라인) — 세로 길이 축소 ── */}
         <div className="flex items-center gap-3">
           <h3 className="font-semibold text-gray-900 line-clamp-1 flex-1 min-w-0">{goal.title}</h3>
-          <div className="flex items-center gap-2 w-32 shrink-0">
+          <div className="flex items-center gap-2 w-40 shrink-0">
+            <span className="text-[10px] font-semibold text-gray-500 shrink-0">진행률</span>
             <Progress value={goal.progress} className="h-1.5 flex-1" />
             <span className="text-xs font-medium text-gray-700 w-8 text-right">{goal.progress}%</span>
           </div>
