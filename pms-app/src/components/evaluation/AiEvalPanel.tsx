@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createAuditLog } from '@/lib/firestore';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
@@ -42,7 +43,16 @@ export default function AiEvalPanel({
   innovationsByMember, actor, scopeLabel,
 }: Props) {
   const [loading, setLoading] = useState(false);
+  const [elapsed, setElapsed] = useState(0); // 분석 경과 시간(초)
   const [result, setResult] = useState<import('@/lib/ai-eval').AiEvalResult | null>(null);
+
+  // 분석 중 경과 시간 카운트 — 10초 정도 걸리므로 진행 표시
+  useEffect(() => {
+    if (!loading) return;
+    setElapsed(0);
+    const t = setInterval(() => setElapsed(e => e + 1), 1000);
+    return () => clearInterval(t);
+  }, [loading]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set()); // 펼친 멤버 — 기본 모두 닫힘
   const toggleExpanded = (id: string) => setExpanded(prev => {
     const next = new Set(prev);
@@ -158,10 +168,17 @@ export default function AiEvalPanel({
         </div>
         <Button size="sm" disabled={loading || members.length === 0}
           onClick={run}
-          className="bg-violet-600 hover:bg-violet-700 shrink-0">
-          {loading ? 'AI 분석 중…' : 'AI 요약 생성'}
+          className="bg-violet-600 hover:bg-violet-700 shrink-0 gap-1.5">
+          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {loading ? `AI 분석 중… ${elapsed}초` : 'AI 요약 생성'}
         </Button>
       </div>
+      {loading && (
+        <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs text-violet-600">
+          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          <span>AI가 {members.length}명의 목표·주간실적·자기평가·면담서를 종합 분석하고 있습니다… <span className="font-semibold">{elapsed}초</span> (보통 10~20초 소요)</span>
+        </div>
+      )}
       {result && (
         <div className="space-y-2">
           {result.ranking.length > 0 && (
