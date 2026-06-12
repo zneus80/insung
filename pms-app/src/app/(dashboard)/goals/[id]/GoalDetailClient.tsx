@@ -969,8 +969,11 @@ export default function GoalDetailPage() {
   );
   // 일반 승인요청 회수(DRAFT 복귀)는 신규 상신일 때만 — 수정요청(modifyRequestedBy)이 아닐 때
   const canWithdraw = isOwner && goal.status === 'PENDING_APPROVAL' && !goal.modifyRequestedBy;
-  // 완료 요청 회수: 팀장 1차 승인(completionLeadApprovedBy) 전에만 가능
-  const canWithdrawCompletion = isOwner && goal.status === 'COMPLETED' && !goal.completionLeadApprovedBy;
+  // 완료 요청 회수: 결재가 한 단계라도 진행되기 전에만 가능.
+  // 팀장 본인 목표는 Lead 단계 없이 HQ/임원 필드부터 기록되므로 세 단계 모두 검사해야
+  // 임원 최종 승인 후 회수 버튼이 남는 문제가 없다.
+  const canWithdrawCompletion = isOwner && goal.status === 'COMPLETED'
+    && !goal.completionLeadApprovedBy && !goal.completionHqApprovedBy && !goal.completionExecApprovedBy;
   // 포기 요청 회수: 팀장 1차 승인(abandonLeadApprovedBy) 전에만 가능
   const canWithdrawAbandon = isOwner && goal.status === 'PENDING_ABANDON' && !goal.abandonLeadApprovedBy;
   const canRequestCompletion = isOwner && ['APPROVED', 'IN_PROGRESS'].includes(goal.status);
