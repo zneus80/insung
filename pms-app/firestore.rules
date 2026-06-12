@@ -62,6 +62,12 @@ service cloud.firestore {
         resource.data.organizationId == userOrg() ||
         isLead() || isExec() || isCeo() || isHrAdmin()
       );
+      // 영구 삭제: 본인 목표 중 휴지통(trashedAt) 또는 포기 확정(구버전 휴지통)만. HR관리자는 정리 목적 허용.
+      allow delete: if isAuthenticated() && (
+        (resource.data.userId == request.auth.uid &&
+          (resource.data.trashedAt != null || resource.data.status == 'ABANDONED')) ||
+        isHrAdmin()
+      );
     }
 
     // 목표 이력 (읽기 전용)

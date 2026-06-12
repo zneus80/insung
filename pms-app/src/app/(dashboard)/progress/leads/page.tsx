@@ -33,7 +33,9 @@ import type { Goal, User, Organization } from '@/types';
 const CONFIRMED_STATUSES = new Set<Goal['status']>(['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'ABANDONED']);
 
 function filterConfirmed(goals: Goal[]): Goal[] {
-  return goals.filter(g => CONFIRMED_STATUSES.has(g.status) && !g.trashedAt && !g.softDeletedAt);
+  // 포기 확정(승인된 ABANDONED)은 본인이 화면에서 제거(softDeletedAt)해도 평가 기록으로 계속 표시
+  return goals.filter(g => CONFIRMED_STATUSES.has(g.status) && !g.trashedAt
+    && (!g.softDeletedAt || (g.status === 'ABANDONED' && !!g.approvedBy)));
 }
 
 /** 포기 제외 + 평균 진척도 */
