@@ -1977,6 +1977,12 @@ export async function approveSelfEvalEdit(userId: string, year: number, hrUserId
     editRequestApprovedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  // 평가 체인 동기화 — 자기평가가 DRAFT 로 돌아가므로, 아직 자기평가 단계에 머문 IE 는 미시작으로 복귀
+  // (팀장 검토 이후 단계면 체인은 건드리지 않음)
+  const ie = await getIndividualEvaluation(userId, year);
+  if (ie?.status === 'SELF_SUBMITTED') {
+    await upsertIndividualEvaluation(userId, year, { status: 'NOT_STARTED' });
+  }
 }
 
 /** HR → 개인: 수정 거절 → SUBMITTED 유지, 요청 필드만 초기화 */
