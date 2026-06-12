@@ -26,6 +26,7 @@ import {
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
+import { notifyWeeklyTaskExecutive } from '@/lib/eval-notifications';
 import type {
   WeeklyTask, SimpleTaskItem, LeadCommentEntry, User, Organization, Goal,
 } from '@/types';
@@ -436,6 +437,8 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const carriedRef = useRef(false);
+  // 명시적 저장 시 임원 알림 — 세션·주차별 1회만(연타 스팸 방지)
+  const execNotifiedRef = useRef<Set<string>>(new Set());
   const gpRef = useRef(goalProgress);
   useEffect(() => { gpRef.current = goalProgress; }, [goalProgress]);
 
@@ -564,6 +567,21 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
             }
           }
         } catch (e) { console.error('[차주 동기화] 실패:', e); }
+        // 명시적 '저장 · 목표연동' 시 — 해당 조직 임원에게 주간보고 저장 알림 (세션·주차별 1회)
+        if (syncGoals) {
+          const key = `${orgId}-${year}-${week}`;
+          if (!execNotifiedRef.current.has(key)) {
+            execNotifiedRef.current.add(key);
+            try {
+              const [allOrgs, allUsers] = await Promise.all([getOrganizations(), getAllUsers()]);
+              const orgName = allOrgs.find(o => o.id === orgId)?.name;
+              await notifyWeeklyTaskExecutive({
+                orgId, orgName, fromUserId: currentUser.id, fromUserName: currentUser.name,
+                year, week, allOrgs, allUsers,
+              });
+            } catch (e) { console.error('[주간보고 임원알림] 실패:', e); execNotifiedRef.current.delete(key); }
+          }
+        }
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
       } catch { setSaveStatus('idle'); }

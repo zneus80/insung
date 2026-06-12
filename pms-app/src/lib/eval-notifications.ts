@@ -81,6 +81,45 @@ export function findEvalReviewer(
   return null;
 }
 
+/**
+ * 주간업무보고 저장 시 — 해당 팀(조직)의 상위 임원에게 알림.
+ * orgId(팀) 의 조직 체인을 거슬러 올라가 DIVISION(없으면 최상위 HQ) 의 leader(임원)를 찾는다.
+ * findEvalReviewer 의 'EXEC' 단계 로직 재사용(합성 subject 사용 — role 무관).
+ * 본인(저장자)이 임원이면 자가알림 스킵.
+ */
+export async function notifyWeeklyTaskExecutive(p: {
+  orgId: string;
+  orgName?: string;
+  fromUserId: string;
+  fromUserName: string;
+  year: number;
+  week: number;
+  allOrgs: Organization[];
+  allUsers: User[];
+}): Promise<{ notified: boolean; targetUserId: string | null }> {
+  try {
+    // EXEC 단계는 subject.organizationId 만으로 DIVISION leader 를 찾으므로 합성 subject 로 충분
+    const subject = { id: p.fromUserId, organizationId: p.orgId, role: 'MEMBER' } as User;
+    const target = findEvalReviewer(subject, 'EXEC', p.allOrgs, p.allUsers);
+    if (!target || target.userId === p.fromUserId) {
+      return { notified: false, targetUserId: target?.userId ?? null };
+    }
+    await createNotification({
+      userId: target.userId,
+      type: 'WEEKLY_TASK_SUBMITTED',
+      category: 'WEEKLY_TASK',
+      title: `${p.orgName ? p.orgName + ' ' : ''}주간업무보고 저장`,
+      message: `${p.fromUserName}님이 ${p.year}년 ${p.week}주차 주간업무보고를 저장했습니다.`,
+      link: '/tasks',
+      read: false,
+    });
+    return { notified: true, targetUserId: target.userId };
+  } catch (err) {
+    console.error('[주간보고 임원알림] 실패:', err);
+    return { notified: false, targetUserId: null };
+  }
+}
+
 export interface NotifyEvalParams {
   subject: User;
   fromUserId: string;
