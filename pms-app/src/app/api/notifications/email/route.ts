@@ -66,7 +66,8 @@ export async function POST(req: NextRequest) {
       from: `"INSUNG PMS 알림 (발신전용)" <${process.env.GMAIL_USER}>`,
       to: email,
       replyTo: `"발신전용 — 회신 불가" <${process.env.GMAIL_USER}>`,
-      subject: `[INSUNG PMS] ${String(title).slice(0, 120)}`,
+      // 제목은 고정 문구로 통일 — 업무명·인명이 메일 제목(미리보기·잠금화면)에 노출되지 않도록. 상세는 본문에서.
+      subject: '[INSUNG PMS] 새로운 알림이 업데이트 되었습니다.',
       html: [
         '<div style="font-family:Apple SD Gothic Neo,Malgun Gothic,sans-serif;max-width:520px;margin:0 auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px">',
         `<h2 style="font-size:16px;color:#111827;margin:0 0 12px">${escapeHtml(String(title))}</h2>`,

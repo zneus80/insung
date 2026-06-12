@@ -135,9 +135,10 @@ function MemberDashboard() {
         ]);
 
         setGoals(goalList);
-        // 팀 목표 — 팀 전체(본인 포함) + 휴지통·소프트삭제 제외
+        // 팀 목표 — 팀 전체(본인 포함) + 휴지통·소프트삭제 제외.
+        // 단, 포기 확정(승인된 ABANDONED)은 본인이 화면에서 제거(softDeletedAt)해도 평가 기록으로 계속 표시.
         setTeamGoals(teamScopeGoals.filter(g =>
-          !g.trashedAt && !g.softDeletedAt,
+          !g.trashedAt && (!g.softDeletedAt || (g.status === 'ABANDONED' && !!g.approvedBy)),
         ));
         setPendingCount(pendingCount);
         setUpcomingMeetings(meetings.slice(0, 3));
