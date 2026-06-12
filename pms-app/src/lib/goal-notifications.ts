@@ -243,6 +243,8 @@ export async function notifyAllChainParties(params: NotifyAllChainParams): Promi
 
     const { message, type } = buildBroadcastMessage(event, ownerName, goal.title);
 
+    // 이메일은 수행자 본인의 결과 통보(최종 승인·반려 등)만 — 결재자는 지명 알림(notifyNextApprover)으로
+    // 이미 메일을 받으므로 전파 알림까지 메일로 가면 같은 건이 2통 중복된다.
     await Promise.all(Array.from(recipients).map(uid =>
       createNotification({
         userId: uid,
@@ -251,6 +253,7 @@ export async function notifyAllChainParties(params: NotifyAllChainParams): Promi
         type,
         message,
         read: false,
+        skipEmail: uid !== goal.userId,
       }).catch(err => console.error(`[broadcast] ${uid} 발송 실패:`, err))
     ));
 
