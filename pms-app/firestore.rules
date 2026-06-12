@@ -310,6 +310,12 @@ service cloud.firestore {
       );
     }
 
+    // 조직평가결과 공개 플래그 — 읽기는 전체(노출 게이트 판단용), 쓰기는 HR마스터/CEO 만
+    match /orgEvalPublish/{year} {
+      allow read: if isAuthenticated();
+      allow write: if isHrMaster() || isCeo();
+    }
+
     // 데이터 백업 (HR관리자만 읽기·쓰기·삭제)
     match /backups/{id} {
       allow read: if isHrAdmin();

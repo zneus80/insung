@@ -13,6 +13,7 @@ import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import { normalizeWeights } from '@/lib/goal-weight';
 import { shiftEnterSubmit } from '@/lib/utils';
 import Header from '@/components/layout/Header';
+import { useEvalPeriod, EvalPeriodNotice } from '@/components/evaluation/EvalPeriodGate';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -25,6 +26,7 @@ type Innov = { id: string; name: string };
 
 export default function SelfEvalPage() {
   const { userProfile } = useAuth();
+  const { beforePeriod, startDate } = useEvalPeriod(); // 평가기간 전 — 제출만 차단(작성·임시저장 허용)
   const { activeYear: year, isYearLocked } = useActiveYear();
   const locked = isYearLocked(year);
 
@@ -344,9 +346,13 @@ export default function SelfEvalPage() {
               )}
             </div>
           ) : !locked && (
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" disabled={saving} onClick={() => handleSave(false)}>임시저장</Button>
-              <Button disabled={saving} onClick={() => handleSave(true)}>제출</Button>
+            <div className="space-y-2">
+              {beforePeriod && <EvalPeriodNotice startDate={startDate} />}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" disabled={saving} onClick={() => handleSave(false)}>임시저장</Button>
+                <Button disabled={saving || beforePeriod} onClick={() => handleSave(true)}
+                  title={beforePeriod ? '평가기간에만 제출할 수 있습니다.' : undefined}>제출</Button>
+              </div>
             </div>
           )}
         </div>

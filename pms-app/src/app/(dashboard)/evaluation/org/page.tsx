@@ -15,6 +15,8 @@ import {
   getDivisionGradeQuota,
   upsertDivisionGradeQuota,
   getAllDivisionGradeQuotas,
+  getOrgEvalPublish,
+  setOrgEvalPublish,
   getGradeQuotas,
   getAllIndividualEvaluations,
   getSelfEvaluationsByUsers,
@@ -155,7 +157,8 @@ function OrgEvaluationContent() {
   // 조직평가관리(등급 지정) — CEO / HR 마스터 / CEO Viewer (모두 조회 가능)
   const canSeeGradeSection = isCeo || isHrMaster || isCeoViewer;
   // 실제 등급 변경 권한 — CEO 본인 (isCeoViewer 가 부여되면 같은 CEO 라도 권한 박탈 = 각자대표 중 viewer 케이스)
-  const canModifyGrade = isCeo && !isCeoViewer;
+  // 등급 결정: CEO + HR마스터 (CEO Viewer 는 조회 전용)
+  const canModifyGrade = (isCeo || isHrMaster) && !isCeoViewer;
   // mode 쿼리에 따라 표시할 섹션 결정. mode 없으면 권한대로 모두 표시
   const showGradeSection = canSeeGradeSection && mode !== 'quota';
   const showQuotaSection = isHrAdmin && mode !== 'grade';
@@ -170,6 +173,8 @@ function OrgEvaluationContent() {
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [evaluations, setEvaluations] = useState<OrganizationEvaluation[]>([]);
   const [divQuotas, setDivQuotas] = useState<DivisionGradeQuota[]>([]);
+  const [orgPublished, setOrgPublished] = useState(false);   // 조직평가결과 공개 여부
+  const [publishing, setPublishing] = useState(false);
   const [globalQuotas, setGlobalQuotas] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
@@ -205,9 +210,10 @@ function OrgEvaluationContent() {
       getGradeQuotas(),
     ]);
 
-    // DIVISION + 상위에 DIVISION이 없는 독립 TEAM을 평가 단위로 포함
+    // DIVISION + 조직평가 단위로 지정된 본부(isEvalUnit) + 상위에 DIVISION이 없는 독립 TEAM
     const targets = orgs.filter(o => {
       if (o.type === 'DIVISION') return true;
+      if (o.isEvalUnit) return true;
       if (o.type === 'TEAM') {
         const ancestors = getAncestorOrgs(o.id, orgs);
         return !ancestors.some(a => a.type === 'DIVISION');
@@ -218,6 +224,7 @@ function OrgEvaluationContent() {
 
     setAllOrgs(orgs);
     setTargetOrgs(targets);
+    getOrgEvalPublish(year).then(setOrgPublished).catch(() => {});
     setAllUsers(activeUsers);
     setEvaluations(evals);
     setDivQuotas(dQuotas);
@@ -728,20 +735,40 @@ function OrgEvaluationContent() {
                             )}
                           </td>
                           <td className="px-4 py-3 text-center">
-                            {autoQuota ? (
-                              <div className="inline-flex rounded-lg border overflow-hidden divide-x">
-                                {GRADES.map(g => (
-                                  <div key={g} className="flex flex-col items-center min-w-[44px]">
-                                    <div className={`w-full px-2 py-0.5 text-[10px] font-bold text-center ${GRADE_COLOR[g]}`}>{g}</div>
-                                    <div className={`w-full px-2 py-1 text-sm font-bold text-gray-800 ${autoQuota[g] === 0 ? 'text-gray-300' : ''}`}>
-                                      {autoQuota[g]}
-                                    </div>
+                            {(() => {
+                              // HR마스터가 조직평가인원관리에서 확정한 쿼터 — 확정 시 권고 아래 행으로 표시
+                              const confirmedQuota = quota?.status === 'CONFIRMED' ? quota : null;
+                              if (!autoQuota && !confirmedQuota) {
+                                return <span className="text-xs text-gray-300">등급 확정 후 자동 계산</span>;
+                              }
+                              return (
+                                <div className="inline-flex flex-col items-center gap-1">
+                                  <div className="inline-flex rounded-lg border overflow-hidden divide-x">
+                                    {GRADES.map(g => {
+                                      const confirmedVal = confirmedQuota
+                                        ? (confirmedQuota[`quota${g}` as 'quotaA' | 'quotaB' | 'quotaC' | 'quotaD' | 'quotaE'] ?? 0)
+                                        : null;
+                                      return (
+                                        <div key={g} className="flex flex-col items-center min-w-[44px]">
+                                          <div className={`w-full px-2 py-0.5 text-[10px] font-bold text-center ${GRADE_COLOR[g]}`}>{g}</div>
+                                          <div className={`w-full px-2 py-1 text-sm font-bold text-gray-800 ${autoQuota && autoQuota[g] === 0 ? 'text-gray-300' : ''}`}>
+                                            {autoQuota ? autoQuota[g] : '-'}
+                                          </div>
+                                          <div className={`w-full px-2 py-1 text-sm font-bold border-t ${
+                                            confirmedVal == null ? 'text-gray-300' : confirmedVal === 0 ? 'text-green-300 bg-green-50/50' : 'text-green-700 bg-green-50'
+                                          }`}>
+                                            {confirmedVal == null ? '-' : confirmedVal}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-xs text-gray-300">등급 확정 후 자동 계산</span>
-                            )}
+                                  <p className="text-[10px] text-gray-400">
+                                    상단 권고 · 하단 확정{confirmedQuota ? ' (HR 쿼터 확정)' : ' (쿼터 미확정)'}
+                                  </p>
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-center">
                             <Select
@@ -794,6 +821,39 @@ function OrgEvaluationContent() {
         {/* ── HR_ADMIN: 개인 등급 쿼터 확정 ── */}
         {showQuotaSection && (
           <section className="space-y-4">
+            {/* 조직평가결과 공개 — HR마스터/CEO 전용. 공개 전에는 일반 사용자에게 조직등급 미노출 (§6-1) */}
+            {(isHrMaster || isCeo) && (
+              <div className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${orgPublished ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+                <p className={`text-sm ${orgPublished ? 'text-green-700' : 'text-amber-700'}`}>
+                  {orgPublished
+                    ? <>✅ <b>{year}년 조직평가결과가 공개되었습니다.</b> 팀원·팀장 화면에 조직등급이 표시됩니다.</>
+                    : <>🔒 <b>{year}년 조직평가결과가 아직 비공개입니다.</b> 공개 전에는 팀원·팀장에게 조직등급이 표시되지 않습니다.</>}
+                </p>
+                <Button
+                  size="sm"
+                  variant={orgPublished ? 'outline' : 'default'}
+                  disabled={publishing || isCeoViewer}
+                  className={orgPublished ? 'shrink-0' : 'shrink-0 bg-green-600 hover:bg-green-700'}
+                  onClick={async () => {
+                    if (!userProfile) return;
+                    const next = !orgPublished;
+                    if (!confirm(next
+                      ? `${year}년 조직평가결과를 공개하시겠습니까?\n공개 즉시 팀원·팀장 화면에 조직등급이 표시됩니다.`
+                      : `${year}년 조직평가결과 공개를 취소하시겠습니까?\n팀원·팀장 화면에서 조직등급이 숨겨집니다.`)) return;
+                    setPublishing(true);
+                    try {
+                      await setOrgEvalPublish(year, next, userProfile.id);
+                      setOrgPublished(next);
+                      toast.success(next ? '조직평가결과가 공개되었습니다.' : '조직평가결과 공개가 취소되었습니다.');
+                    } catch {
+                      toast.error('처리에 실패했습니다.');
+                    } finally { setPublishing(false); }
+                  }}
+                >
+                  {publishing ? '처리 중…' : orgPublished ? '공개 취소' : '조직평가결과 공개'}
+                </Button>
+              </div>
+            )}
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="font-semibold text-gray-900">{year}년 개인 등급 쿼터 확정</h3>

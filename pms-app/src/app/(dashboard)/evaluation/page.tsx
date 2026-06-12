@@ -26,6 +26,7 @@ import { approverTitle } from '@/lib/approval-filters';
 import { compareUserByRoleHire } from '@/lib/user-sort';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
+import { useEvalPeriod, EvalPeriodNotice } from '@/components/evaluation/EvalPeriodGate';
 import YearLockBanner from '@/components/layout/YearLockBanner';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
 import SelfEvalGoalList, { EVAL_RETURN_KEY } from '@/components/evaluation/SelfEvalGoalList';
@@ -115,6 +116,7 @@ function ExecutiveEvalView() {
   const { userProfile } = useAuth();
   const { activeYear: year, isYearLocked } = useActiveYear();
   const locked = isYearLocked(year);
+  const { beforePeriod, startDate } = useEvalPeriod(); // 평가기간 전 — 등급 확정만 차단
 
   const [allOrgs, setAllOrgs]         = useState<Organization[]>([]);
   const [members, setMembers]         = useState<User[]>([]);
@@ -360,6 +362,7 @@ function ExecutiveEvalView() {
       <div className="flex-1 overflow-y-auto p-6 space-y-5">
 
         <YearLockBanner />
+      {beforePeriod && <div className="px-6 pt-4"><EvalPeriodNotice startDate={startDate} /></div>}
 
         {/* 쿼터 현황 */}
         {quotas ? (
@@ -451,7 +454,7 @@ function ExecutiveEvalView() {
                       const isConfirmed = ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
                       const isLead = member.role === 'TEAM_LEAD';
                       const isSel = selectedMemberId === member.id;
-                      const submitted = se?.status === 'SUBMITTED' || !!mentoringForms[member.id];
+                      const submitted = se?.status === 'SUBMITTED'; // 자기평가 '제출(SUBMITTED)'만 인정 — 임시저장·육성면담서 존재는 미제출
                       return (
                         <button key={member.id}
                           onClick={() => setSelectedMemberId(isSel ? null : member.id)}
@@ -550,7 +553,7 @@ function ExecutiveEvalView() {
                             <textarea
                               value={input.comment}
                               onChange={e => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
-                              onKeyDown={shiftEnterSubmit(() => handleConfirm(member.id), !isConfirmed && saving !== member.id && !!input.grade && !locked)}
+                              onKeyDown={shiftEnterSubmit(() => handleConfirm(member.id), !isConfirmed && saving !== member.id && !!input.grade && !locked && !beforePeriod)}
                               disabled={isConfirmed || saving === member.id || locked}
                               rows={2}
                               placeholder="등급 부여 이유 또는 의견을 작성해주세요 (Shift+Enter 확정)"
@@ -560,7 +563,7 @@ function ExecutiveEvalView() {
                             {isConfirmed ? (
                               <span className="text-xs text-green-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> 확정 완료</span>
                             ) : (
-                              <Button size="sm" disabled={saving === member.id || !input.grade || locked} onClick={() => handleConfirm(member.id)}>
+                              <Button size="sm" disabled={saving === member.id || !input.grade || locked || beforePeriod} title={beforePeriod ? '평가기간에만 확정할 수 있습니다.' : undefined} onClick={() => handleConfirm(member.id)}>
                                 {saving === member.id ? '확정 중...' : '등급 확정'}
                               </Button>
                             )}
@@ -571,7 +574,7 @@ function ExecutiveEvalView() {
                         <div>
                           <p className="text-sm font-bold text-gray-800 mb-2">
                             자기평가
-                            {(() => { const t = computeSelfEvalTotal(selfEvals[member.id]); return t != null && (
+                            {(() => { const t = computeSelfEvalTotal(selfEvals[member.id]?.status === 'SUBMITTED' ? selfEvals[member.id] : null); return t != null && (
                               <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점)</span>
                             ); })()}
                           </p>
@@ -581,7 +584,7 @@ function ExecutiveEvalView() {
                               g.status === 'PENDING_ABANDON' || (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange));
                             const completed = cg.filter(g => g.status === 'COMPLETED').length;
                             return (
-                              <SelfEvalBody form={selfEvals[member.id] ?? null}
+                              <SelfEvalBody form={selfEvals[member.id]?.status === 'SUBMITTED' ? selfEvals[member.id] : null}
                                 abandonedGoals={cg.filter(g => g.status === 'ABANDONED').map(g => ({ goalId: g.id, goalTitle: g.title }))}
                                 goalSummary={{ total: cg.length, completed, notCompleted: cg.length - completed }} />
                             );
@@ -591,7 +594,7 @@ function ExecutiveEvalView() {
                         {/* 육성면담서 (직무·경력·요청·종합의견) */}
                         <div>
                           <p className="text-sm font-bold text-gray-800 mb-2">육성면담서</p>
-                          <MentoringPerfBody form={mentoringForms[member.id] ?? null} />
+                          <MentoringPerfBody form={mentoringForms[member.id]?.status === 'SUBMITTED' ? mentoringForms[member.id] : null} />
                         </div>
                       </div>
                     );

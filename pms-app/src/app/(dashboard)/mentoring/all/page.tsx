@@ -4,17 +4,29 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   getAllUsers, getOrganizations, getMentoringFormsByUsers,
+  getSelfEvaluationsByUsers, getAllIndividualEvaluations,
 } from '@/lib/firestore';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
+import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { ChevronDown, ChevronRight, MessageSquareHeart, AlertCircle, Pencil, Search } from 'lucide-react';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
+import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { SearchInput } from '@/components/ui/search-input';
 import { cn } from '@/lib/utils';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
-import type { User, Organization, MentoringForm, JobRequestType } from '@/types';
+import type { User, Organization, MentoringForm, JobRequestType, SelfEvaluation, IndividualEvaluation, EvaluationGrade } from '@/types';
+
+// 평가등급 칩 색상 (평가 화면과 동일 톤)
+const GRADE_CHIP: Record<string, string> = {
+  A: 'bg-blue-100 text-blue-700',
+  B: 'bg-green-100 text-green-700',
+  C: 'bg-gray-100 text-gray-700',
+  D: 'bg-orange-100 text-orange-700',
+  E: 'bg-red-100 text-red-600',
+};
 
 const JOB_REQUEST_LABELS: Record<JobRequestType, string> = {
   EXPAND:    '① 직무 확대',
@@ -33,6 +45,9 @@ export default function MentoringAllPage() {
 }
 
 function MentoringAllContent() {
+  const { userProfile } = useAuth();
+  // CEO·HR마스터 = 평가등급·자기평가 포함 풀 버전 / HR관리자(마스터 아님) = 기존 육성면담서 확인만
+  const fullView = userProfile?.role === 'CEO' || !!userProfile?.isHrMaster;
   const searchParams = useSearchParams();
   const { activeYear } = useActiveYear();
   const initYear = Number(searchParams.get('year') ?? activeYear) || activeYear;
@@ -42,6 +57,8 @@ function MentoringAllContent() {
   const [users, setUsers] = useState<User[]>([]);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [forms, setForms] = useState<Record<string, MentoringForm>>({});
+  const [selfEvals, setSelfEvals] = useState<Record<string, SelfEvaluation>>({});
+  const [indivEvals, setIndivEvals] = useState<Record<string, IndividualEvaluation>>({});
   const [loading, setLoading] = useState(true);
   const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set());
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -63,10 +80,21 @@ function MentoringAllContent() {
         setUsers(active);
         setOrgs(allOrgs.filter(o => !o.archivedAt)); // 아카이브된 조직(예: 과거 총무팀) 제외 — 중복 표시 방지
 
-        const formList = await getMentoringFormsByUsers(active.map(u => u.id), selectedYear);
+        const ids = active.map(u => u.id);
+        const [formList, seList, ieList] = await Promise.all([
+          getMentoringFormsByUsers(ids, selectedYear),
+          fullView ? getSelfEvaluationsByUsers(ids, selectedYear) : Promise.resolve([] as SelfEvaluation[]),
+          fullView ? getAllIndividualEvaluations(selectedYear) : Promise.resolve([] as IndividualEvaluation[]),
+        ]);
         const formMap: Record<string, MentoringForm> = {};
         formList.forEach(f => { if (f) formMap[f.userId] = f; });
         setForms(formMap);
+        const seMap: Record<string, SelfEvaluation> = {};
+        seList.forEach(se => { if (se) seMap[se.userId] = se; });
+        setSelfEvals(seMap);
+        const ieMap: Record<string, IndividualEvaluation> = {};
+        ieList.forEach(ie => { ieMap[ie.userId] = ie; });
+        setIndivEvals(ieMap);
 
         const topOrgs = allOrgs.filter(o => !o.parentId);
         if (topOrgs.length > 0) setExpandedOrgs(new Set([topOrgs[0].id]));
@@ -121,7 +149,7 @@ function MentoringAllContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="전사 육성면담서 확인" />
+      <Header title={fullView ? "전사 육성면담서·자기평가" : "전사 육성면담서 확인"} />
 
       {/* 연도 탭 */}
       <div className="flex items-center gap-2 px-6 py-3 bg-gray-50 border-b shrink-0">
@@ -146,7 +174,7 @@ function MentoringAllContent() {
         <div className="w-72 border-r overflow-y-auto flex-shrink-0 bg-gray-50">
           <div className="p-4 space-y-1">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-              {selectedYear}년 육성면담서
+              {selectedYear}년 육성면담서{fullView ? '·자기평가' : ''}
             </p>
             {/* 검색 */}
             <div className="mb-3">
@@ -221,25 +249,68 @@ function MentoringAllContent() {
           {!selectedUser ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
               <MessageSquareHeart className="h-12 w-12 mb-3 opacity-30" />
-              <p className="text-sm">좌측에서 팀원을 선택하면 육성면담서를 확인할 수 있습니다.</p>
-            </div>
-          ) : !selectedForm ? (
-            <div className="max-w-2xl">
-              <h2 className="text-lg font-bold text-gray-900 mb-1"><MemberInfoModal userId={selectedUser.id} userName={selectedUser.name} /></h2>
-              <p className="text-sm text-gray-500 mb-6">{selectedUser.position ?? ''}</p>
-              <div className="rounded-xl border border-dashed bg-gray-50 p-12 text-center">
-                <p className="text-sm text-gray-400">아직 작성된 육성면담서가 없습니다.</p>
-              </div>
+              <p className="text-sm">좌측에서 팀원을 선택하면 {fullView ? '평가의견·자기평가·육성면담서를' : '육성면담서를'} 확인할 수 있습니다.</p>
             </div>
           ) : (
-            <div className="max-w-2xl space-y-6">
+            <div className="max-w-3xl space-y-6">
               <div>
                 <h2 className="text-lg font-bold text-gray-900"><MemberInfoModal userId={selectedUser.id} userName={selectedUser.name} /></h2>
-                <p className="text-sm text-gray-500">{selectedUser.position ?? ''} · {selectedYear}년 육성면담서</p>
-                <span className={cn('inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium', STATUS_COLOR[selectedForm.status])}>
-                  {STATUS_LABEL[selectedForm.status]}
-                </span>
+                <p className="text-sm text-gray-500">
+                  {selectedUser.position ?? ''} · {selectedYear}년 육성면담서{fullView ? '·자기평가' : ''}
+                  {(() => { const t = computeSelfEvalTotal(selfEvals[selectedUser.id]?.status === 'SUBMITTED' ? selfEvals[selectedUser.id] : null); return t != null
+                    ? <span className="ml-1.5 font-semibold text-indigo-600">(자기평가 점수 {t}점)</span> : null; })()}
+                </p>
+                {selectedForm && (
+                  <span className={cn('inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium', STATUS_COLOR[selectedForm.status])}>
+                    {STATUS_LABEL[selectedForm.status]}
+                  </span>
+                )}
               </div>
+
+              {/* 평가 의견 — 팀장 / 본부장(부공장장) / 임원 병렬 배치 (CEO·HR마스터 전용) */}
+              {fullView && (() => {
+                const ie = indivEvals[selectedUser.id];
+                const cards: { title: string; grade?: EvaluationGrade; comment?: string }[] = [
+                  { title: '팀장 평가등급·의견', grade: ie?.leadGrade, comment: ie?.leadComment },
+                  { title: '본부장(부공장장) 평가등급·의견', grade: ie?.hqGrade, comment: ie?.hqComment },
+                  { title: '임원 평가등급·의견', grade: ie?.execGrade, comment: ie?.execComment },
+                ];
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {cards.map(c => (
+                      <div key={c.title} className="rounded-xl border bg-white p-4 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-gray-500">{c.title}</p>
+                          {c.grade ? (
+                            <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-sm font-bold', GRADE_CHIP[c.grade] ?? 'bg-gray-100 text-gray-600')}>
+                              {c.grade}
+                            </span>
+                          ) : (
+                            <span className="shrink-0 text-xs text-gray-300">미제출</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed min-h-[40px]">
+                          {c.comment?.trim() || <span className="text-gray-300">의견 없음</span>}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* 자기평가 — 임원 평가등급확정과 동일 노출 (CEO·HR마스터 전용) */}
+              {fullView && (
+                <div className="rounded-xl border bg-white p-5">
+                  <h3 className="text-sm font-bold text-gray-800 mb-3">자기평가</h3>
+                  <SelfEvalBody form={selfEvals[selectedUser.id]?.status === 'SUBMITTED' ? selfEvals[selectedUser.id] : null} />
+                </div>
+              )}
+
+              {!selectedForm ? (
+                <div className="rounded-xl border border-dashed bg-gray-50 p-12 text-center">
+                  <p className="text-sm text-gray-400">아직 작성된 육성면담서가 없습니다.</p>
+                </div>
+              ) : (<>
 
               {/* 수정 요청 대기 안내 (정보만 표시 — 처리는 알림에서) */}
               {selectedForm.editRequestPending && (
@@ -274,6 +345,7 @@ function MentoringAllContent() {
                   <Row label="면담자 의견" value={selectedForm.interviewerOpinion} multiline />
                 </Section>
               )}
+              </>)}
             </div>
           )}
         </div>

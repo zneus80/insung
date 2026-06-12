@@ -26,6 +26,7 @@ export default function ProfilePage() {
   const [orgs, setOrgs] = useState<Organization[]>([]);
   // 승진요건 실적 (전사 인원현황 computePromotion 과 동일 기준 — 연도 무관 누적)
   const [spPmCount, setSpPmCount] = useState(0);
+  const [spPmCompletedCount, setSpPmCompletedCount] = useState(0); // 임원 승진 실적은 완료된 SP 만
   const [spMemberCount, setSpMemberCount] = useState(0);
   const [mileagePoints, setMileagePoints] = useState(0);
   const [promoLoading, setPromoLoading] = useState(true);
@@ -51,13 +52,17 @@ export default function ProfilePage() {
           listAllInnovationActivities(),
           getMileage(uid),
         ]);
-        let pm = 0, member = 0;
+        let pm = 0, pmCompleted = 0, member = 0;
         for (const a of innovations) {
           if (a.type !== 'SMART_PROJECT') continue;
-          if (getPmIds(a).includes(uid)) pm++;
+          if (getPmIds(a).includes(uid)) {
+            pm++;
+            if (a.status === 'COMPLETED') pmCompleted++; // 임원 승진 실적은 완료만
+          }
           if ((a.memberIds ?? []).includes(uid)) member++;
         }
         setSpPmCount(pm);
+        setSpPmCompletedCount(pmCompleted);
         setSpMemberCount(member);
         setMileagePoints(mileage?.points ?? 0);
       } catch { /* 표시만 생략 */ } finally {
@@ -117,9 +122,9 @@ export default function ProfilePage() {
                 <div className="h-10 animate-pulse rounded-lg bg-gray-100" />
               ) : isLeadTrack ? (
                 <RequirementRow
-                  label="스마트 프로젝트 PM 1회"
-                  actual={`${spPmCount}회`}
-                  met={spPmCount >= 1}
+                  label="스마트 프로젝트 PM 1회 (완료 기준)"
+                  actual={`${spPmCompletedCount}회`}
+                  met={spPmCompletedCount >= 1}
                 />
               ) : (
                 <>
