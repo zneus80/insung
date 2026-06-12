@@ -338,7 +338,7 @@ function MemberResultView({
       let cur: Organization | undefined = allOrgs.find(o => o.id === userProfile.organizationId);
       let chosen: OrganizationEvaluation | undefined;
       while (cur) {
-        if (cur.type === 'DIVISION' || cur.isEvalUnit) {
+        if ((cur.type === 'DIVISION' && cur.isEvalUnit !== false) || cur.isEvalUnit === true) {
           const ev = approvedEvalByOrg.get(cur.id);
           if (ev) { chosen = ev; break; }
         }

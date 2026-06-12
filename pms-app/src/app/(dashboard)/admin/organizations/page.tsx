@@ -140,7 +140,8 @@ function OrganizationsContent() {
     setForm({
       name: org.name, type: org.type, parentId: org.parentId, leaderId: org.leaderId,
       displayOrder: org.displayOrder != null ? String(org.displayOrder) : '',
-      isEvalUnit: !!org.isEvalUnit,
+      // 부문은 기본 체크(명시적으로 해제한 경우만 false), 본부는 기본 미체크
+      isEvalUnit: org.type === 'DIVISION' ? org.isEvalUnit !== false : !!org.isEvalUnit,
     });
     setLeaderSearch('');
     setParentSearch('');
@@ -189,7 +190,7 @@ function OrganizationsContent() {
           name: form.name, type: form.type,
           parentId: form.parentId || null,
           leaderId: form.leaderId || null,
-          isEvalUnit: form.type === 'HEADQUARTERS' ? form.isEvalUnit : false,
+          isEvalUnit: (form.type === 'HEADQUARTERS' || form.type === 'DIVISION') ? form.isEvalUnit : false,
           ...(orderNum !== undefined && !Number.isNaN(orderNum) ? { displayOrder: orderNum } : {}),
         });
         toast.success('조직 정보가 수정되었습니다.');
@@ -199,7 +200,7 @@ function OrganizationsContent() {
           name: form.name, type: form.type,
           parentId: form.parentId || null,
           leaderId: form.leaderId || null,
-          isEvalUnit: form.type === 'HEADQUARTERS' ? form.isEvalUnit : false,
+          isEvalUnit: (form.type === 'HEADQUARTERS' || form.type === 'DIVISION') ? form.isEvalUnit : false,
           ...(orderNum !== undefined && !Number.isNaN(orderNum) ? { displayOrder: orderNum } : {}),
         });
         toast.success('조직이 추가되었습니다.');
@@ -484,7 +485,12 @@ function OrganizationsContent() {
               </div>
               <div className="space-y-1.5">
                 <Label>구분 *</Label>
-                <Select value={form.type} onValueChange={v => setForm(f => ({ ...f, type: v as OrgType }))}>
+                <Select value={form.type} onValueChange={v => setForm(f => ({
+                  ...f,
+                  type: v as OrgType,
+                  // 부문은 기본 평가 단위(체크), 본부는 기존 선택 유지, 그 외 타입은 해제
+                  isEvalUnit: v === 'DIVISION' ? true : v === 'HEADQUARTERS' ? f.isEvalUnit : false,
+                }))}>
                   {/* SelectValue 에 명시적 children 전달 — Radix 의 자동 textContent 추출 실패(편집 폼처럼 값 먼저 set 되는 케이스) 회피 */}
                   <SelectTrigger><SelectValue>{TYPE_LABEL[form.type]}</SelectValue></SelectTrigger>
                   <SelectContent>
@@ -525,8 +531,8 @@ function OrganizationsContent() {
                   );
                 })()}
               </div>
-              {/* 조직평가 단위 — 본부(HEADQUARTERS)를 부문처럼 조직평가 대상으로 지정 */}
-              {form.type === 'HEADQUARTERS' && (
+              {/* 조직평가 단위 — 부문은 기본 체크, 본부는 필요한 곳만 체크 */}
+              {(form.type === 'HEADQUARTERS' || form.type === 'DIVISION') && (
                 <div className="flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2.5">
                   <input
                     id="isEvalUnit"
@@ -538,7 +544,9 @@ function OrganizationsContent() {
                   <Label htmlFor="isEvalUnit" className="cursor-pointer text-sm">
                     조직평가 단위로 지정
                     <span className="block text-xs text-gray-500 font-normal mt-0.5">
-                      체크하면 이 본부가 부문/공장처럼 조직평가(등급·쿼터) 대상이 됩니다. 소속 인원의 조직등급은 이 본부 기준으로 표시됩니다.
+                      {form.type === 'DIVISION'
+                        ? '부문/공장은 기본 평가 단위입니다. 산하 본부가 개별 조직평가 단위로 지정된 경우 중복 평가를 막으려면 체크를 해제하세요.'
+                        : '체크하면 이 본부가 부문/공장처럼 조직평가(등급·쿼터) 대상이 됩니다. 소속 인원의 조직등급은 이 본부 기준으로 표시됩니다.'}
                     </span>
                   </Label>
                 </div>

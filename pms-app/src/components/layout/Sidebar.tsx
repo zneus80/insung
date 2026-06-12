@@ -569,7 +569,7 @@ export default function Sidebar() {
                   <span className={isActive ? 'text-blue-600' : 'text-gray-400'}>
                     {item.icon}
                   </span>
-                  <span className="flex-1">{item.label}</span>
+                  <span className={item.label === '전사 육성면담서·자기평가' ? 'flex-1 text-[95%]' : 'flex-1'}>{item.label}</span>
                   {item.href === '/notifications' && unreadCount > 0 && (
                     <span className="rounded-full bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] inline-flex items-center justify-center px-1.5">
                       {unreadCount > 99 ? '99+' : unreadCount}

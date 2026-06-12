@@ -210,9 +210,10 @@ function OrgEvaluationContent() {
       getGradeQuotas(),
     ]);
 
-    // DIVISION + 조직평가 단위로 지정된 본부(isEvalUnit) + 상위에 DIVISION이 없는 독립 TEAM
+    // 평가 단위: 부문(기본 체크 — isEvalUnit !== false) + 체크된 본부 + 상위에 DIVISION 없는 독립 TEAM
+    // 부문 체크를 해제하면 산하 본부가 개별 평가 단위일 때 중복 평가를 방지할 수 있다.
     const targets = orgs.filter(o => {
-      if (o.type === 'DIVISION') return true;
+      if (o.type === 'DIVISION') return o.isEvalUnit !== false;
       if (o.isEvalUnit) return true;
       if (o.type === 'TEAM') {
         const ancestors = getAncestorOrgs(o.id, orgs);
@@ -516,8 +517,9 @@ function OrgEvaluationContent() {
           '자기평가_종합의견': comments,
           '팀장의견_등급': ie.leadGrade ?? '',
           '팀장의견_내용': ie.leadComment ?? '',
-          '임원확정_등급': ie.execGrade ?? '',
-          '임원의견': ie.execComment ?? '',
+          // 임원 등급·의견은 확정 상태일 때만 — 무효화(상태 복원)된 잔존 값 내보내기 방지
+          '임원확정_등급': (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') ? (ie.execGrade ?? '') : '',
+          '임원의견': (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') ? (ie.execComment ?? '') : '',
         };
       });
 
