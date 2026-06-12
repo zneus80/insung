@@ -2812,6 +2812,33 @@ type CreateNotificationInput =
 /** 사용자당 알림 보관 상한 — 초과 시 오래된 것부터 자동 삭제 */
 const NOTIFICATION_CAP = 100;
 
+// 이메일로도 발송할 핵심 알림 타입 — 결재 요청/결과·평가 라인·주간보고·보안.
+// (코멘트·1on1 등 빈도 높은 알림은 인앱만 — 메일 과다 방지)
+const EMAIL_NOTIFY_TYPES = new Set<string>([
+  'GOAL_SUBMITTED', 'COMPLETION_REQUESTED', 'ABANDON_REQUESTED',   // 결재 요청 → 승인자
+  'GOAL_APPROVED', 'GOAL_REJECTED',                                 // 최종 결과 → 본인
+  'SELF_EVAL_SUBMITTED', 'MENTORING_SUBMITTED',                     // 평가 라인 제출 → 검토자
+  'EVAL_LEAD_REVIEWED', 'EVAL_HQ_REVIEWED',                         // 평가 단계 전달 → 상위자
+  'EVALUATION_PUBLISHED',                                           // 평가결과 공개 → 본인
+  'WEEKLY_TASK_SUBMITTED',                                          // 주간보고 저장 → 임원
+  'SECURITY_READ_ANOMALY', 'BACKUP_FAILED',                         // 보안 → HR 마스터
+]);
+
+/** 알림 이메일 발송 (보조 채널 — 실패해도 인앱 알림에는 영향 없음) */
+async function sendNotificationEmail(data: { userId: string; title: string; message: string; link: string }) {
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return;
+    await fetch('/api/notifications/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+  } catch (err) {
+    console.error('[알림메일] 발송 실패(무시):', err);
+  }
+}
+
 export async function createNotification(data: CreateNotificationInput) {
   const link = data.link ?? (data.goalId ? `/goals/${data.goalId}` : '');
   const title = data.title ?? data.goalTitle ?? '';
@@ -2823,6 +2850,11 @@ export async function createNotification(data: CreateNotificationInput) {
     category,
     createdAt: serverTimestamp(),
   });
+  // 핵심 알림은 이메일로도 발송 (fire-and-forget — 실패 무시)
+  if (EMAIL_NOTIFY_TYPES.has(data.type)) {
+    sendNotificationEmail({ userId: data.userId, title, message: data.message ?? '', link })
+      .catch(() => { /* 무시 */ });
+  }
   // 상한 초과 시 오래된 것부터 정리 (백그라운드, 실패 무시)
   trimNotifications(data.userId).catch(err => console.error('[알림] 정리 실패:', err));
 }
