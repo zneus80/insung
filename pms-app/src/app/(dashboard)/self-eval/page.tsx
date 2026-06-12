@@ -10,6 +10,7 @@ import {
   requestSelfEvalEdit, withdrawSelfEvalEditRequest, getHrAdmins, createNotification,
 } from '@/lib/firestore';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
+import { getPerformerIds } from '@/lib/innovation';
 import { normalizeWeights } from '@/lib/goal-weight';
 import { shiftEnterSubmit } from '@/lib/utils';
 import Header from '@/components/layout/Header';
@@ -22,7 +23,7 @@ import { Target, Star, Lightbulb, CheckCircle2, Lock, Pencil, XCircle, AlertCirc
 import type { Goal } from '@/types';
 
 type Starred = { id: string; title: string };
-type Innov = { id: string; name: string };
+type Innov = { id: string; name: string; instructed?: boolean };
 
 export default function SelfEvalPage() {
   const { userProfile } = useAuth();
@@ -70,7 +71,12 @@ export default function SelfEvalPage() {
         .map(x => ({ id: x.i.id, title: (x.i.title || x.i.content || '').trim() }))
         .filter(x => x.title && !seen.has(x.id) && (seen.add(x.id), true));
       setStarred(stars);
-      setInnov(innovAll.filter(a => a.year === year).map(a => ({ id: a.id, name: a.name })));
+      // TDS 지시자(수행자 아님)는 서술 없이 '(지시)' 표시만 — 상위 평가자 확인용
+      setInnov(innovAll.filter(a => a.year === year).map(a => ({
+        id: a.id,
+        name: a.name,
+        instructed: a.type === 'TDS' && a.instructorId === userProfile.id && !getPerformerIds(a).includes(userProfile.id),
+      })));
 
       // 기존 자기평가 프리필
       if (se) {
@@ -117,7 +123,11 @@ export default function SelfEvalPage() {
         organizationId: userProfile.organizationId,
         goalEvals: goals.map(g => ({ goalId: g.id, goalTitle: g.title, comment: goalMap[g.id]?.comment ?? '', score: num(goalMap[g.id]?.score ?? ''), weight: coreEff(g.id) })),
         generalEvals: starred.map(s => ({ id: s.id, title: s.title, comment: genMap[s.id]?.comment ?? '', score: num(genMap[s.id]?.score ?? ''), weight: genEff })),
-        innovationEvals: innov.map(a => ({ activityId: a.id, name: a.name, comment: innovMap[a.id] ?? '' })),
+        innovationEvals: innov.map(a => ({
+          activityId: a.id, name: a.name,
+          comment: a.instructed ? '' : (innovMap[a.id] ?? ''),
+          ...(a.instructed ? { instructed: true } : {}),
+        })),
         abandonedGoals: abandoned.map(g => ({ goalId: g.id, goalTitle: g.title })),
         status: submit ? 'SUBMITTED' : 'DRAFT',
         ...(submit ? { submittedAt: new Date() } : {}),
@@ -292,11 +302,17 @@ export default function SelfEvalPage() {
             <div className="p-4 space-y-3">
               {innov.length === 0 ? <p className="text-xs text-gray-400">참여한 혁신활동이 없습니다.</p> : innov.map(a => (
                 <div key={a.id} className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
-                  <p className="text-sm font-medium text-gray-800">{a.name}</p>
-                  <Textarea rows={2} disabled={readOnly} value={innovMap[a.id] ?? ''}
-                    onChange={e => setInnovMap(m => ({ ...m, [a.id]: e.target.value }))}
-                    onKeyDown={shiftEnterSubmit(() => handleSave(false), !readOnly && !saving)}
-                    placeholder="역할·기여도·주요 실적을 작성하세요 (Shift+Enter 임시저장)" className="resize-none mt-1.5" />
+                  <p className="text-sm font-medium text-gray-800 flex items-center gap-1.5">
+                    {a.name}
+                    {a.instructed && <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[11px] font-medium">지시</span>}
+                  </p>
+                  {/* TDS 지시자는 서술 없이 표시만 */}
+                  {!a.instructed && (
+                    <Textarea rows={2} disabled={readOnly} value={innovMap[a.id] ?? ''}
+                      onChange={e => setInnovMap(m => ({ ...m, [a.id]: e.target.value }))}
+                      onKeyDown={shiftEnterSubmit(() => handleSave(false), !readOnly && !saving)}
+                      placeholder="역할·기여도·주요 실적을 작성하세요 (Shift+Enter 임시저장)" className="resize-none mt-1.5" />
+                  )}
                 </div>
               ))}
             </div>

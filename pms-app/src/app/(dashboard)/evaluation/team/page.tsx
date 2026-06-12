@@ -162,10 +162,10 @@ function TeamLeadEvalView() {
       // 본인 소속 조직평가 단위 찾기 — 가장 가까운 평가 단위(체크된 본부 우선, 없으면 부문/공장)
       // (§6-1 가시성 규칙: 본인 소속 평가 단위의 조직등급만 볼 수 있음)
       let curForDiv: Organization | undefined = myOrg;
-      while (curForDiv && !(curForDiv.type === 'DIVISION' || curForDiv.isEvalUnit)) {
+      while (curForDiv && !((curForDiv.type === 'DIVISION' && curForDiv.isEvalUnit !== false) || curForDiv.isEvalUnit === true)) {
         curForDiv = curForDiv.parentId ? allOrgs.find(o => o.id === curForDiv!.parentId) : undefined;
       }
-      const myDiv = (curForDiv && (curForDiv.type === 'DIVISION' || curForDiv.isEvalUnit)) ? curForDiv : null;
+      const myDiv = (curForDiv && ((curForDiv.type === 'DIVISION' && curForDiv.isEvalUnit !== false) || curForDiv.isEvalUnit === true)) ? curForDiv : null;
       setMyDivision(myDiv);
       if (myDiv) {
         try {

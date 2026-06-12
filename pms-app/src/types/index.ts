@@ -542,6 +542,8 @@ export interface InnovationEval {
   activityId: string;
   name: string;
   comment: string;  // 본인 자기평가 (자유 서술)
+  /** TDS 지시자(수행자 아님) — 서술 없이 '(지시)' 표시만 */
+  instructed?: boolean;
 }
 
 export interface MentoringForm {

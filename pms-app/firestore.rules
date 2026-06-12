@@ -171,7 +171,8 @@ service cloud.firestore {
     // 부문/공장 등급 변경 이력
     match /orgGradeHistories/{id} {
       allow read: if isAuthenticated();
-      allow create: if isCeo();
+      // 등급 결정 권한과 동일 — CEO + HR마스터
+      allow create: if isCeo() || isHrMaster();
     }
 
     // 부문/공장별 개인 등급 쿼터

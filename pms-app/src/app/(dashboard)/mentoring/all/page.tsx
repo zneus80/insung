@@ -270,10 +270,17 @@ function MentoringAllContent() {
               {/* 평가 의견 — 팀장 / 본부장(부공장장) / 임원 병렬 배치 (CEO·HR마스터 전용) */}
               {fullView && (() => {
                 const ie = indivEvals[selectedUser.id];
+                // 임원 등급·의견은 확정(EXEC_CONFIRMED/PUBLISHED) 상태일 때만 표시 —
+                // 쿼터 재확정 등으로 무효화되면 status 가 복원되지만 execGrade/execComment 필드는 남으므로
+                // 상태 게이트 없이는 무효화된 등급이 계속 노출된다(평가이력 관리와 동일 기준).
+                // 팀장/본부장 의견은 회수 시 필드 자체가 삭제되므로 그대로 표시해도 안전.
+                const execConfirmed = ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
                 const cards: { title: string; grade?: EvaluationGrade; comment?: string }[] = [
                   { title: '팀장 평가등급·의견', grade: ie?.leadGrade, comment: ie?.leadComment },
                   { title: '본부장(부공장장) 평가등급·의견', grade: ie?.hqGrade, comment: ie?.hqComment },
-                  { title: '임원 평가등급·의견', grade: ie?.execGrade, comment: ie?.execComment },
+                  { title: '임원 평가등급·의견',
+                    grade: execConfirmed ? ie?.execGrade : undefined,
+                    comment: execConfirmed ? ie?.execComment : undefined },
                 ];
                 return (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

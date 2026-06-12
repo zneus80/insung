@@ -135,7 +135,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   return (
     <div className={embedded ? '' : 'flex-1 overflow-y-auto'}>
       <div className={cn('space-y-6', embedded ? '' : 'p-6 max-w-6xl')}>
-        <p className="text-xs text-gray-400">{activeYear}년 · 세부 내용은 공유되지 않습니다. (목표명·소유자·상태만 표시)</p>
+        <p className="text-xs text-gray-400">{activeYear}년 · 세부 내용은 공유되지 않습니다. (목표명·팀·상태만 표시)</p>
 
         {/* ── 1. 혁신활동 (최상단) ────────────────────────────── */}
         <section className="space-y-3">
@@ -144,8 +144,8 @@ function Content({ embedded = false }: { embedded?: boolean }) {
             <h3 className="font-semibold text-gray-900">혁신활동</h3>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* 스마트 프로젝트 */}
+          <div className="space-y-3">
+            {/* 스마트 프로젝트 — 전체 폭 */}
             <div className="rounded-xl border bg-white overflow-hidden">
               <div className="px-4 py-2.5 bg-orange-50 border-b flex items-center gap-2">
                 <span className="text-sm font-semibold text-orange-700">스마트 프로젝트</span>
@@ -167,7 +167,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
               })()}
             </div>
 
-            {/* TDS */}
+            {/* TDS — 스마트 프로젝트 아래, 2열 배치 */}
             <div className="rounded-xl border bg-white overflow-hidden">
               <div className="px-4 py-2.5 bg-purple-50 border-b flex items-center gap-2">
                 <FileText className="h-4 w-4 text-purple-600" />
@@ -181,9 +181,11 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                 if (loading) return <div className="p-4 space-y-2">{[1,2].map(i => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100" />)}</div>;
                 if (list.length === 0) return <p className="px-4 py-6 text-center text-sm text-gray-400">등록된 항목이 없습니다.</p>;
                 return (
-                  <div className="divide-y">
+                  <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-2">
                     {list.map(it => (
-                      <InnovationRow key={it.id} item={it} usersById={usersById} revealConfidential={revealConfidential} />
+                      <div key={it.id} className="rounded-lg border bg-gray-50/50">
+                        <InnovationRow item={it} usersById={usersById} revealConfidential={revealConfidential} compact />
+                      </div>
                     ))}
                   </div>
                 );
@@ -243,7 +245,6 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                         ) : (
                           <div className="divide-y">
                             {divGoals.map(g => {
-                              const owner = usersById.get(g.userId);
                               const ownerOrg = orgsById.get(g.organizationId);
                               const masked = g.isConfidential && !revealConfidential;
                               const titleText = masked ? 'CONFIDENTIAL (대내외비)' : g.title;
@@ -264,8 +265,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                                       {titleText}
                                     </p>
                                     <p className="text-[10px] text-gray-400 mt-0.5 truncate">
-                                      {owner?.name ?? '—'}
-                                      {ownerOrg ? ` · ${ownerOrg.name}` : ''}
+                                      {ownerOrg?.name ?? '—'}
                                     </p>
                                   </div>
                                   <span className="text-[10px] text-gray-500 shrink-0">{g.progress ?? 0}%</span>
@@ -287,26 +287,28 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
-function InnovationRow({ item, usersById, revealConfidential = false }: { item: InnovationActivity; usersById: Map<string, User>; revealConfidential?: boolean }) {
+function InnovationRow({ item, usersById, revealConfidential = false, compact = false }: { item: InnovationActivity; usersById: Map<string, User>; revealConfidential?: boolean; compact?: boolean }) {
   const masked = item.isConfidential && !revealConfidential;
   const displayName = masked ? 'CONFIDENTIAL' : item.name;
   return (
-    <div className="px-4 py-2.5 flex items-start gap-3">
+    <div className={cn('flex items-start gap-3', compact ? 'px-3 py-2 gap-2' : 'px-4 py-2.5')}>
       <span className={cn(
-        'text-xs font-bold rounded-full px-2 py-0.5 shrink-0',
+        'font-bold rounded-full shrink-0',
+        compact ? 'text-[10px] px-1.5 py-0.5' : 'text-xs px-2 py-0.5',
         item.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700',
       )}>
         {item.status === 'COMPLETED' ? '완료' : '추진중'}
       </span>
       <div className="flex-1 min-w-0">
         <p className={cn(
-          'text-sm font-medium flex items-center gap-1.5',
+          'font-medium flex items-center gap-1.5',
+          compact ? 'text-xs leading-snug break-words' : 'text-sm',
           masked ? 'text-red-600' : 'text-gray-900',
         )}>
-          {item.isConfidential && <Lock className="h-3.5 w-3.5" />}
+          {item.isConfidential && <Lock className={compact ? 'h-3 w-3 shrink-0' : 'h-3.5 w-3.5'} />}
           {displayName}
         </p>
-        <p className="text-xs text-gray-400 mt-0.5">
+        <p className={cn('text-gray-400 mt-0.5', compact ? 'text-[10px]' : 'text-xs')}>
           {item.type === 'SMART_PROJECT' ? (
             <>
               PM: {getPmIds(item).map(id => usersById.get(id)?.name).filter(Boolean).join(', ') || '—'}
