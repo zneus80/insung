@@ -2807,7 +2807,11 @@ export async function listAuditLogs(limit = 200): Promise<AuditLog[]> {
 // link/title/category 는 신규 호출은 명시, 구버전 호출(goalId/goalTitle 만)은 자동 보강
 type CreateNotificationInput =
   Omit<AppNotification, 'id' | 'createdAt' | 'link' | 'title' | 'category'>
-  & Partial<Pick<AppNotification, 'link' | 'title' | 'category'>>;
+  & Partial<Pick<AppNotification, 'link' | 'title' | 'category'>>
+  & {
+    /** true 면 이메일 발송 생략(인앱 알림만) — 전파(broadcast) 알림의 중복 메일 방지용 */
+    skipEmail?: boolean;
+  };
 
 /** 사용자당 알림 보관 상한 — 초과 시 오래된 것부터 자동 삭제 */
 const NOTIFICATION_CAP = 100;
@@ -2840,18 +2844,19 @@ async function sendNotificationEmail(data: { userId: string; title: string; mess
 }
 
 export async function createNotification(data: CreateNotificationInput) {
+  const { skipEmail, ...docData } = data;
   const link = data.link ?? (data.goalId ? `/goals/${data.goalId}` : '');
   const title = data.title ?? data.goalTitle ?? '';
   const category = data.category ?? 'GOAL';
   await addDoc(collection(db, COLLECTIONS.NOTIFICATIONS), {
-    ...data,
+    ...docData,
     link,
     title,
     category,
     createdAt: serverTimestamp(),
   });
-  // 핵심 알림은 이메일로도 발송 (fire-and-forget — 실패 무시)
-  if (EMAIL_NOTIFY_TYPES.has(data.type)) {
+  // 핵심 알림은 이메일로도 발송 (fire-and-forget — 실패 무시). skipEmail 이면 인앱만.
+  if (!skipEmail && EMAIL_NOTIFY_TYPES.has(data.type)) {
     sendNotificationEmail({ userId: data.userId, title, message: data.message ?? '', link })
       .catch(() => { /* 무시 */ });
   }
