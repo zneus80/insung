@@ -150,7 +150,11 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
                 await Promise.all(gradeYears.map(async y => {
                   try {
                     const ie = await getIndividualEvaluation(u.id, y);
-                    perYear[y] = ie?.execGrade ?? ie?.hqGrade ?? ie?.leadGrade ?? undefined;
+                    // 임원 최종 확정 등급만 표시 — 쿼터 재확정 등으로 무효화되면 status 가 이전 단계로
+                    // 복원되므로, 남아있는 execGrade 는 확정으로 보지 않는다(평가이력 관리와 동일 기준).
+                    // 미확정 팀장/본부장 의견 등급도 노출하지 않는다.
+                    perYear[y] = (ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED')
+                      ? ie.execGrade : undefined;
                   } catch { /* 권한 없음 → 미표시 */ }
                 }));
                 return perYear;
