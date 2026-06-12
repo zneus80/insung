@@ -6,7 +6,6 @@ import { getUser, getMileage, getOrganizations, getAwardsByUser, listInnovationA
 import { getTier } from '@/lib/mileage-tier';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { useAuth } from '@/contexts/AuthContext';
-import { useActiveYear } from '@/contexts/ActiveYearContext';
 import type { User, Mileage, Organization, Award, InnovationActivity } from '@/types';
 
 interface Props {
@@ -38,7 +37,6 @@ const ROLE_LABEL: Record<string, string> = {
 
 export default function MemberInfoModal({ userId, userName, targetRole, renderTrigger, open: openProp, onOpenChange }: Props) {
   const { userProfile } = useAuth();
-  const { activeYear } = useActiveYear();
   const isControlled = typeof openProp === 'boolean' && typeof onOpenChange === 'function';
   const isSelfView = userProfile?.id === userId;
   // 대상이 임원·CEO 면 프로필 비공개 (다른 사람이 클릭해도 모달 안 뜸). 단, controlled(본인 제어) 는 예외 없음.
@@ -187,7 +185,7 @@ export default function MemberInfoModal({ userId, userName, targetRole, renderTr
                   </Section>
 
                   {/* 혁신활동 실적 */}
-                  <InnovationSection userId={userId} year={activeYear} items={data.innovations} />
+                  <InnovationSection userId={userId} items={data.innovations} />
                 </>
               )}
             </div>
@@ -259,7 +257,7 @@ function PromotionSection({ user, mileage, innovations }: { user: User; mileage:
 }
 
 // 혁신활동 실적 — 스마트프로젝트 PM/참여, TDS 지시/수행 카운트. 클릭 시 주제 목록 노출.
-function InnovationSection({ userId, year, items }: { userId: string; year: number; items: InnovationActivity[] }) {
+function InnovationSection({ userId, items }: { userId: string; items: InnovationActivity[] }) {
   const [openKey, setOpenKey] = useState<'sp-pm' | 'sp-mem' | 'tds-ins' | 'tds-per' | null>(null);
   const spPm = items.filter(a => a.type === 'SMART_PROJECT' && getPmIds(a).includes(userId));
   const spMem = items.filter(a => a.type === 'SMART_PROJECT' && (a.memberIds ?? []).includes(userId));

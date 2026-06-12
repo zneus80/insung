@@ -51,17 +51,8 @@ const ROLE_LABEL: Record<string, string> = {
 
 type SortKey =
   | 'name' | 'org' | 'division' | 'position' | 'hireDate'
-  | 'eval' | 'mileage' | 'mileageYear' | 'awards' | 'promotion' | 'jobRequest';
+  | 'eval' | 'mileage' | 'awards' | 'promotion' | 'jobRequest';
 type SortDir = 'asc' | 'desc';
-
-// ── 5년 이내 포상 판별 ────────────────────────────
-function isWithin5Years(dateStr: string, now: Date): boolean {
-  if (!dateStr) return false;
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return false;
-  const fiveYearsAgo = new Date(now.getFullYear() - 5, now.getMonth(), now.getDate());
-  return d >= fiveYearsAgo;
-}
 
 // ── 승진요건 계산 ────────────────────────────
 interface PromotionInfo {
@@ -116,14 +107,6 @@ function computePromotion(user: User, mileage: Mileage | undefined, sp: SmartPro
   };
 }
 
-// ── 연간 마일리지 합계 (entries 의 createdAt 기준) ────────
-function getYearMileage(mileage: Mileage | undefined, year: number): number {
-  if (!mileage?.entries) return 0;
-  return mileage.entries
-    .filter(e => new Date(e.createdAt).getFullYear() === year)
-    .reduce((sum, e) => sum + (e.points ?? 0), 0);
-}
-
 // ── 행 통합 객체 ────────────────────────────
 interface MemberRow {
   user: User;
@@ -133,7 +116,6 @@ interface MemberRow {
   evals: Record<number, EvaluationGrade | null>;
   mileage: Mileage | undefined;
   mileagePoints: number;
-  mileageYearPoints: number;
   recentAwards: Award[];
   promotion: PromotionInfo;
   latestMentoring?: MentoringForm;     // 가장 최신 육성면담서 (없으면 undefined)
@@ -274,16 +256,20 @@ function AllMembersContent() {
     return m;
   }, [awards]);
 
-  const now = new Date();
 
   const rows: MemberRow[] = useMemo(() => {
     return users.map(u => {
       const userMileage = mileagesByUser[u.id];
       const userAwards = awardsByUser[u.id] ?? [];
-      const recentAwards = userAwards.filter(a => isWithin5Years(a.awardDate, now));
+      const recentAwards = userAwards; // 전체 포상 내역 (연도 제한 없음)
       const evals: Record<number, EvaluationGrade | null> = {};
       yearsToShow.forEach(y => {
-        evals[y] = (evalsByYear[y]?.[u.id]?.execGrade as EvaluationGrade | undefined) ?? null;
+        // 임원 최종 확정(EXEC_CONFIRMED/PUBLISHED) 등급만 표시 — 쿼터 재확정 등으로 무효화되면
+        // status 가 이전 단계로 복원되므로 남아있는 execGrade 는 확정으로 보지 않는다(평가이력 관리와 동일 기준).
+        const ie = evalsByYear[y]?.[u.id];
+        evals[y] = (ie && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED'))
+          ? ((ie.execGrade as EvaluationGrade | undefined) ?? null)
+          : null;
       });
       const mentoring = latestMentoringByUser[u.id];
       const jobReq = mentoring?.jobRequest as JobRequestType | undefined;
@@ -295,7 +281,6 @@ function AllMembersContent() {
         evals,
         mileage: userMileage,
         mileagePoints: userMileage?.points ?? 0,
-        mileageYearPoints: getYearMileage(userMileage, activeYear),
         recentAwards,
         promotion: computePromotion(u, userMileage, spCountByUser.get(u.id) ?? { pmCount: 0, memberCount: 0 }),
         latestMentoring: mentoring,
@@ -371,7 +356,6 @@ function AllMembersContent() {
           break;
         }
         case 'mileage':     cmp = a.mileagePoints - b.mileagePoints; break;
-        case 'mileageYear': cmp = a.mileageYearPoints - b.mileageYearPoints; break;
         case 'awards':      cmp = a.recentAwards.length - b.recentAwards.length; break;
         case 'promotion':   {
           const aRank = a.promotion.target === '해당 없음' ? 2 : a.promotion.meetsRequirement ? 0 : 1;
@@ -486,7 +470,7 @@ function AllMembersContent() {
                   마일리지 <SortIcon col="mileage" />
                 </th>
                 <th className="px-3 py-3 text-left cursor-pointer select-none hover:text-gray-700 whitespace-nowrap" onClick={() => handleSort('awards')}>
-                  포상이력 (5년) <SortIcon col="awards" />
+                  포상이력 <SortIcon col="awards" />
                 </th>
                 <th className="px-3 py-3 text-left cursor-pointer select-none hover:text-gray-700 whitespace-nowrap" onClick={() => handleSort('promotion')}>
                   승진요건 <SortIcon col="promotion" />
