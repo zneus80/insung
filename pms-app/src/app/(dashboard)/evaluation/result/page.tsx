@@ -10,6 +10,7 @@ import AuthGuard from '@/components/layout/AuthGuard';
 import {
   getIndividualEvaluation,
   getOrgEvaluations,
+  getOrgEvalPublish,
   getUsersByOrganization,
   getIndividualEvaluationsByOrg,
   getAllUsers,
@@ -323,20 +324,21 @@ function MemberResultView({
       const published = periodSnap.exists() ? periodSnap.data().isPublished : false;
       setIsPublished(published);
 
-      // 조직평가등급은 status === 'APPROVED' 면 published 와 무관하게 노출
-      // 개인평가등급은 published 일 때만 노출
-      const [orgEvals, allOrgs] = await Promise.all([
+      // §6-1(2026-06-12 개정): 조직평가등급은 HR마스터/CEO 의 '조직평가결과 공개' 이후에만 노출
+      // 개인평가등급은 evaluationPeriods.isPublished 일 때만 노출
+      const [orgPublished, orgEvals, allOrgs] = await Promise.all([
+        getOrgEvalPublish(selectedYear),
         getOrgEvaluations(selectedYear),
         getOrganizations(),
       ]);
       const approvedEvalByOrg = new Map(
         orgEvals.filter(e => e.status === 'APPROVED').map(e => [e.organizationId, e]),
       );
-      // 1차: 부모 체인 따라 올라가며 DIVISION 우선
+      // 1차: 부모 체인 따라 올라가며 평가 단위(체크된 본부·부문) 우선
       let cur: Organization | undefined = allOrgs.find(o => o.id === userProfile.organizationId);
       let chosen: OrganizationEvaluation | undefined;
       while (cur) {
-        if (cur.type === 'DIVISION') {
+        if (cur.type === 'DIVISION' || cur.isEvalUnit) {
           const ev = approvedEvalByOrg.get(cur.id);
           if (ev) { chosen = ev; break; }
         }
@@ -351,7 +353,8 @@ function MemberResultView({
           walk = walk.parentId ? allOrgs.find(o => o.id === walk!.parentId) : undefined;
         }
       }
-      setOrgEval(chosen ?? null);
+      // 공개 전에는 조직등급 미노출 (§6-1)
+      setOrgEval(orgPublished ? (chosen ?? null) : null);
 
       // 개인평가는 published 일 때만 표시
       if (published) {

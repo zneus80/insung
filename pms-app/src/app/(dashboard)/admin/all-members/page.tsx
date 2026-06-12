@@ -67,13 +67,15 @@ interface PromotionInfo {
 
 /** 사용자별 혁신활동(스마트프로젝트) 참여 카운트 */
 interface SmartProjectCount {
-  pmCount: number;       // SMART_PROJECT 에 PM 으로 참여
-  memberCount: number;   // SMART_PROJECT 에 멤버로 참여
+  pmCount: number;          // SMART_PROJECT 에 PM 으로 참여 (추진중 포함 — 팀장 승진 참여 집계용)
+  pmCompletedCount: number; // 완료된 SMART_PROJECT 의 PM 실적 — 임원 승진 요건은 완료만 인정
+  memberCount: number;      // SMART_PROJECT 에 멤버로 참여
 }
 
 function computePromotion(user: User, mileage: Mileage | undefined, sp: SmartProjectCount): PromotionInfo {
   // 스마트프로젝트 카운트는 innovationActivities 직접 집계 (mileage entries 가 아님)
   const pmCount = sp.pmCount;
+  const pmCompleted = sp.pmCompletedCount;
   const memberCount = sp.memberCount;
   const totalPoints = mileage?.points ?? 0;
 
@@ -84,12 +86,12 @@ function computePromotion(user: User, mileage: Mileage | undefined, sp: SmartPro
   // 정식 팀장 (대행이 아닌) → 임원 승진 요건
   // 팀장대행 (isActingLead === true) → 정식 직급은 팀원이므로 팀장 승진 요건 표기
   if (user.role === 'TEAM_LEAD' && !user.isActingLead) {
-    // 임원 승진 — PM 1+
-    const meets = pmCount >= 1;
+    // 임원 승진 — 완료된 스마트프로젝트 PM 1+ (추진중은 실적으로 인정하지 않음)
+    const meets = pmCompleted >= 1;
     return {
       target: '임원 승진', pmCount, memberCount, totalPoints,
       meetsRequirement: meets,
-      reasonText: meets ? '' : `스마트프로젝트 PM 0/1`,
+      reasonText: meets ? '' : `스마트프로젝트 PM(완료) ${pmCompleted}/1`,
     };
   }
   // MEMBER 또는 팀장대행 → 팀장 승진 — 스마트프로젝트 1+ (PM or MEMBER) + 마일리지 200+
@@ -172,11 +174,13 @@ function AllMembersContent() {
         for (const a of allInnovations) {
           if (a.type !== 'SMART_PROJECT') continue;
           for (const uid of getPmIds(a)) {
-            const c = spCountByUser.get(uid) ?? { pmCount: 0, memberCount: 0 };
-            c.pmCount++; spCountByUser.set(uid, c);
+            const c = spCountByUser.get(uid) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0 };
+            c.pmCount++;
+            if (a.status === 'COMPLETED') c.pmCompletedCount++; // 임원 승진 실적은 완료만
+            spCountByUser.set(uid, c);
           }
           for (const uid of (a.memberIds ?? [])) {
-            const c = spCountByUser.get(uid) ?? { pmCount: 0, memberCount: 0 };
+            const c = spCountByUser.get(uid) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0 };
             c.memberCount++; spCountByUser.set(uid, c);
           }
         }
@@ -282,7 +286,7 @@ function AllMembersContent() {
         mileage: userMileage,
         mileagePoints: userMileage?.points ?? 0,
         recentAwards,
-        promotion: computePromotion(u, userMileage, spCountByUser.get(u.id) ?? { pmCount: 0, memberCount: 0 }),
+        promotion: computePromotion(u, userMileage, spCountByUser.get(u.id) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0 }),
         latestMentoring: mentoring,
         jobRequest: jobReq,
         jobRequestLabel: jobReq ? JOB_REQUEST_LABELS[jobReq] : '',

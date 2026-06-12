@@ -2803,6 +2803,23 @@ export async function listAuditLogs(limit = 200): Promise<AuditLog[]> {
   });
 }
 
+// ─── 조직평가결과 공개 (orgEvalPublish/{year}) ─────────────
+// §6-1: 조직평가등급은 HR마스터/CEO 가 '조직평가결과 공개'를 실행한 이후에만 일반 사용자에게 노출.
+export async function getOrgEvalPublish(year: number): Promise<boolean> {
+  const snap = await getDoc(doc(db, 'orgEvalPublish', String(year)));
+  return snap.exists() ? !!snap.data().published : false;
+}
+
+export async function setOrgEvalPublish(year: number, published: boolean, byId: string): Promise<void> {
+  await setDoc(doc(db, 'orgEvalPublish', String(year)), {
+    year,
+    published,
+    publishedBy: byId,
+    publishedAt: published ? serverTimestamp() : null,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 // ─── 알림 (Notification) ──────────────────────
 // link/title/category 는 신규 호출은 명시, 구버전 호출(goalId/goalTitle 만)은 자동 보강
 type CreateNotificationInput =

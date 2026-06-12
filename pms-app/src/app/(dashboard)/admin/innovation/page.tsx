@@ -6,6 +6,7 @@ import {
   getAllUsers,
   listInnovationActivities,
   listInnovationActivitiesByYearRange,
+  listAllInnovationActivities,
   listInnovationActivitiesByUser,
   createInnovationActivity,
   updateInnovationActivity,
@@ -240,7 +241,15 @@ function InnovationContent() {
       const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' }) as string[][];
       const dataRows = rows.slice(2).filter(r => r[0]?.toString().trim() && !r[0].toString().startsWith('--'));
       let success = 0;
+      let skipped = 0; // 중복 건너뜀 (기존 등록분 + 파일 내 중복)
       const failed: { row: number; reason: string }[] = [];
+
+      // 중복 방지 — 같은 유형(type)·이름·연도 조합이 이미 있으면 건너뜀.
+      // items 는 최근 연도 범위만 로드하므로, 과거 연도 업로드 대비 전체 연도 기준으로 검사한다.
+      const existing = await listAllInnovationActivities();
+      const seenKeys = new Set(
+        existing.filter(a => a.type === tab).map(a => `${(a.name ?? '').trim()}|${a.year}`)
+      );
 
       for (let i = 0; i < dataRows.length; i++) {
         const row = dataRows[i];
@@ -253,6 +262,11 @@ function InnovationContent() {
         if (!Number.isFinite(year) || year < 2000 || year > 2100) { failed.push({ row: rowNum, reason: '수행년도가 올바르지 않습니다.' }); continue; }
         if (!status) { failed.push({ row: rowNum, reason: `진행상태값 "${row[1]}"이 올바르지 않습니다. (추진중/완료)` }); continue; }
         if (!name) { failed.push({ row: rowNum, reason: '이름이 비어있습니다.' }); continue; }
+
+        // 중복 건너뜀 — 같은 이름·연도가 이미 등록돼 있거나(전체 연도 기준) 파일 안에서 반복된 경우
+        const dupKey = `${name}|${year}`;
+        if (seenKeys.has(dupKey)) { skipped++; continue; }
+        seenKeys.add(dupKey);
 
         let pmIds: string[] | undefined, memberIds: string[] | undefined, performerIds: string[] | undefined, instructorId: string | undefined;
         if (tab === 'SMART_PROJECT') {
@@ -287,7 +301,8 @@ function InnovationContent() {
         }
       }
       setUploadResult({ success, failed });
-      if (success > 0) { toast.success(`${success}건 등록 완료`); await reload(); }
+      if (success > 0) { toast.success(`${success}건 등록 완료${skipped > 0 ? ` (중복 ${skipped}건 건너뜀)` : ''}`); await reload(); }
+      else if (skipped > 0) toast.info(`모두 기존에 등록된 항목입니다. (중복 ${skipped}건 건너뜀)`);
       if (failed.length > 0) toast.error(`${failed.length}건 실패`);
     } catch {
       toast.error('파일을 읽는 중 오류가 발생했습니다.');

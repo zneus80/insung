@@ -138,6 +138,25 @@ const navItems: NavItem[] = [
     icon: <Users className="h-5 w-5" />,
     requireHrMaster: true,
   },
+  {
+    label: '전사 육성면담서·자기평가',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    roles: ['CEO'],
+  },
+  {
+    label: '전사 육성면담서·자기평가',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    requireHrMaster: true,
+  },
+  {
+    // HR관리자(마스터 아님) — 기존 육성면담서 확인 기능 유지 (등급·자기평가 미노출)
+    label: '전사 육성면담서 확인',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    requireHrAdmin: true,
+  },
 
   // ══ AI 챗봇 (CEO + HR 마스터) ═══════════════
   {
@@ -179,20 +198,6 @@ const navItems: NavItem[] = [
     icon: <MessageSquareHeart className="h-5 w-5" />,
     roles: ['MEMBER', 'TEAM_LEAD'],
     exact: true,
-    group: 'EGG Meeting',
-  },
-  {
-    label: '전사 육성면담서 확인',
-    href: '/mentoring/all',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    roles: ['CEO'],
-    group: 'EGG Meeting',
-  },
-  {
-    label: '전사 육성면담서 확인',
-    href: '/mentoring/all',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    requireHrAdmin: true,
     group: 'EGG Meeting',
   },
   {
@@ -487,10 +492,10 @@ export default function Sidebar() {
     const ceoViewerOk = !!item.roles && item.roles.includes('CEO') && !!userProfile?.isCeoViewer;
     return roleOk || hrOk || masterOk || evalOk || ceoViewerOk;
   });
-  // CEO+HR 등 중복 진입(같은 label + href + group)을 한 번만 표시 — 라벨이 다르면 별개 항목으로 유지
+  // CEO+HR 등 중복 진입(같은 href + group)을 한 번만 표시 — 먼저 정의된 항목(상위 권한 라벨) 우선
   const seenKeys = new Set<string>();
   const visibleItems = visibleItemsRaw.filter(item => {
-    const key = `${item.label}__${item.href}__${item.group ?? ''}`;
+    const key = `${item.href}__${item.group ?? ''}`;
     if (seenKeys.has(key)) return false;
     seenKeys.add(key);
     return true;

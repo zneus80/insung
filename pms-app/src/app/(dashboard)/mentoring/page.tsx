@@ -10,6 +10,7 @@ import {
 } from '@/lib/firestore';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import Header from '@/components/layout/Header';
+import { useEvalPeriod, EvalPeriodNotice } from '@/components/evaluation/EvalPeriodGate';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,6 +62,7 @@ export default function MentoringPage() {
 
 function MentoringContent() {
   const { userProfile } = useAuth();
+  const { beforePeriod, startDate } = useEvalPeriod(); // 평가기간 전 — 제출만 차단(작성·임시저장 허용)
   const { activeYear, isYearLocked } = useActiveYear();
   const YEAR_OPTIONS = [activeYear, activeYear - 1, activeYear - 2];
   const [selectedYear, setSelectedYear] = useState(activeYear);
@@ -546,12 +548,14 @@ function MentoringContent() {
                 <span className="mt-0.5 shrink-0">⚠️</span>
                 <p>제출 후에는 내용 수정이 어렵습니다. 제출 전 모든 항목을 꼼꼼히 확인해 주세요. 수정이 필요한 경우 담당 HR 관리자에게 문의하세요.</p>
               </div>
+              {beforePeriod && <EvalPeriodNotice startDate={startDate} />}
               <div className="flex gap-3">
                 <Button variant="outline" onClick={() => handleSave(false)} disabled={saving} className="flex-1 gap-2 h-11">
                   <Save className="h-4 w-4" />
                   {saving ? '저장 중...' : '임시저장'}
                 </Button>
-                <Button onClick={() => handleSave(true)} disabled={saving} className="flex-1 gap-2 h-11 bg-blue-600 hover:bg-blue-700">
+                <Button onClick={() => handleSave(true)} disabled={saving || beforePeriod} className="flex-1 gap-2 h-11 bg-blue-600 hover:bg-blue-700"
+                  title={beforePeriod ? '평가기간에만 제출할 수 있습니다.' : undefined}>
                   <Send className="h-4 w-4" />
                   {saving ? '제출 중...' : '제출하기'}
                 </Button>

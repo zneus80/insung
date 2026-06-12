@@ -18,6 +18,7 @@ import {
   getWeeklyTasksByMembersAndYear,
   listInnovationActivities,
   getOrgEvaluations,
+  getOrgEvalPublish,
 } from '@/lib/firestore';
 import type { Organization, OrganizationEvaluation } from '@/types';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
@@ -25,6 +26,7 @@ import { approverTitle } from '@/lib/approval-filters';
 import { compareUserByRoleHire } from '@/lib/user-sort';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
+import { useEvalPeriod, EvalPeriodNotice } from '@/components/evaluation/EvalPeriodGate';
 import YearLockBanner from '@/components/layout/YearLockBanner';
 import MentoringFormModal from '@/components/evaluation/MentoringFormModal';
 import SelfEvalGoalList, { EVAL_RETURN_KEY } from '@/components/evaluation/SelfEvalGoalList';
@@ -103,6 +105,7 @@ function TeamLeadEvalView() {
   const { userProfile, effectiveEvalRole } = useAuth();
   const { activeYear: year, isYearLocked } = useActiveYear();
   const locked = isYearLocked(year);
+  const { beforePeriod, startDate } = useEvalPeriod(); // 평가기간 전 — 의견 제출만 차단
 
   const [members, setMembers]             = useState<User[]>([]);
   const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
@@ -156,25 +159,26 @@ function TeamLeadEvalView() {
       const detectedHQHead = hqOrgs.length > 0;
       setIsHQHead(detectedHQHead);
 
-      // 본인 소속 부문/공장(DIVISION) 찾기 — 조직 트리 거슬러 올라감
-      // (§6-1 가시성 규칙: 팀장은 본인 소속 부문/공장 조직평가 등급만 볼 수 있음)
+      // 본인 소속 조직평가 단위 찾기 — 가장 가까운 평가 단위(체크된 본부 우선, 없으면 부문/공장)
+      // (§6-1 가시성 규칙: 본인 소속 평가 단위의 조직등급만 볼 수 있음)
       let curForDiv: Organization | undefined = myOrg;
-      while (curForDiv && curForDiv.type !== 'DIVISION') {
+      while (curForDiv && !(curForDiv.type === 'DIVISION' || curForDiv.isEvalUnit)) {
         curForDiv = curForDiv.parentId ? allOrgs.find(o => o.id === curForDiv!.parentId) : undefined;
       }
-      const myDiv = curForDiv?.type === 'DIVISION' ? curForDiv : null;
+      const myDiv = (curForDiv && (curForDiv.type === 'DIVISION' || curForDiv.isEvalUnit)) ? curForDiv : null;
       setMyDivision(myDiv);
       if (myDiv) {
         try {
-          const orgEvals = await getOrgEvaluations(year);
-          const myDivEval = orgEvals.find(e =>
-            e.organizationId === myDiv.id && (e.cycleYear === undefined || e.cycleYear === year)
-          );
-          // 조직평가 등급은 APPROVED 상태면 노출 가능 (§6-1)
-          if (myDivEval?.grade && myDivEval.status === 'APPROVED') {
-            setMyDivisionGrade(myDivEval.grade);
-          } else {
+          // §6-1: 조직평가등급은 HR마스터/CEO 의 '조직평가결과 공개' 이후에만 일반 사용자에게 노출
+          const published = await getOrgEvalPublish(year);
+          if (!published) {
             setMyDivisionGrade(null);
+          } else {
+            const orgEvals = await getOrgEvaluations(year);
+            const myDivEval = orgEvals.find(e =>
+              e.organizationId === myDiv.id && (e.cycleYear === undefined || e.cycleYear === year)
+            );
+            setMyDivisionGrade(myDivEval?.grade && myDivEval.status === 'APPROVED' ? myDivEval.grade : null);
           }
         } catch {
           setMyDivisionGrade(null);
@@ -451,6 +455,7 @@ function TeamLeadEvalView() {
       <Header title={isHQHead ? `${userProfile?.position || '본부장'} 2차 평가 의견` : '팀원 평가 의견 제출'} />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <YearLockBanner />
+      {beforePeriod && <div className="px-6 pt-4"><EvalPeriodNotice startDate={startDate} /></div>}
         <p className="text-sm text-gray-500">
           {isHQHead
             ? `산하 팀원의 자기평가와 팀장 의견을 검토한 후 ${userProfile?.position || '본부장'} 2차 의견을 작성하세요. (팀장 의견 제출 후에만 입력 가능)`
@@ -558,7 +563,7 @@ function TeamLeadEvalView() {
                   const summary = goalCountSummary(goals);
                   const isLead = member.role === 'TEAM_LEAD';
                   const isSel = selectedMemberId === member.id;
-                  const submitted = se?.status === 'SUBMITTED' || !!mentoringForms[member.id];
+                  const submitted = se?.status === 'SUBMITTED'; // 자기평가 '제출(SUBMITTED)'만 인정 — 임시저장·육성면담서 존재는 미제출
                   const myDone = isHQHead && member.role === 'MEMBER'
                     ? !!indivEvals[member.id]?.hqReviewedBy
                     : !!indivEvals[member.id]?.leadSubmittedBy;
@@ -667,7 +672,7 @@ function TeamLeadEvalView() {
                       <p className="text-xs text-gray-500 mb-1.5">의견 <span className="text-[11px] font-normal text-gray-400">— 육성면담서와 인사평가 등급에 대한 종합의견을 작성하십시오 (필수)</span></p>
                       <textarea value={op.comment}
                         onChange={e => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
-                        onKeyDown={shiftEnterSubmit(() => handleSubmitOpinion(member.id), !isReviewed && saving !== member.id && !!op.grade && !locked)}
+                        onKeyDown={shiftEnterSubmit(() => handleSubmitOpinion(member.id), !isReviewed && saving !== member.id && !!op.grade && !locked && !beforePeriod)}
                         disabled={isReviewed || saving === member.id || locked} rows={2} placeholder="등급 의견의 이유를 작성해주세요 (Shift+Enter 제출)"
                         className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
                     </div>
@@ -678,10 +683,10 @@ function TeamLeadEvalView() {
                         <>
                           <span className="text-xs text-blue-600 mr-auto">제출됨 · 상위 확정 전</span>
                           <Button variant="outline" size="sm" disabled={saving === member.id} onClick={() => handleWithdrawOpinion(member.id)}>의견 회수</Button>
-                          <Button size="sm" disabled={saving === member.id || !op.grade || locked} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '저장 중...' : '의견 수정'}</Button>
+                          <Button size="sm" disabled={saving === member.id || !op.grade || locked || beforePeriod} title={beforePeriod ? '평가기간에만 제출할 수 있습니다.' : undefined} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '저장 중...' : '의견 수정'}</Button>
                         </>
                       ) : (
-                        <Button size="sm" disabled={saving === member.id || !op.grade || locked} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '제출 중...' : '의견 제출'}</Button>
+                        <Button size="sm" disabled={saving === member.id || !op.grade || locked || beforePeriod} title={beforePeriod ? '평가기간에만 제출할 수 있습니다.' : undefined} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '제출 중...' : '의견 제출'}</Button>
                       )}
                     </div>
                   </div>
@@ -695,7 +700,7 @@ function TeamLeadEvalView() {
                 <div>
                   <p className="text-sm font-bold text-gray-800 mb-2">
                     자기평가
-                    {(() => { const t = computeSelfEvalTotal(selfEvals[member.id]); return t != null && (
+                    {(() => { const t = computeSelfEvalTotal(selfEvals[member.id]?.status === 'SUBMITTED' ? selfEvals[member.id] : null); return t != null && (
                       <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점)</span>
                     ); })()}
                   </p>
@@ -705,7 +710,7 @@ function TeamLeadEvalView() {
                       g.status === 'PENDING_ABANDON' || (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange));
                     const completed = cg.filter(g => g.status === 'COMPLETED').length;
                     return (
-                      <SelfEvalBody form={selfEvals[member.id] ?? null}
+                      <SelfEvalBody form={selfEvals[member.id]?.status === 'SUBMITTED' ? selfEvals[member.id] : null}
                         abandonedGoals={cg.filter(g => g.status === 'ABANDONED').map(g => ({ goalId: g.id, goalTitle: g.title }))}
                         goalSummary={{ total: cg.length, completed, notCompleted: cg.length - completed }} />
                     );
@@ -715,7 +720,7 @@ function TeamLeadEvalView() {
                 {/* 육성면담서 (직무·경력·요청·종합의견) */}
                 <div>
                   <p className="text-sm font-bold text-gray-800 mb-2">육성면담서</p>
-                  <MentoringPerfBody form={mentoringForms[member.id] ?? null} />
+                  <MentoringPerfBody form={mentoringForms[member.id]?.status === 'SUBMITTED' ? mentoringForms[member.id] : null} />
                 </div>
               </div>
             );

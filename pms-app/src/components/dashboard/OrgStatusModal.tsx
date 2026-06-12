@@ -162,28 +162,31 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
             : Promise.resolve([] as Record<number, string | undefined>[]),
         ]);
         // 사용자별 스마트프로젝트 PM/멤버 카운트
-        const spByUser = new Map<string, { pm: number; member: number }>();
+        const spByUser = new Map<string, { pm: number; pmCompleted: number; member: number }>();
         for (const a of innovations) {
           if (a.type !== 'SMART_PROJECT') continue;
           for (const uid of getPmIds(a)) {
-            const c = spByUser.get(uid) ?? { pm: 0, member: 0 }; c.pm++; spByUser.set(uid, c);
+            const c = spByUser.get(uid) ?? { pm: 0, pmCompleted: 0, member: 0 };
+            c.pm++;
+            if (a.status === 'COMPLETED') c.pmCompleted++; // 임원 승진 실적은 완료만
+            spByUser.set(uid, c);
           }
           for (const uid of (a.memberIds ?? [])) {
-            const c = spByUser.get(uid) ?? { pm: 0, member: 0 }; c.member++; spByUser.set(uid, c);
+            const c = spByUser.get(uid) ?? { pm: 0, pmCompleted: 0, member: 0 }; c.member++; spByUser.set(uid, c);
           }
         }
 
         const data: RowData[] = scopeUsers.map((u, i) => {
           const mileage: Mileage | null = mileages[i];
           const awards: Award[] = awardLists[i];
-          const sp = spByUser.get(u.id) ?? { pm: 0, member: 0 };
+          const sp = spByUser.get(u.id) ?? { pm: 0, pmCompleted: 0, member: 0 };
           const smartPm = sp.pm;
           const smartMember = sp.member;
           const pts = mileage?.points ?? 0;
           // (1) 팀장 승진: SMART_PROJECT(PM 또는 팀원) 1회 이상 + 마일리지 200점 이상
           const qualifyLead = (smartPm + smartMember) >= 1 && pts >= 200;
-          // (2) 임원 승진: SMART_PROJECT PM 1회 이상
-          const qualifyExec = smartPm >= 1;
+          // (2) 임원 승진: 완료된 SMART_PROJECT PM 1회 이상 (추진중은 실적으로 인정하지 않음)
+          const qualifyExec = sp.pmCompleted >= 1;
           return {
             user: u,
             mileagePoints: pts,

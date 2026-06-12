@@ -37,6 +37,7 @@ const EMPTY_FORM = {
   parentId: null as string | null,
   leaderId: null as string | null,
   displayOrder: '' as string, // 입력 편의를 위해 string 으로 다루다 저장 시 number 변환
+  isEvalUnit: false,          // 조직평가 단위 (본부를 부문처럼 평가)
 };
 
 // ── 트리 빌더 ────────────────────────────────────
@@ -139,6 +140,7 @@ function OrganizationsContent() {
     setForm({
       name: org.name, type: org.type, parentId: org.parentId, leaderId: org.leaderId,
       displayOrder: org.displayOrder != null ? String(org.displayOrder) : '',
+      isEvalUnit: !!org.isEvalUnit,
     });
     setLeaderSearch('');
     setParentSearch('');
@@ -187,6 +189,7 @@ function OrganizationsContent() {
           name: form.name, type: form.type,
           parentId: form.parentId || null,
           leaderId: form.leaderId || null,
+          isEvalUnit: form.type === 'HEADQUARTERS' ? form.isEvalUnit : false,
           ...(orderNum !== undefined && !Number.isNaN(orderNum) ? { displayOrder: orderNum } : {}),
         });
         toast.success('조직 정보가 수정되었습니다.');
@@ -196,6 +199,7 @@ function OrganizationsContent() {
           name: form.name, type: form.type,
           parentId: form.parentId || null,
           leaderId: form.leaderId || null,
+          isEvalUnit: form.type === 'HEADQUARTERS' ? form.isEvalUnit : false,
           ...(orderNum !== undefined && !Number.isNaN(orderNum) ? { displayOrder: orderNum } : {}),
         });
         toast.success('조직이 추가되었습니다.');
@@ -521,6 +525,24 @@ function OrganizationsContent() {
                   );
                 })()}
               </div>
+              {/* 조직평가 단위 — 본부(HEADQUARTERS)를 부문처럼 조직평가 대상으로 지정 */}
+              {form.type === 'HEADQUARTERS' && (
+                <div className="flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2.5">
+                  <input
+                    id="isEvalUnit"
+                    type="checkbox"
+                    checked={form.isEvalUnit}
+                    onChange={e => setForm(f => ({ ...f, isEvalUnit: e.target.checked }))}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label htmlFor="isEvalUnit" className="cursor-pointer text-sm">
+                    조직평가 단위로 지정
+                    <span className="block text-xs text-gray-500 font-normal mt-0.5">
+                      체크하면 이 본부가 부문/공장처럼 조직평가(등급·쿼터) 대상이 됩니다. 소속 인원의 조직등급은 이 본부 기준으로 표시됩니다.
+                    </span>
+                  </Label>
+                </div>
+              )}
               {/* 부문/공장 표시 순서 — DIVISION 타입에만 노출 */}
               {form.type === 'DIVISION' && (
                 <div className="space-y-1.5">

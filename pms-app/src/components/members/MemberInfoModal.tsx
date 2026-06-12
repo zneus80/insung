@@ -225,12 +225,14 @@ function PromotionSection({ user, mileage, innovations }: { user: User; mileage:
   if (user.role === 'EXECUTIVE' || user.role === 'CEO') return null;
 
   const spPmCount = innovations.filter(a => a.type === 'SMART_PROJECT' && getPmIds(a).includes(user.id)).length;
+  // 임원 승진 실적은 완료된 SP 만 인정 (추진중 제외)
+  const spPmCompletedCount = innovations.filter(a => a.type === 'SMART_PROJECT' && a.status === 'COMPLETED' && getPmIds(a).includes(user.id)).length;
   const spMemberCount = innovations.filter(a => a.type === 'SMART_PROJECT' && (a.memberIds ?? []).includes(user.id)).length;
   const points = mileage?.points ?? 0;
   const isLeadTrack = user.role === 'TEAM_LEAD' && !user.isActingLead;
 
   const rows = isLeadTrack
-    ? [{ label: '스마트 프로젝트 PM 1회', actual: `${spPmCount}회`, met: spPmCount >= 1 }]
+    ? [{ label: '스마트 프로젝트 PM 1회 (완료 기준)', actual: `${spPmCompletedCount}회`, met: spPmCompletedCount >= 1 }]
     : [
         { label: '스마트 프로젝트 1회 참여', actual: `${spPmCount + spMemberCount}회`, met: spPmCount + spMemberCount >= 1 },
         { label: 'ISKMS 마일리지 200점', actual: `${points.toLocaleString()}점`, met: points >= 200 },

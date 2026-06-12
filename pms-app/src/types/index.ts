@@ -19,6 +19,9 @@ export interface Organization {
   leaderId: string | null;   // 팀장 또는 임원 userId
   /** 표시 순서 (작은 값이 먼저). 부문/공장(DIVISION)에 주로 사용. 미설정 시 0 또는 무한대로 취급. */
   displayOrder?: number;
+  /** 조직평가 단위 — 부문(DIVISION)은 자동 평가 단위이며, 일부 본부(HEADQUARTERS)를 부문처럼
+   *  조직평가 대상으로 지정할 때 체크. 조직관리에서 설정. */
+  isEvalUnit?: boolean;
   /**
    * 보관(soft-archive) 시각. 과거 연도 데이터(목표·평가 등)가 참조하는 조직은
    * 삭제해도 doc 을 보존하여 과거 화면에서 조직명이 깨지지 않게 한다.
