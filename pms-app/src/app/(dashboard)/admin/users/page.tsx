@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
 import ReauthModal from '@/components/auth/ReauthModal';
-import { Plus, Pencil, UserX, Download, Upload, AlertCircle, Trash2, Mail, Copy, Check, UserCheck, KeyRound, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Plus, Pencil, UserX, Download, Upload, AlertCircle, Trash2, Mail, Copy, Check, UserCheck, KeyRound, ChevronUp, ChevronDown, ChevronsUpDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { User, Organization, UserRole } from '@/types';
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -103,6 +103,8 @@ function UsersContent() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [copied, setCopied] = useState(false);
+  // 초대 메일 자동 발송 상태 (발신전용 시스템 메일)
+  const [inviteSendStatus, setInviteSendStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
 
   // 엑셀 업로드
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -146,7 +148,7 @@ function UsersContent() {
     XLSX.writeFile(wb, 'INSUNG_사용자등록_양식.xlsx');
   }
 
-  // ── 초대 링크 생성 (기존 사용자 기반) ──────────
+  // ── 초대 링크 생성 + 초대 메일 자동 발송 (발신전용 시스템 메일) ──────────
   async function handleSendInvite(user: User) {
     if (!userProfile) return;
     const token = await createInvitation({
@@ -163,6 +165,21 @@ function UsersContent() {
     setInviteEmail(user.email);
     setInviteName(user.name);
     setCopied(false);
+    // 초대 메일 자동 발송 — 실패해도 링크 복사·mailto 백업 수단이 있으므로 다이얼로그는 그대로 표시
+    setInviteSendStatus('sending');
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('no token');
+      const res = await fetch('/api/notifications/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ kind: 'invite', userId: user.id, inviteToken: token }),
+      });
+      const j = await res.json().catch(() => ({}));
+      setInviteSendStatus(res.ok && j.sent ? 'sent' : 'failed');
+    } catch {
+      setInviteSendStatus('failed');
+    }
   }
 
   function copyLink() {
@@ -920,8 +937,27 @@ function UsersContent() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-2">
+              {/* 자동 발송 상태 */}
+              {inviteSendStatus === 'sending' && (
+                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-700">
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                  <span><b>{inviteEmail}</b> 로 초대 메일을 발송하는 중…</span>
+                </div>
+              )}
+              {inviteSendStatus === 'sent' && (
+                <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-green-700">
+                  <Check className="h-4 w-4 shrink-0" />
+                  <span><b>{inviteEmail}</b> 로 초대 메일이 자동 발송되었습니다. (발신전용 시스템 메일)</span>
+                </div>
+              )}
+              {inviteSendStatus === 'failed' && (
+                <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>자동 발송에 실패했습니다. 아래 링크를 복사해 직접 전달해 주세요.</span>
+                </div>
+              )}
               <p className="text-sm text-gray-600">
-                <span className="font-semibold">{inviteName}</span>님({inviteEmail})에게 아래 링크를 전달하세요.
+                <span className="font-semibold">{inviteName}</span>님({inviteEmail})의 초대 링크입니다.
                 링크는 <span className="font-semibold">7일간</span> 유효합니다.
               </p>
               <div className="flex items-center gap-2 rounded-lg border bg-gray-50 px-3 py-2">
@@ -933,12 +969,12 @@ function UsersContent() {
                   {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                   {copied ? '복사됨' : '링크 복사'}
                 </Button>
-                <Button className="flex-1 gap-1.5" onClick={openMailto}>
+                <Button variant="outline" className="flex-1 gap-1.5" onClick={openMailto}>
                   <Mail className="h-4 w-4" /> 이메일 앱으로 발송
                 </Button>
               </div>
               <p className="text-xs text-gray-400 text-center">
-                '이메일 앱으로 발송' 클릭 시 기본 메일 앱이 열립니다.
+                링크 복사·이메일 앱 발송은 자동 발송이 실패했거나 다른 채널로 전달할 때 사용하세요.
               </p>
             </div>
           </DialogContent>
