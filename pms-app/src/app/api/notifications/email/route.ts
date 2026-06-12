@@ -44,20 +44,58 @@ export async function POST(req: NextRequest) {
     const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
     if (!idToken) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     const app = getAdminApp();
-    await getAuth(app).verifyIdToken(idToken);
+    const caller = await getAuth(app).verifyIdToken(idToken);
 
-    // 2) 입력 검증
-    const { userId, title, message, link } = await req.json();
-    if (!userId || typeof userId !== 'string' || !title || !message) {
+    // 2) 입력 검증 — kind: 'notification'(기본) | 'invite'(초대 메일)
+    const { kind, userId, title, message, link, inviteToken } = await req.json();
+    const isInvite = kind === 'invite';
+    if (!userId || typeof userId !== 'string') {
+      return NextResponse.json({ error: 'bad request' }, { status: 400 });
+    }
+    if (isInvite) {
+      if (!inviteToken || typeof inviteToken !== 'string') {
+        return NextResponse.json({ error: 'bad request' }, { status: 400 });
+      }
+    } else if (!title || !message) {
       return NextResponse.json({ error: 'bad request' }, { status: 400 });
     }
 
-    // 3) 수신자 이메일 — 서버에서 users 컬렉션 조회 (임의 주소 발송 차단)
     const db = getFirestore(app);
+
+    // 초대 메일은 HR관리자·HR마스터·CEO 만 발송 가능
+    if (isInvite) {
+      const callerSnap = await db.collection('users').doc(caller.uid).get();
+      const c = callerSnap.data();
+      const allowed = !!c && (c.isHrAdmin === true || c.isHrMaster === true || c.role === 'CEO');
+      if (!allowed) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
+    // 3) 수신자 이메일 — 서버에서 users 컬렉션 조회 (임의 주소 발송 차단)
     const userSnap = await db.collection('users').doc(userId).get();
     const email = userSnap.exists ? (userSnap.data()?.email as string | undefined) : undefined;
+    const recipientName = userSnap.exists ? (userSnap.data()?.name as string | undefined) : undefined;
     if (!email || !email.includes('@')) {
       return NextResponse.json({ sent: false, reason: 'no-email' });
+    }
+
+    // ── 초대 메일 — 링크는 서버가 토큰으로 직접 구성(임의 URL 피싱 차단) ──
+    if (isInvite) {
+      const inviteUrl = `${APP_URL}/invite/${encodeURIComponent(inviteToken)}`;
+      await transporter().sendMail({
+        from: `"INSUNG PMS 알림 (발신전용)" <${process.env.GMAIL_USER}>`,
+        to: email,
+        replyTo: `"발신전용 — 회신 불가" <${process.env.GMAIL_USER}>`,
+        subject: '[INSUNG PMS] 시스템 초대 안내',
+        html: [
+          '<div style="font-family:Apple SD Gothic Neo,Malgun Gothic,sans-serif;max-width:520px;margin:0 auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px">',
+          `<h2 style="font-size:16px;color:#111827;margin:0 0 12px">${escapeHtml(recipientName ?? '')}님, INSUNG PMS에 초대되었습니다</h2>`,
+          '<p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 20px">아래 버튼을 눌러 비밀번호를 설정하고 계정을 활성화해 주세요.<br/>초대 링크는 <b>7일간</b> 유효합니다.</p>',
+          `<a href="${inviteUrl}" style="display:inline-block;background:#2563eb;color:#fff;font-size:13px;font-weight:600;padding:10px 18px;border-radius:8px;text-decoration:none">계정 설정하기</a>`,
+          '<p style="font-size:11px;color:#9ca3af;margin:20px 0 0">본 메일은 INSUNG PMS 시스템에서 자동 발송된 <b>발신전용</b> 메일입니다. 회신은 처리되지 않습니다.</p>',
+          '</div>',
+        ].join(''),
+      });
+      return NextResponse.json({ sent: true });
     }
 
     // 4) 발송

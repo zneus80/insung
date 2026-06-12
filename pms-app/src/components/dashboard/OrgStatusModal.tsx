@@ -54,12 +54,12 @@ interface RowData {
 export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
   const { userProfile } = useAuth();
   const { activeYear } = useActiveYear();
-  // 3개년 인사평가 등급 — 관리자(팀장·임원·CEO·HR)에게만 노출. 데이터는 ACL(viewableBy) 경로로만 읽어
-  // 권한 없는 타인 등급은 자동 차단(§6-1 가시성 원칙 준수, 원칙 자체는 불변).
+  // 3개년 인사평가 등급 — 팀장·임원·CEO·HR마스터에게만 노출 (HR관리자는 제외).
+  // 데이터는 ACL(viewableBy) 경로로만 읽어 권한 없는 타인 등급은 자동 차단(§6-1 가시성 원칙 준수, 원칙 자체는 불변).
   const gradeYears = [activeYear, activeYear - 1, activeYear - 2];
   const canSeeGrades = !!userProfile && (
     userProfile.role === 'TEAM_LEAD' || userProfile.role === 'EXECUTIVE' ||
-    userProfile.role === 'CEO' || !!userProfile.isHrAdmin || !!userProfile.isHrMaster
+    userProfile.role === 'CEO' || !!userProfile.isHrMaster
   );
   const [rows, setRows] = useState<RowData[]>([]);
   const [orgsById, setOrgsById] = useState<Map<string, Organization>>(new Map());
