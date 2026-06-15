@@ -77,8 +77,8 @@ function AssistantContent() {
       const years = year === 'all' ? [NOW_YEAR, NOW_YEAR - 1, NOW_YEAR - 2] : [year];
       const [allUsers, orgs] = await Promise.all([getAllUsers(), getOrganizations()]);
       const orgName = (id?: string) => orgs.find(o => o.id === id)?.name ?? '';
-      // 평가 대상 인원 (임원·CEO 제외)
-      const people = allUsers.filter(u => u.isActive && u.role !== 'CEO');
+      // 평가 대상 인원 (임원·CEO 제외) — 차순위 임원(EXEC_SUB)은 팀장 권한·평가 대상이므로 포함
+      const people = allUsers.filter(u => u.isActive && u.role !== 'CEO' && u.role !== 'EXECUTIVE');
       const ids = people.map(u => u.id);
 
       // 연도별 데이터 로드
@@ -113,7 +113,6 @@ function AssistantContent() {
           const d = perYear[y];
           const myGoals = d.goals.filter(g => g.userId === u.id || (g.collaboratorIds ?? []).includes(u.id));
           const evalGoals = myGoals.filter(g => ['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'PENDING_ABANDON'].includes(g.status) || (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange));
-          if (evalGoals.length === 0 && !d.ie.find(e => e.userId === u.id) && !d.se.find(e => e.userId === u.id)) continue;
           const completed = evalGoals.filter(g => g.status === 'COMPLETED').length;
           const abandoned = evalGoals.filter(g => g.status === 'ABANDONED' || g.status === 'PENDING_ABANDON').length;
           const ie = d.ie.find(e => e.userId === u.id);
@@ -125,6 +124,14 @@ function AssistantContent() {
           const innovNames = d.innov
             .filter(a => getPmIds(a).includes(u.id) || (a.memberIds ?? []).includes(u.id) || getPerformerIds(a).includes(u.id) || a.instructorId === u.id)
             .map(a => `${a.type === 'SMART_PROJECT' ? (getPmIds(a).includes(u.id) ? 'SP-PM' : 'SP') : 'TDS'}:${a.name}`).slice(0, 6);
+          // 5종 데이터(목표·주간보고·자기평가·육성면담서·혁신활동) 중 실제 내용이 하나라도 있는 연도만 기록.
+          // 빈 IE 시드(NOT_STARTED·등급 없음)만 있는 연도는 토큰 절약을 위해 비워둔다(인원은 아래에서 그대로 포함).
+          const selfHasContent = !!se && ((se.goalEvals ?? []).some(g => g.score != null || !!(g.comment || '').trim())
+            || (se.generalEvals ?? []).some(g => g.score != null || !!(g.comment || '').trim())
+            || (se.innovationEvals ?? []).some(i => !!(i.comment || '').trim()));
+          const mentoringHasContent = !!mf && !!((mf.mainDuties || '').trim() || (mf.careerPlan || '').trim() || mf.jobRequest || (mf.selfOpinion || '').trim());
+          const hasGrade = !!ie && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') && !!ie.execGrade;
+          if (evalGoals.length === 0 && weeklyHi.length === 0 && innovNames.length === 0 && !selfHasContent && !mentoringHasContent && !hasGrade) continue;
           yrs[y] = {
             grade: ie && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') ? ie.execGrade : undefined,
             coreGoals: evalGoals.map(g => ({ t: g.title, s: g.status === 'COMPLETED' ? '완료' : (g.status === 'ABANDONED' || g.status === 'PENDING_ABANDON') ? '포기' : '추진중', p: g.progress, w: g.weights?.[u.id] ?? g.weight })).slice(0, 15),
@@ -138,10 +145,11 @@ function AssistantContent() {
             innovation: innovNames,
           };
         }
-        if (Object.keys(yrs).length === 0) return null;
+        // 데이터가 전혀 없는 인원도 전체 명단에 포함 — years 가 비어 있으면 AI 가 '데이터 없음'으로 처리.
         const awards = (awardsByUser[u.id] ?? []).map(a => `${a.title}(${a.awardDate ?? ''})`).slice(0, 6);
-        return { name: u.name, position: u.position ?? '', org: orgName(u.organizationId), role: u.role, mileage: mileageByUser[u.id] ?? 0, awards, years: yrs };
-      }).filter(Boolean);
+        const noData = Object.keys(yrs).length === 0;
+        return { name: u.name, position: u.position ?? '', org: orgName(u.organizationId), role: u.role, mileage: mileageByUser[u.id] ?? 0, awards, years: yrs, ...(noData ? { noData: true } : {}) };
+      });
 
       const json = JSON.stringify(dossierArr);
       setDossier(json);
