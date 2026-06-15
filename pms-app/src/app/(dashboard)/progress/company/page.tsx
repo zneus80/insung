@@ -145,52 +145,60 @@ function Content({ embedded = false }: { embedded?: boolean }) {
           </div>
 
           <div className="space-y-3">
-            {/* 스마트 프로젝트 — 전체 폭 */}
-            <div className="rounded-xl border bg-white overflow-hidden">
-              <div className="px-4 py-2.5 bg-orange-50 border-b flex items-center gap-2">
-                <span className="text-sm font-semibold text-orange-700">스마트 프로젝트</span>
-                <span className="text-xs text-orange-500">
-                  {innovations.filter(i => i.type === 'SMART_PROJECT').length}건
-                </span>
-              </div>
-              {(() => {
-                const list = innovations.filter(i => i.type === 'SMART_PROJECT');
-                if (loading) return <div className="p-4 space-y-2">{[1,2].map(i => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100" />)}</div>;
-                if (list.length === 0) return <p className="px-4 py-6 text-center text-sm text-gray-400">등록된 항목이 없습니다.</p>;
-                return (
-                  <div className="divide-y">
-                    {list.map(it => (
-                      <InnovationRow key={it.id} item={it} usersById={usersById} revealConfidential={revealConfidential} />
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
+            {/* 스마트 프로젝트 — 전체 폭, 접기 가능 */}
+            {(() => {
+              const spOpen = expanded['__sp'] ?? true;
+              const list = innovations.filter(i => i.type === 'SMART_PROJECT');
+              return (
+                <div className="rounded-xl border bg-white overflow-hidden">
+                  <button
+                    onClick={() => setExpanded(p => ({ ...p, __sp: !spOpen }))}
+                    className="w-full px-4 py-2.5 bg-orange-50 border-b flex items-center gap-2 hover:bg-orange-100/70 transition-colors"
+                  >
+                    <span className="text-sm font-semibold text-orange-700">스마트 프로젝트</span>
+                    <span className="text-xs text-orange-500">{list.length}건</span>
+                    <ChevronDown className={cn('h-4 w-4 text-orange-400 ml-auto shrink-0 transition-transform', !spOpen && '-rotate-90')} />
+                  </button>
+                  {spOpen && (loading
+                    ? <div className="p-4 space-y-2">{[1,2].map(i => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100" />)}</div>
+                    : list.length === 0
+                      ? <p className="px-4 py-6 text-center text-sm text-gray-400">등록된 항목이 없습니다.</p>
+                      : <div className="divide-y">{list.map(it => (
+                          <InnovationRow key={it.id} item={it} usersById={usersById} revealConfidential={revealConfidential} />
+                        ))}</div>
+                  )}
+                </div>
+              );
+            })()}
 
-            {/* TDS — 스마트 프로젝트 아래, 2열 배치 */}
-            <div className="rounded-xl border bg-white overflow-hidden">
-              <div className="px-4 py-2.5 bg-purple-50 border-b flex items-center gap-2">
-                <FileText className="h-4 w-4 text-purple-600" />
-                <span className="text-sm font-semibold text-purple-700">TDS</span>
-                <span className="text-xs text-purple-500">
-                  {innovations.filter(i => i.type === 'TDS').length}건
-                </span>
-              </div>
-              {(() => {
-                const list = innovations.filter(i => i.type === 'TDS');
-                if (loading) return <div className="p-4 space-y-2">{[1,2].map(i => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100" />)}</div>;
-                if (list.length === 0) return <p className="px-4 py-6 text-center text-sm text-gray-400">등록된 항목이 없습니다.</p>;
-                return (
-                  <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {list.map(it => (
-                      <div key={it.id} className="rounded-lg border bg-gray-50/50">
-                        <InnovationRow item={it} usersById={usersById} revealConfidential={revealConfidential} compact />
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
+            {/* TDS — 스마트 프로젝트 아래, 2열 배치, 접기 가능 */}
+            {(() => {
+              const tdsOpen = expanded['__tds'] ?? true;
+              const list = innovations.filter(i => i.type === 'TDS');
+              return (
+                <div className="rounded-xl border bg-white overflow-hidden">
+                  <button
+                    onClick={() => setExpanded(p => ({ ...p, __tds: !tdsOpen }))}
+                    className="w-full px-4 py-2.5 bg-purple-50 border-b flex items-center gap-2 hover:bg-purple-100/70 transition-colors"
+                  >
+                    <FileText className="h-4 w-4 text-purple-600 shrink-0" />
+                    <span className="text-sm font-semibold text-purple-700">TDS</span>
+                    <span className="text-xs text-purple-500">{list.length}건</span>
+                    <ChevronDown className={cn('h-4 w-4 text-purple-400 ml-auto shrink-0 transition-transform', !tdsOpen && '-rotate-90')} />
+                  </button>
+                  {tdsOpen && (loading
+                    ? <div className="p-4 space-y-2">{[1,2].map(i => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100" />)}</div>
+                    : list.length === 0
+                      ? <p className="px-4 py-6 text-center text-sm text-gray-400">등록된 항목이 없습니다.</p>
+                      : <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-2">{list.map(it => (
+                          <div key={it.id} className="rounded-lg border bg-gray-50/50">
+                            <InnovationRow item={it} usersById={usersById} revealConfidential={revealConfidential} compact />
+                          </div>
+                        ))}</div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </section>
 
