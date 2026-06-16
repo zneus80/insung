@@ -54,6 +54,8 @@ export interface AiMemberInput {
   weeklyHighlights: string[];  // 그 해 Has Done 주요 실적
   selfEvalComments: string[];  // 자기평가 의견(점수 포함)
   generalWorkComments?: string[]; // 자기평가 중 '일반업무'만 별도(요약에 반드시 반영)
+  // 팀장·본부장 전용 — 책임 조직(+산하)의 핵심목표 완료율(%). 관리자 가·감점 근거.
+  teamAchievement?: { rate: number; completed: number; total: number };
   // 육성면담서 — 직무정보·경력개발·직무요청(특이 케이스)·종합의견을 균형있게 요약하기 위한 원자료
   mentoring?: {
     currentPosition?: string;   // 직위/직책
@@ -99,6 +101,7 @@ export const SHARED_EVAL_CRITERIA: string[] = [
   '  · 임팩트 추정 — 관점: 균형성과표(BSC: 재무·고객·내부프로세스·학습성장)·전략 정렬·KPI 중요도/가중·비즈니스 임팩트(매출·비용·리스크·시장 영향 범위·지속성). 근거: 목표의 객관적 범위(영향 조직·기간·완료 여부·실제 진행률)에 한정하고 없는 성과를 지어내지 않습니다.',
   '- ② 완료(임팩트와 동급 핵심): 특히 고임팩트 목표의 완료를 가장 높게 봅니다. 완료 실적이 없으면(완료 0) 상위 등급(A·B)을 줄 수 없습니다. 추진중은 진행률로 일부만 반영, 포기는 미달성으로 간주(목표 수 가산 제외, 포기가 많으면 부정적으로 반영하고 명시).',
   '- ③ 유효 목표 갯수(보조): 포기 제외, 임팩트가 대등할 때에 한해 많을수록 가점.',
+  '- ④ 팀장·본부장(관리자) 가·감점: teamAchievement(책임 팀의 목표 완료율 %)가 주어진 사람은 팀 성과 책임자이므로, 본인 주간 실적이 적더라도 팀 성과를 점수에 반영합니다(100점 만점 기준). 완료율 100% → +5점, 90~99% → 0, 80~89% → -2점, 80% 미만 → -5점. 이 가·감점을 종합 점수·등급 판단에 더하세요.',
   '',
   '【C. 데이터 해석 원칙】',
   '- 주간업무보고: ①효율성(투입 대비 산출) ②실효성(실제 성과·문제 해결로 이어졌는지) ③중대성(영향 범위·중요도) 관점으로 보고, 단순 나열·형식적 기록보다 구체적·실질적 성과를 높게 봅니다.',
@@ -151,6 +154,7 @@ function buildPrompt(members: AiMemberInput[], criteria: string[] = SHARED_EVAL_
     weeklyHighlights: m.weeklyHighlights,
     selfEvalComments: m.selfEvalComments,
     generalWorkComments: m.generalWorkComments,
+    teamAchievement: m.teamAchievement,
     mentoring: m.mentoring,
   }));
   return [

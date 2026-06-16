@@ -458,13 +458,21 @@ function CollabTFSection({ year, week, weekStart, weekEnd, currentUser, myOrgId,
     setLoading(true);
     try {
       const all = await getGoalsByUser(currentUser.id, year);
-      // 다른 팀 소유 + 본인이 공동수행자 + 진행 상태
-      const tf = all.filter(g =>
-        g.organizationId !== myOrgId &&
-        (g.collaboratorIds ?? []).includes(currentUser.id) &&
-        ['APPROVED', 'IN_PROGRESS', 'COMPLETED'].includes(g.status) &&
-        !g.trashedAt && !g.softDeletedAt,
-      );
+      // 다른 팀 소유 + 본인이 공동수행자. 완료 목표는 '완료한 주차'까지만 표시(핵심업무 블록과 동일).
+      const viewedKey = year * 100 + week;
+      const tf = all.filter(g => {
+        if (g.organizationId === myOrgId) return false;
+        if (!(g.collaboratorIds ?? []).includes(currentUser.id)) return false;
+        if (g.trashedAt || g.softDeletedAt) return false;
+        if (g.status === 'APPROVED' || g.status === 'IN_PROGRESS') return true;
+        if (g.status === 'COMPLETED') {
+          const at = g.completionExecApprovedAt ?? g.updatedAt;
+          if (!at) return false;
+          const w = getISOWeek(at instanceof Date ? at : new Date(at));
+          return viewedKey <= (w.year * 100 + w.week);
+        }
+        return false;
+      });
       setGoals(tf);
       const dm: Record<string, WeeklyTask | null> = {};
       await Promise.all(tf.map(async g => { dm[g.id] = await getTeamWeeklyTask(g.organizationId, year, week).catch(() => null); }));

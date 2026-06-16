@@ -109,6 +109,7 @@ function TeamLeadEvalView() {
 
   const [members, setMembers]             = useState<User[]>([]);
   const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
+  const [scopeGoals, setScopeGoals] = useState<Goal[]>([]); // 스코프 전체 목표(팀장 가·감점 완료율 계산용)
   const [selfEvals, setSelfEvals]         = useState<Record<string, SelfEvaluation>>({});
   const [indivEvals, setIndivEvals]       = useState<Record<string, IndividualEvaluation>>({});
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
@@ -247,6 +248,7 @@ function TeamLeadEvalView() {
       // owner + 공동수행자 모두에게 배정 — AI 요약·카드에 공동수행 업무 반영
       active.forEach(m => { gMap[m.id] = allGoals.filter(g => g.userId === m.id || (g.collaboratorIds ?? []).includes(m.id)); });
       setGoalsByMember(gMap);
+      setScopeGoals(allGoals);
 
       const [seList, mfList, weeklyTasks, innovations] = await Promise.all([
         getSelfEvaluationsByUsers(active.map(m => m.id), year),
@@ -523,6 +525,8 @@ function TeamLeadEvalView() {
                 indivEvals={indivEvals}
                 actor={{ id: userProfile.id, name: userProfile.name }}
                 scopeLabel={isHQHead ? '본부 산하' : '팀원'}
+                allOrgs={allOrgsCache}
+                allScopeGoals={scopeGoals}
               />
             )}
             {/* 팀 탭 바 */}
