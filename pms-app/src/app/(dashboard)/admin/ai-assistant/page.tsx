@@ -18,6 +18,7 @@ import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { askAssistant, type AssistantTurn } from '@/lib/ai-assistant';
 import { SHARED_EVAL_CRITERIA } from '@/lib/ai-eval';
+import { computeLeaderTeamAchievement } from '@/lib/team-achievement';
 import { cn } from '@/lib/utils';
 import MarkdownLite from '@/components/ui/MarkdownLite';
 import type { Goal, IndividualEvaluation, SelfEvaluation, MentoringForm, WeeklyTask, InnovationActivity, Award } from '@/types';
@@ -183,6 +184,8 @@ function AssistantContent() {
             weeklyHighlights: weeklyHi,
             mentoring: mf ? { 직무: mf.mainDuties?.slice(0, 120), 경력개발: mf.careerPlan?.slice(0, 120), 직무요청: mf.jobRequest ? (JR[mf.jobRequest] ?? mf.jobRequest) : undefined, 종합의견: mf.selfOpinion?.slice(0, 150) } : undefined,
             innovation: innovNames,
+            // 팀장·본부장 가·감점 — 책임 조직(+산하) 완료율
+            teamAchievement: computeLeaderTeamAchievement(u.id, orgs, d.goals) ?? undefined,
           };
         }
         // 데이터가 전혀 없는 인원도 전체 명단에 포함 — years 가 비어 있으면 AI 가 '데이터 없음'으로 처리.

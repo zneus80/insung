@@ -6,8 +6,9 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createAuditLog } from '@/lib/firestore';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
+import { computeLeaderTeamAchievement } from '@/lib/team-achievement';
 import type {
-  User, Goal, SelfEvaluation, IndividualEvaluation, MentoringForm, WeeklyTask, InnovationActivity,
+  User, Goal, SelfEvaluation, IndividualEvaluation, MentoringForm, WeeklyTask, InnovationActivity, Organization,
 } from '@/types';
 
 /**
@@ -36,11 +37,14 @@ interface Props {
   actor: { id: string; name: string };
   /** 범위 안내 문구 (예: "산하 전체", "○○팀") */
   scopeLabel?: string;
+  /** 팀장·본부장 가·감점(책임 팀 완료율) 계산용 — 전체 조직 + 스코프 목표 */
+  allOrgs?: Organization[];
+  allScopeGoals?: Goal[];
 }
 
 export default function AiEvalPanel({
   members, goalsByMember, weeklyTasksByMember, selfEvals, mentoringForms, indivEvals,
-  innovationsByMember, actor, scopeLabel,
+  innovationsByMember, actor, scopeLabel, allOrgs, allScopeGoals,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0); // 분석 경과 시간(초)
@@ -119,6 +123,10 @@ export default function AiEvalPanel({
             .filter(Boolean).slice(0, 30),
           selfEvalComments,                            // 자기평가(점수 포함)
           generalWorkComments,                         // 일반업무만 별도
+          // 팀장·본부장 가·감점 — 책임 조직(+산하) 완료율
+          teamAchievement: (allOrgs && allScopeGoals)
+            ? (computeLeaderTeamAchievement(m.id, allOrgs, allScopeGoals) ?? undefined)
+            : undefined,
           mentoring: mf ? {
             currentPosition: mf.currentPosition,
             mainDuties: mf.mainDuties,

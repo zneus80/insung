@@ -124,6 +124,7 @@ function ExecutiveEvalView() {
   const [indivEvals, setIndivEvals]   = useState<Record<string, IndividualEvaluation>>({});
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
   const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
+  const [scopeGoals, setScopeGoals] = useState<Goal[]>([]); // 스코프 전체 목표(팀장 가·감점 완료율 계산용)
   const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [innovationsByMember, setInnovationsByMember] = useState<Record<string, InnovationActivity[]>>({});
   const [quotas, setQuotas]           = useState<DivisionGradeQuota | null>(null);
@@ -226,6 +227,7 @@ function ExecutiveEvalView() {
         }
       });
       setGoalsByMember(gbMap);
+      setScopeGoals(allGoals);
 
       const seMap: Record<string, SelfEvaluation> = {};
       seList.forEach(se => { seMap[se.userId] = se; });
@@ -411,6 +413,8 @@ function ExecutiveEvalView() {
                 innovationsByMember={innovationsByMember}
                 actor={{ id: userProfile.id, name: userProfile.name }}
                 scopeLabel="산하 전체"
+                allOrgs={allOrgs}
+                allScopeGoals={scopeGoals}
               />
             )}
             {/* 팀 탭 바 */}
