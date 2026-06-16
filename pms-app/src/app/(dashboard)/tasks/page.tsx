@@ -13,6 +13,8 @@ import {
   deleteLeadComment,
   syncWeeklyGoalProgress,
   getGoalsByOrganization,
+  getGoalsByUser,
+  upsertCollabTFItem,
   getAllUsers,
   getOrganizations,
   updateGoal,
@@ -149,6 +151,7 @@ function MemberTasksPage() {
               year={year} week={week}
               editable={!locked}
               currentUser={{ id: userProfile.id, name: userProfile.name }}
+              showCollabTF
             />
           </div>
         ) : (
@@ -417,9 +420,157 @@ function AuthorBadge({ name }: { name?: string }) {
 }
 
 // ── 팀 공유 주간보고 폼 (editable=우리 팀 / read-only=상위자 검토) ──
-function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
+// ── 참여 공동업무(TF) 섹션 — 다른 팀 소유 공동목표에 본인이 참여한 경우 ──
+// 작성 내용은 소유 팀 주간보고 문서에 authorId=본인으로 저장(서버 API). 본인에게만 표시.
+function TFEdit({ draft, setDraft, onSave, onCancel, saving }: {
+  draft: { title: string; content: string };
+  setDraft: React.Dispatch<React.SetStateAction<{ title: string; content: string }>>;
+  onSave: () => void; onCancel: () => void; saving: boolean;
+}) {
+  return (
+    <div className="rounded border bg-white p-2 space-y-1.5">
+      <input value={draft.title} onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
+        placeholder="제목" className="w-full rounded border border-gray-200 px-2 py-1 text-sm" />
+      <textarea value={draft.content} onChange={e => setDraft(d => ({ ...d, content: e.target.value }))}
+        onKeyDown={shiftEnterSubmit(onSave, !saving)} placeholder="내용 (Shift+Enter 저장)" rows={2}
+        className="w-full rounded border border-gray-200 px-2 py-1 text-sm resize-none" />
+      <div className="flex justify-end gap-1.5">
+        <Button size="sm" variant="ghost" onClick={onCancel} disabled={saving}>취소</Button>
+        <Button size="sm" onClick={onSave} disabled={saving}>저장</Button>
+      </div>
+    </div>
+  );
+}
+
+function CollabTFSection({ year, week, weekStart, weekEnd, currentUser, myOrgId, locked }: {
+  year: number; week: number; weekStart: Date; weekEnd: Date;
+  currentUser: { id: string; name: string }; myOrgId: string; locked: boolean;
+}) {
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [docs, setDocs] = useState<Record<string, WeeklyTask | null>>({});
+  const [orgNames, setOrgNames] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<{ goalId: string; section: 'hd' | 'wd'; id?: string } | null>(null);
+  const [draft, setDraft] = useState({ title: '', content: '' });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const all = await getGoalsByUser(currentUser.id, year);
+      // 다른 팀 소유 + 본인이 공동수행자 + 진행 상태
+      const tf = all.filter(g =>
+        g.organizationId !== myOrgId &&
+        (g.collaboratorIds ?? []).includes(currentUser.id) &&
+        ['APPROVED', 'IN_PROGRESS', 'COMPLETED'].includes(g.status) &&
+        !g.trashedAt && !g.softDeletedAt,
+      );
+      setGoals(tf);
+      const dm: Record<string, WeeklyTask | null> = {};
+      await Promise.all(tf.map(async g => { dm[g.id] = await getTeamWeeklyTask(g.organizationId, year, week).catch(() => null); }));
+      setDocs(dm);
+      if (tf.length > 0) {
+        const orgs = await getOrganizations().catch(() => []);
+        const nm: Record<string, string> = {};
+        orgs.forEach(o => { nm[o.id] = o.name; });
+        setOrgNames(nm);
+      }
+    } finally { setLoading(false); }
+  }, [currentUser.id, year, week, myOrgId]);
+  useEffect(() => { load(); }, [load]);
+
+  if (loading || goals.length === 0) return null;
+
+  const myItems = (g: Goal, section: 'hd' | 'wd'): SimpleTaskItem[] => {
+    const d = docs[g.id];
+    const arr = section === 'hd' ? d?.hasDoneItems : d?.willDoItems;
+    return (arr ?? []).filter(i => i.goalId === g.id && i.authorId === currentUser.id);
+  };
+  const resetEdit = () => { setEditing(null); setDraft({ title: '', content: '' }); };
+
+  async function submit(g: Goal, section: 'hd' | 'wd') {
+    if (!draft.title.trim() && !draft.content.trim()) return;
+    setSaving(true);
+    try {
+      const id = editing?.id ?? crypto.randomUUID();
+      await upsertCollabTFItem({ targetOrgId: g.organizationId, year, week, weekStart, weekEnd, goalId: g.id, section, op: 'upsert', item: { id, title: draft.title.trim(), content: draft.content.trim() } });
+      resetEdit();
+      await load();
+    } catch (e: any) { toast.error(e?.message ?? '저장에 실패했습니다.'); }
+    finally { setSaving(false); }
+  }
+  async function remove(g: Goal, section: 'hd' | 'wd', itemId: string) {
+    if (!confirm('이 항목을 삭제하시겠습니까?')) return;
+    setSaving(true);
+    try {
+      await upsertCollabTFItem({ targetOrgId: g.organizationId, year, week, weekStart, weekEnd, goalId: g.id, section, op: 'delete', itemId });
+      await load();
+    } catch (e: any) { toast.error(e?.message ?? '삭제에 실패했습니다.'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="rounded-xl border border-violet-200 bg-violet-50/40 overflow-hidden">
+      <div className="px-4 py-2.5 bg-violet-50 border-b flex flex-wrap items-center gap-x-2">
+        <span className="text-xs font-bold uppercase tracking-wide text-violet-700">참여 공동업무 (TF)</span>
+        <span className="text-[11px] text-violet-500">다른 팀이 소유한 공동목표 · 작성 내용은 소유 팀 보고서에 기록됩니다</span>
+      </div>
+      <div className="divide-y">
+        {goals.map(g => (
+          <div key={g.id} className="px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-gray-800">{g.title}</span>
+              <span className="text-[11px] rounded-full bg-violet-100 text-violet-700 px-2 py-0.5">{orgNames[g.organizationId] ?? '타 팀'}</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(['hd', 'wd'] as const).map(section => {
+                const items = myItems(g, section);
+                const addingHere = editing?.goalId === g.id && editing.section === section && !editing.id;
+                return (
+                  <div key={section}>
+                    <p className="text-[11px] font-bold text-gray-500 mb-1">{section === 'hd' ? '이번 주 실적' : '다음 주 계획'}</p>
+                    <div className="space-y-1">
+                      {items.map(it => {
+                        const isEdit = editing?.goalId === g.id && editing.section === section && editing.id === it.id;
+                        if (isEdit) return <TFEdit key={it.id} draft={draft} setDraft={setDraft} onSave={() => submit(g, section)} onCancel={resetEdit} saving={saving} />;
+                        return (
+                          <div key={it.id} className="group flex items-start gap-2 rounded bg-white border px-2.5 py-1.5">
+                            <div className="flex-1 min-w-0">
+                              {it.title && <p className="text-sm text-gray-800 break-words">{it.title}</p>}
+                              {it.content && <p className="text-xs text-gray-500 whitespace-pre-wrap break-words">{it.content}</p>}
+                            </div>
+                            {!locked && (
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 shrink-0">
+                                <button onClick={() => { setEditing({ goalId: g.id, section, id: it.id }); setDraft({ title: it.title || '', content: it.content || '' }); }} className="p-1 text-gray-400 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
+                                <button onClick={() => remove(g, section, it.id)} className="p-1 text-gray-400 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {addingHere && <TFEdit draft={draft} setDraft={setDraft} onSave={() => submit(g, section)} onCancel={resetEdit} saving={saving} />}
+                      {!locked && !addingHere && (
+                        <button onClick={() => { setEditing({ goalId: g.id, section }); setDraft({ title: '', content: '' }); }} className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-700 font-medium">
+                          <Plus className="h-3.5 w-3.5" /> 추가
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF = false }: {
   orgId: string; year: number; week: number; editable: boolean;
   currentUser: { id: string; name: string };
+  /** 본인이 자기 팀 주간보고를 보는 맥락에서만 true — 참여 공동업무(TF) 섹션 표시 */
+  showCollabTF?: boolean;
 }) {
   const [hasDoneItems, setHasDoneItems] = useState<SimpleTaskItem[]>([]);
   const [willDoItems, setWillDoItems] = useState<SimpleTaskItem[]>([]);
@@ -753,7 +904,8 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
                     {isGreen && (
                       <div className="flex items-center gap-1.5 shrink-0">
                         <span className="text-[11px] text-gray-400">진행률</span>
-                        {isBodyLocked ? (
+                        {/* 진행률 수정은 목표 소유자/공동수행자만 — 그 외(같은 팀이라도)는 읽기 전용 */}
+                        {(isBodyLocked || !canWriteGoalItem(g.id)) ? (
                           <span className="text-sm font-medium text-blue-600">{pct}%</span>
                         ) : (
                           <>
@@ -922,6 +1074,12 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser }: {
         {renderSection('hd', hasDoneItems, true)}
         {renderSection('wd', willDoItems, false)}
       </div>
+
+      {/* 참여 공동업무(TF) — 다른 팀이 소유한 공동목표에 내가 참여한 경우. 본인에게만 표시. */}
+      {showCollabTF && (
+        <CollabTFSection year={year} week={week} weekStart={start} weekEnd={end}
+          currentUser={currentUser} myOrgId={orgId} locked={yearLocked} />
+      )}
 
       {/* 코멘트 — 본인 + 조직 체인(팀장·본부장·임원) 스레드 */}
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 space-y-3">

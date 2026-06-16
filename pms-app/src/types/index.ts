@@ -645,6 +645,7 @@ export type AuditLogAction =
   | 'EVAL_GRADE_CHANGE'  // 평가 등급 변경 — 핵심 확정 이벤트 (D-3)
   | 'READ_ANOMALY_DETECTED'  // 평가 데이터 대량 read 이상 탐지
   | 'AI_EVAL_SUMMARY'    // AI 성과 요약·순위 생성 (인사평가 데이터 AI 처리)
+  | 'AI_EVAL_CRITERIA_UPDATE'  // AI 평가기준 수정 (HR마스터)
   | 'YEAR_LOCK'          // 연도 확정(읽기 전용 전환)
   | 'YEAR_UNLOCK';       // 연도 확정 해제(편집 재개방)
 

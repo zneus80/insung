@@ -7,15 +7,18 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Sparkles, Send, Loader2, Database, Square } from 'lucide-react';
+import { Sparkles, Send, Loader2, Database, Square, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import {
   getAllUsers, getOrganizations, getAllGoalsByYear, getAllIndividualEvaluations,
   getSelfEvaluationsByUsers, getMentoringFormsByUsers, getAllWeeklyTasksByYear,
   listInnovationActivities, getAllAwards, getAllMileages, createAuditLog,
+  getSystemSettings, updateSystemSettings,
 } from '@/lib/firestore';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { askAssistant, type AssistantTurn } from '@/lib/ai-assistant';
+import { SHARED_EVAL_CRITERIA } from '@/lib/ai-eval';
+import { cn } from '@/lib/utils';
 import MarkdownLite from '@/components/ui/MarkdownLite';
 import type { Goal, IndividualEvaluation, SelfEvaluation, MentoringForm, WeeklyTask, InnovationActivity, Award } from '@/types';
 
@@ -49,6 +52,43 @@ function AssistantContent() {
   const [input, setInput] = useState('');
   const [asking, setAsking] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // AI 평가기준 편집 (HR마스터)
+  const [showCriteria, setShowCriteria] = useState(false);
+  const [criteriaText, setCriteriaText] = useState('');
+  const [criteriaSaving, setCriteriaSaving] = useState(false);
+  const [criteriaCustom, setCriteriaCustom] = useState(false); // 저장된 커스텀값 사용 중 여부
+
+  useEffect(() => {
+    (async () => {
+      const s = await getSystemSettings().catch(() => null);
+      const cur = (s?.aiEvalCriteria && s.aiEvalCriteria.length > 0) ? s.aiEvalCriteria : SHARED_EVAL_CRITERIA;
+      setCriteriaText(cur.join('\n'));
+      setCriteriaCustom(!!(s?.aiEvalCriteria && s.aiEvalCriteria.length > 0));
+    })();
+  }, []);
+
+  async function saveCriteria() {
+    if (!userProfile) return;
+    const lines = criteriaText.split('\n').map(l => l.replace(/\s+$/, '')).filter(l => l.trim().length > 0);
+    if (lines.length === 0) { toast.error('평가기준이 비어 있습니다.'); return; }
+    setCriteriaSaving(true);
+    try {
+      await updateSystemSettings({ aiEvalCriteria: lines, updatedBy: userProfile.id });
+      setCriteriaCustom(true);
+      createAuditLog({
+        action: 'AI_EVAL_CRITERIA_UPDATE', actorId: userProfile.id, actorName: userProfile.name,
+        details: `AI 평가기준 수정 (${lines.length}개 항목)`,
+      }).catch(() => {});
+      toast.success('AI 평가기준이 저장되었습니다. 이후 성과요약·챗봇에 즉시 반영됩니다.');
+    } catch {
+      toast.error('저장에 실패했습니다.');
+    } finally { setCriteriaSaving(false); }
+  }
+
+  function resetCriteriaToDefault() {
+    setCriteriaText(SHARED_EVAL_CRITERIA.join('\n'));
+    toast.info('기본값을 불러왔습니다. 저장해야 적용됩니다.');
+  }
   // 스트리밍 자동 스크롤 — 사용자가 위로 올려 읽는 중이면 따라가지 않음
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
@@ -238,6 +278,37 @@ function AssistantContent() {
               )}
               {stale && <span className="text-xs text-amber-600">기간이 변경됨 — 다시 준비하세요</span>}
             </div>
+          </div>
+
+          {/* AI 평가기준 편집 (HR마스터) */}
+          <div className="rounded-xl border bg-white overflow-hidden">
+            <button onClick={() => setShowCriteria(v => !v)}
+              className="w-full px-4 py-2.5 flex items-center gap-2 hover:bg-gray-50 transition-colors">
+              <SlidersHorizontal className="h-4 w-4 text-gray-500" />
+              <span className="text-sm font-semibold text-gray-700">AI 평가기준 설정</span>
+              <span className={cn('text-[11px] rounded-full px-2 py-0.5', criteriaCustom ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-500')}>
+                {criteriaCustom ? '사용자 지정' : '기본값'}
+              </span>
+              <span className="ml-auto text-xs text-gray-400">{showCriteria ? '접기' : '펼치기'}</span>
+            </button>
+            {showCriteria && (
+              <div className="border-t p-4 space-y-3">
+                <p className="text-xs text-gray-500">
+                  AI 성과요약·챗봇이 순위·등급을 매길 때 적용하는 평가기준입니다. <b>한 줄에 한 항목</b>으로 작성하며, <code>【B. …】</code>처럼 대괄호로 시작하는 줄은 카테고리 제목입니다(가중치·데이터 해석·등급/분포·순위). 저장하면 다음 분석부터 즉시 반영됩니다. 출력 형식·역할 정의 같은 시스템 골격은 안전을 위해 편집 대상이 아닙니다.
+                </p>
+                <Textarea value={criteriaText} onChange={e => setCriteriaText(e.target.value)}
+                  rows={16} className="font-mono text-xs leading-relaxed resize-y"
+                  placeholder="- 평가기준 한 줄에 하나씩..." />
+                <div className="flex items-center justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={resetCriteriaToDefault} disabled={criteriaSaving} className="gap-1.5 text-gray-600">
+                    <RotateCcw className="h-3.5 w-3.5" /> 기본값 불러오기
+                  </Button>
+                  <Button size="sm" onClick={saveCriteria} disabled={criteriaSaving} className="gap-1.5 bg-violet-600 hover:bg-violet-700">
+                    {criteriaSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}저장
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {dossier && turns.length === 0 && (

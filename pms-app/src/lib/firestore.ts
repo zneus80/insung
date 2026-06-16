@@ -2170,6 +2170,8 @@ export interface SystemSettings {
   activeYear: number;
   /** 확정(잠금)된 연도 목록 — 해당 연도 데이터는 전 화면 읽기 전용. */
   lockedYears?: number[];
+  /** AI 성과평가 기준(HR마스터 편집). 비어있으면 코드 기본값(SHARED_EVAL_CRITERIA) 사용. */
+  aiEvalCriteria?: string[];
   updatedBy?: string;
   updatedAt?: Date;
 }
@@ -2363,6 +2365,7 @@ export async function getSystemSettings(): Promise<SystemSettings | null> {
   return {
     activeYear: d.activeYear ?? new Date().getFullYear(),
     lockedYears: Array.isArray(d.lockedYears) ? d.lockedYears : [],
+    aiEvalCriteria: Array.isArray(d.aiEvalCriteria) ? d.aiEvalCriteria : undefined,
     updatedBy: d.updatedBy,
     updatedAt: d.updatedAt ? (d.updatedAt as Timestamp).toDate() : undefined,
   };
@@ -2485,6 +2488,32 @@ export async function getWeeklyTask(
   const snap = await getDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, weeklyTaskDocId(userId, year, week)));
   if (!snap.exists()) return null;
   return toWeeklyTask(snap);
+}
+
+/**
+ * 공동업무(TF) 주간 항목 — 타팀(소유팀) 주간 문서에 작성자 본인 항목 추가/수정/삭제.
+ * Firestore 규칙이 타팀 쓰기를 막으므로 서버 API(admin) 경유.
+ */
+export async function upsertCollabTFItem(params: {
+  targetOrgId: string; year: number; week: number;
+  weekStart: Date; weekEnd: Date; goalId: string;
+  section: 'hd' | 'wd'; op: 'upsert' | 'delete';
+  item?: { id: string; title: string; content: string }; itemId?: string;
+}): Promise<void> {
+  const fbUser = auth.currentUser;
+  if (!fbUser) throw new Error('로그인이 필요합니다.');
+  const idToken = await fbUser.getIdToken();
+  const res = await fetch('/api/weekly/collab-item', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...params,
+      weekStart: params.weekStart.toISOString(),
+      weekEnd: params.weekEnd.toISOString(),
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error ?? '공동업무 항목 저장 실패');
 }
 
 /** 팀 공유 주간 문서 단건 조회. */
