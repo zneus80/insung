@@ -119,6 +119,7 @@ export default function AiEvalPanel({
               .filter(Boolean).slice(0, 12),
           })),
           weeklyHighlights: (weeklyTasksByMember[m.id] ?? [])
+            .slice().sort((a, b) => b.weekNumber - a.weekNumber) // 최신 주차 우선
             .flatMap(wt => (wt.hasDoneItems ?? []).map(i => (i.title || i.content)))
             .filter(Boolean).slice(0, 30),
           selfEvalComments,                            // 자기평가(점수 포함)

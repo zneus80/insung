@@ -2730,7 +2730,13 @@ function explodeTeamDocsToMembers(
  *  멤버별 함수는 조직×53주 getDoc 을 발사해 전사 범위에선 과부하(resource-exhausted)가 나므로 이 함수를 사용. */
 export async function getAllWeeklyTasksByYear(year: number): Promise<WeeklyTask[]> {
   const snap = await getDocs(query(collection(db, COLLECTIONS.WEEKLY_TASKS), where('year', '==', year)));
-  return snap.docs.map(d => toWeeklyTask(d));
+  const all = snap.docs.map(d => toWeeklyTask(d));
+  // 팀 문서가 정본 — 같은 (조직,주차)에 팀 문서가 있으면 레거시 개인문서는 제외.
+  // (마이그레이션이 레거시를 삭제하지 않아 옛/삭제된 데이터가 남아 중복·오염되는 문제 방지)
+  const teamDocs = all.filter(t => !!t.teamOrgId);
+  const covered = new Set(teamDocs.map(t => `${t.organizationId}__${t.weekNumber}`));
+  const keptLegacy = all.filter(t => !t.teamOrgId && !covered.has(`${t.organizationId}__${t.weekNumber}`));
+  return [...teamDocs, ...keptLegacy];
 }
 
 export async function getWeeklyTasksByMembersAndYear(

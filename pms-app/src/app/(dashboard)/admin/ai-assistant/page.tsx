@@ -160,8 +160,9 @@ function AssistantContent() {
           const se = d.se.find(e => e.userId === u.id);
           const mf = d.mf.find(e => e.userId === u.id);
           const weeklyHi = d.wt
+            .slice().sort((a, b) => b.weekNumber - a.weekNumber) // 최신 주차 우선 — 컷오프 시 옛 데이터가 최신을 밀어내지 않도록
             .flatMap(w => (w.hasDoneItems ?? []).filter(i => (i.authorId ?? w.userId) === u.id).map(i => (i.title || i.content || '').trim()))
-            .filter(Boolean).slice(0, 8);
+            .filter(Boolean).slice(0, 15);
           const innovNames = d.innov
             .filter(a => getPmIds(a).includes(u.id) || (a.memberIds ?? []).includes(u.id) || getPerformerIds(a).includes(u.id) || a.instructorId === u.id)
             .map(a => `${a.type === 'SMART_PROJECT' ? (getPmIds(a).includes(u.id) ? 'SP-PM' : 'SP') : 'TDS'}:${a.name}`).slice(0, 6);
