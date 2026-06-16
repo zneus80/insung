@@ -117,7 +117,18 @@ function AssistantContent() {
     try {
       const years = year === 'all' ? [NOW_YEAR, NOW_YEAR - 1, NOW_YEAR - 2] : [year];
       const [allUsers, orgs] = await Promise.all([getAllUsers(), getOrganizations()]);
-      const orgName = (id?: string) => orgs.find(o => o.id === id)?.name ?? '';
+      const orgById = new Map(orgs.map(o => [o.id, o]));
+      // 조직 경로(상위부문 > 본부 > 팀) — AI 가 부문/본부/팀 단위로 정확히 분류하도록. 회사(COMPANY) 최상위는 제외.
+      const orgPath = (id?: string): string => {
+        const names: string[] = [];
+        let cur = id ? orgById.get(id) : undefined;
+        let guard = 0;
+        while (cur && guard++ < 10) {
+          if (cur.type !== 'COMPANY') names.unshift(cur.name);
+          cur = cur.parentId ? orgById.get(cur.parentId) : undefined;
+        }
+        return names.join(' > ');
+      };
       // 평가 대상 인원 (임원·CEO 제외) — 차순위 임원(EXEC_SUB)은 팀장 권한·평가 대상이므로 포함
       const people = allUsers.filter(u => u.isActive && u.role !== 'CEO' && u.role !== 'EXECUTIVE');
       const ids = people.map(u => u.id);
@@ -204,7 +215,7 @@ function AssistantContent() {
         // 데이터가 전혀 없는 인원도 전체 명단에 포함 — years 가 비어 있으면 AI 가 '데이터 없음'으로 처리.
         const awards = (awardsByUser[u.id] ?? []).map(a => `${a.title}(${a.awardDate ?? ''})`).slice(0, 6);
         const noData = Object.keys(yrs).length === 0;
-        return { name: u.name, position: u.position ?? '', org: orgName(u.organizationId), role: u.role, mileage: mileageByUser[u.id] ?? 0, awards, years: yrs, ...(noData ? { noData: true } : {}) };
+        return { name: u.name, position: u.position ?? '', org: orgPath(u.organizationId), role: u.role, mileage: mileageByUser[u.id] ?? 0, awards, years: yrs, ...(noData ? { noData: true } : {}) };
       });
 
       const json = JSON.stringify(dossierArr);
