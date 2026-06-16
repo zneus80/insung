@@ -174,9 +174,21 @@ function AssistantContent() {
           const mentoringHasContent = !!mf && !!((mf.mainDuties || '').trim() || (mf.careerPlan || '').trim() || mf.jobRequest || (mf.selfOpinion || '').trim());
           const hasGrade = !!ie && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') && !!ie.execGrade;
           if (evalGoals.length === 0 && weeklyHi.length === 0 && innovNames.length === 0 && !selfHasContent && !mentoringHasContent && !hasGrade) continue;
+          // 목표별 주간 추진내용(본인 작성, goalId 연계) — 임팩트·진척 추정 근거
+          const goalNotes = (gid: string) => d.wt
+            .slice().sort((a, b) => b.weekNumber - a.weekNumber)
+            .flatMap(w => (w.hasDoneItems ?? []).filter(i => (i.authorId ?? w.userId) === u.id && i.goalId === gid).map(i => (i.title || i.content || '').trim()))
+            .filter(Boolean).slice(0, 8);
           yrs[y] = {
             grade: ie && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') ? ie.execGrade : undefined,
-            coreGoals: evalGoals.map(g => ({ t: g.title, s: g.status === 'COMPLETED' ? '완료' : (g.status === 'ABANDONED' || g.status === 'PENDING_ABANDON') ? '포기' : '추진중', p: g.progress, w: g.weights?.[u.id] ?? g.weight })).slice(0, 15),
+            // 임팩트 추정 정밀화 — 목표 설명(desc)·목표별 주간 추진내용(notes) 포함(성과요약과 동일 수준)
+            coreGoals: evalGoals.map(g => ({
+              t: g.title,
+              s: g.status === 'COMPLETED' ? '완료' : (g.status === 'ABANDONED' || g.status === 'PENDING_ABANDON') ? '포기' : '추진중',
+              p: g.progress, w: g.weights?.[u.id] ?? g.weight,
+              desc: g.description?.slice(0, 200) || undefined,
+              notes: goalNotes(g.id),
+            })).slice(0, 15),
             goalStat: { total: completed + (evalGoals.length - completed - abandoned), 완료: completed, 포기: abandoned },
             selfEvalScore: computeSelfEvalTotal(se ?? null) ?? undefined,
             // 자기평가 상세 — 핵심목표·일반업무 항목별 점수·의견(요약)
