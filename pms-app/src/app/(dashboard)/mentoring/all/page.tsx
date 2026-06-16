@@ -17,6 +17,7 @@ import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/Self
 import { SearchInput } from '@/components/ui/search-input';
 import { cn } from '@/lib/utils';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
+import { compareUserByRolePositionHire } from '@/lib/user-sort';
 import type { User, Organization, MentoringForm, JobRequestType, SelfEvaluation, IndividualEvaluation, EvaluationGrade } from '@/types';
 
 // 평가등급 칩 색상 (평가 화면과 동일 톤)
@@ -124,6 +125,8 @@ function MentoringAllContent() {
     (acc[u.organizationId] ??= []).push(u);
     return acc;
   }, {});
+  // 팀 내 정렬: 팀장 → 팀원(책임→주임 등 직급순), 동일 직급은 입사일순
+  Object.values(usersByOrg).forEach(list => list.sort(compareUserByRolePositionHire));
 
   function toggleOrg(orgId: string) {
     setExpandedOrgs(prev => {
