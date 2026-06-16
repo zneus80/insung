@@ -519,8 +519,8 @@ function MyGoalsView() {
               ) : filteredTeamGoals.length === 0 ? (
                 <EmptyState icon={<Target className="h-10 w-10" />} label="핵심목표가 없습니다." />
               ) : (
-                <div className="space-y-2">
-                  {filteredTeamGoals.map(g => {
+                (() => {
+                  const renderCard = (g: Goal) => {
                     const isMine = g.userId === userProfile?.id && !locked;
                     const names = participantNamesOf(g);
                     const canTrash = isMine && (g.status === 'DRAFT' || g.status === 'REJECTED' || (g.status === 'ABANDONED' && !!g.approvedBy));
@@ -537,8 +537,38 @@ function MyGoalsView() {
                         onResubmit={isMine && g.status === 'REJECTED' ? handleResubmit : undefined}
                       />
                     );
-                  })}
-                </div>
+                  };
+                  // 분류: ①단독 업무 ②공동 업무(본인 참여) ③팀 업무(본인 미참여)
+                  const uid = userProfile?.id ?? '';
+                  const isCollab = (g: Goal) => (g.collaboratorIds ?? []).length > 0;
+                  const inGoal = (g: Goal) => g.userId === uid || (g.collaboratorIds ?? []).includes(uid);
+                  const solo = filteredTeamGoals.filter(g => g.userId === uid && !isCollab(g));
+                  const joint = filteredTeamGoals.filter(g => isCollab(g) && inGoal(g));
+                  const teamOnly = filteredTeamGoals.filter(g => !inGoal(g));
+                  const sections = [
+                    { key: 'solo', label: '단독 업무', desc: '내가 단독으로 수행하는 핵심목표', goals: solo },
+                    { key: 'joint', label: '공동 업무 (참여)', desc: '여러 명이 함께 수행 — 내가 참여', goals: joint },
+                    { key: 'team', label: '팀 업무 (미참여)', desc: '팀 내 다른 구성원의 핵심목표', goals: teamOnly },
+                  ].filter(s => s.goals.length > 0);
+                  // 분류가 1개뿐이면 헤더 없이 평면 표시(불필요한 구분 방지)
+                  if (sections.length <= 1) {
+                    return <div className="space-y-2">{filteredTeamGoals.map(renderCard)}</div>;
+                  }
+                  return (
+                    <div className="space-y-5">
+                      {sections.map(s => (
+                        <div key={s.key} className="space-y-2">
+                          <div className="flex items-baseline gap-2 px-0.5">
+                            <h3 className="text-sm font-bold text-gray-800">{s.label}</h3>
+                            <span className="text-xs font-medium text-gray-400">{s.goals.length}건</span>
+                            <span className="text-[11px] text-gray-400">· {s.desc}</span>
+                          </div>
+                          <div className="space-y-2 border-l-2 border-gray-100 pl-3">{s.goals.map(renderCard)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()
               )}
                   </>
                 );
