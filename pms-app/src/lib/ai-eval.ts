@@ -100,6 +100,7 @@ export const COMPANY_BACKGROUND: string[] = [
   '【A. 회사·평가 배경】',
   '- 회사는 공드럼 제조업이며, 평가 대상 인원은 관리직 약 100명·생산직 약 100명 규모입니다. 임팩트·난도를 추정할 때 제조업 맥락(생산성·품질·원가·납기·안전·설비 등)을 고려하세요.',
   '- 이 회사는 5S 조직문화(성실·미소·단순·스마트·안전)를 운영하며, 인사팀이 5S 사무국을 담당합니다. 5S 관련 활동·기여는 조직문화 기여 측면으로 참고하세요.',
+  '- 회사 핵심 가치·개념(목표의 정렬·기여 판단 시 참고): 비전 "YOUR BEST PARTNER"(고객우선·사회적 책임·모두의 행복) / 사훈(새마음·한마음·큰마음) / 인재상 6E(Energetic=Vision·능력·건강·긍정 / Energize=비전제시·교육훈련·공정한 평가보상 / Edge=정보분석·판단·Risk Taking / Execution=목표설정·조직통솔·소통·설득 / Educated=교양·지식·인적 네트워크 / Ethic=옳고 그름 판단·기본 도리, ★핵심 Core=열정 Passion) / 경영개념 3S(Slim·Standardization·Software)·CDQS(Cost·Delivery·Quality·Service)·3Com(Compact·Competent·Comfortable)·ERRC(Eliminate·Reduce·Raise·Create) / 지향(체계적 경쟁력 재정립·통합된 다양성). 이 가치·개념에 부합·기여하는 성과를 긍정적으로 참고하되, 평가의 주 기준은 어디까지나 핵심목표 임팩트·완료입니다.',
 ];
 
 /** 편집 가능한 평가기준 본문(B~E) — HR마스터가 시스템설정에서 수정. */
