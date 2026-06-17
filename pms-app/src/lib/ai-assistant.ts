@@ -69,6 +69,8 @@ export async function askAssistant(opts: {
   history: AssistantTurn[];
   dossier: string;     // JSON 문자열 (구성원 데이터)
   yearLabel: string;   // 예: "2025년" 또는 "전체 누적"
+  /** 회사 경영목표·조직 연간목표 컨텍스트(B⑤ 정렬 가·감점 근거) */
+  annualContext?: string;
   /** 스트리밍 중 누적 텍스트를 받는 콜백(글자가 흐르듯 표시). 미지정 시 완성본만 반환. */
   onChunk?: (accumulated: string) => void;
   /** 중지 신호 — abort() 시 진행 중 응답을 멈추고 지금까지의 부분 텍스트를 반환. */
@@ -82,6 +84,7 @@ export async function askAssistant(opts: {
     SYSTEM,
     '',
     `분석 대상 기간: ${opts.yearLabel}`,
+    ...(opts.annualContext ? ['회사·조직 연간목표(개인 핵심목표와 정렬 여부 판단 근거):', opts.annualContext, ''] : []),
     '구성원 데이터(JSON):',
     opts.dossier,
     '',

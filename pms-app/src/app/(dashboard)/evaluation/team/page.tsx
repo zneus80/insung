@@ -19,6 +19,7 @@ import {
   listInnovationActivities,
   getOrgEvaluations,
   getOrgEvalPublish,
+  getAllOrgAnnualGoals,
 } from '@/lib/firestore';
 import type { Organization, OrganizationEvaluation } from '@/types';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
@@ -42,7 +43,7 @@ import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, AlertCircle } from 
 import { cn, shiftEnterSubmit } from '@/lib/utils';
 import type {
   Goal, SelfEvaluation, IndividualEvaluation,
-  EvaluationGrade, User, MentoringForm, WeeklyTask, InnovationActivity,
+  EvaluationGrade, User, MentoringForm, WeeklyTask, InnovationActivity, AnnualGoal,
 } from '@/types';
 
 const GRADES: EvaluationGrade[] = ['A', 'B', 'C', 'D', 'E'];
@@ -110,6 +111,7 @@ function TeamLeadEvalView() {
   const [members, setMembers]             = useState<User[]>([]);
   const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
   const [scopeGoals, setScopeGoals] = useState<Goal[]>([]); // 스코프 전체 목표(팀장 가·감점 완료율 계산용)
+  const [annualGoals, setAnnualGoals] = useState<AnnualGoal[]>([]); // 회사·조직 연간목표(B⑤ 정렬 가·감점)
   const [selfEvals, setSelfEvals]         = useState<Record<string, SelfEvaluation>>({});
   const [indivEvals, setIndivEvals]       = useState<Record<string, IndividualEvaluation>>({});
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
@@ -249,6 +251,7 @@ function TeamLeadEvalView() {
       active.forEach(m => { gMap[m.id] = allGoals.filter(g => g.userId === m.id || (g.collaboratorIds ?? []).includes(m.id)); });
       setGoalsByMember(gMap);
       setScopeGoals(allGoals);
+      getAllOrgAnnualGoals(year).then(setAnnualGoals).catch(() => setAnnualGoals([]));
 
       const [seList, mfList, weeklyTasks, innovations] = await Promise.all([
         getSelfEvaluationsByUsers(active.map(m => m.id), year),
@@ -527,6 +530,7 @@ function TeamLeadEvalView() {
                 scopeLabel={isHQHead ? '본부 산하' : '팀원'}
                 allOrgs={allOrgsCache}
                 allScopeGoals={scopeGoals}
+                annualGoals={annualGoals}
               />
             )}
             {/* 팀 탭 바 */}

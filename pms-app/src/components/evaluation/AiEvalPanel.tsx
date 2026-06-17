@@ -7,8 +7,9 @@ import { toast } from 'sonner';
 import { createAuditLog } from '@/lib/firestore';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { computeLeaderTeamAchievement } from '@/lib/team-achievement';
+import { buildAnnualGoalContext } from '@/lib/ai-eval';
 import type {
-  User, Goal, SelfEvaluation, IndividualEvaluation, MentoringForm, WeeklyTask, InnovationActivity, Organization,
+  User, Goal, SelfEvaluation, IndividualEvaluation, MentoringForm, WeeklyTask, InnovationActivity, Organization, AnnualGoal,
 } from '@/types';
 
 /**
@@ -40,11 +41,13 @@ interface Props {
   /** 팀장·본부장 가·감점(책임 팀 완료율) 계산용 — 전체 조직 + 스코프 목표 */
   allOrgs?: Organization[];
   allScopeGoals?: Goal[];
+  /** 회사 경영목표·조직 연간목표(B⑤ 정렬 가·감점 근거) */
+  annualGoals?: AnnualGoal[];
 }
 
 export default function AiEvalPanel({
   members, goalsByMember, weeklyTasksByMember, selfEvals, mentoringForms, indivEvals,
-  innovationsByMember, actor, scopeLabel, allOrgs, allScopeGoals,
+  innovationsByMember, actor, scopeLabel, allOrgs, allScopeGoals, annualGoals,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0); // 분석 경과 시간(초)
@@ -142,7 +145,8 @@ export default function AiEvalPanel({
           } : undefined,
         };
       });
-      const res = await summarizeAndRankMembers(input);
+      const annualContext = (allOrgs && annualGoals) ? buildAnnualGoalContext(annualGoals, allOrgs) : '';
+      const res = await summarizeAndRankMembers(input, annualContext);
       setResult(res);
       setExpanded(new Set()); // 결과는 모두 닫힌 채로 시작
       // 거버넌스: AI 가 누구의 인사평가 데이터를 처리했는지 감사 기록
