@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   getAllUsers, getOrganizations, getMentoringFormsByUsers,
-  getSelfEvaluationsByUsers, getAllIndividualEvaluations,
+  getSelfEvaluationsByUsers, getAllIndividualEvaluations, getAttendancesByYear,
 } from '@/lib/firestore';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,12 +13,13 @@ import AuthGuard from '@/components/layout/AuthGuard';
 import { ChevronDown, ChevronRight, MessageSquareHeart, AlertCircle, Pencil, Search } from 'lucide-react';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
+import AttendanceBody from '@/components/evaluation/AttendanceBody';
 import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { SearchInput } from '@/components/ui/search-input';
 import { cn } from '@/lib/utils';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { compareUserByRolePositionHire } from '@/lib/user-sort';
-import type { User, Organization, MentoringForm, JobRequestType, SelfEvaluation, IndividualEvaluation, EvaluationGrade } from '@/types';
+import type { User, Organization, MentoringForm, JobRequestType, SelfEvaluation, IndividualEvaluation, EvaluationGrade, Attendance } from '@/types';
 
 // 평가등급 칩 색상 (평가 화면과 동일 톤)
 const GRADE_CHIP: Record<string, string> = {
@@ -60,6 +61,7 @@ function MentoringAllContent() {
   const [forms, setForms] = useState<Record<string, MentoringForm>>({});
   const [selfEvals, setSelfEvals] = useState<Record<string, SelfEvaluation>>({});
   const [indivEvals, setIndivEvals] = useState<Record<string, IndividualEvaluation>>({});
+  const [attByUser, setAttByUser] = useState<Record<string, Attendance>>({}); // 근태현황(당해년도)
   const [loading, setLoading] = useState(true);
   const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set());
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -93,6 +95,7 @@ function MentoringAllContent() {
         const seMap: Record<string, SelfEvaluation> = {};
         seList.forEach(se => { if (se) seMap[se.userId] = se; });
         setSelfEvals(seMap);
+        getAttendancesByYear(selectedYear).then(list => setAttByUser(Object.fromEntries(list.map(a => [a.userId, a])))).catch(() => setAttByUser({}));
         const ieMap: Record<string, IndividualEvaluation> = {};
         ieList.forEach(ie => { ieMap[ie.userId] = ie; });
         setIndivEvals(ieMap);
@@ -349,6 +352,9 @@ function MentoringAllContent() {
 
               {/* 통합 육성면담서(신양식) — 직무정보·업무실적·경력·요청·종합의견 */}
               <MentoringPerfBody form={selectedForm} />
+
+              {/* 근태현황 (당해년도) */}
+              <AttendanceBody year={selectedYear} attendance={attByUser[selectedUser.id] ?? null} />
 
               {selectedForm.interviewerOpinion?.trim() && (
                 <Section title="면담자 의견">

@@ -23,7 +23,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { USE_EVAL_READ_PROXY } from './feature-flags';
-import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, IndividualEvalStatus, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem, InnovationActivity, WeightChangeRequest } from '@/types';
+import type { User, Organization, Goal, GoalHistory, ProgressUpdate, OneOnOne, OneOnOneQuestion, OrganizationEvaluation, IndividualEvaluation, IndividualEvalStatus, SelfEvaluation, SelfEvalGoalEntry, EvaluationCycle, Mileage, AnnualGoal, Invitation, OrgGradeHistory, DivisionGradeQuota, EvaluationGrade, YearEndEval, MentoringForm, Announcement, Award, AppNotification, WeeklyTask, WeeklyTaskItem, LeadCommentEntry, SimpleTaskItem, InnovationActivity, WeightChangeRequest, Attendance } from '@/types';
 
 // ─── Collection 이름 상수 ─────────────────────
 export const COLLECTIONS = {
@@ -54,6 +54,7 @@ export const COLLECTIONS = {
   NOTIFICATIONS: 'notifications',
   WEEKLY_TASKS: 'weeklyTasks',
   INNOVATION_ACTIVITIES: 'innovationActivities',
+  ATTENDANCES: 'attendances',
 } as const;
 
 // ─── Timestamp 변환 유틸 ──────────────────────
@@ -2163,6 +2164,39 @@ export async function createAward(data: Omit<Award, 'id' | 'createdAt' | 'update
 
 export async function deleteAward(id: string): Promise<void> {
   await deleteDoc(doc(db, COLLECTIONS.AWARDS, id));
+}
+
+// ─── 근태현황 (연도별 개인 지각·결근, HR 입력) ──────────────────────────────
+function attendanceDocId(userId: string, year: number): string {
+  return `${userId}_${year}`;
+}
+
+/** 특정 연도의 모든 근태현황 조회 */
+export async function getAttendancesByYear(year: number): Promise<Attendance[]> {
+  const snap = await getDocs(query(collection(db, COLLECTIONS.ATTENDANCES), where('year', '==', year)));
+  return snap.docs.map(d => {
+    const data = d.data();
+    return {
+      ...data,
+      id: d.id,
+      updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
+    } as Attendance;
+  });
+}
+
+/** 근태현황 저장(연도별 1건, 덮어쓰기) */
+export async function upsertAttendance(
+  userId: string, year: number,
+  data: { organizationId: string; latenessCount: number; absenceCount: number; updatedBy: string },
+): Promise<void> {
+  await setDoc(doc(db, COLLECTIONS.ATTENDANCES, attendanceDocId(userId, year)), {
+    userId, year,
+    organizationId: data.organizationId,
+    latenessCount: data.latenessCount,
+    absenceCount: data.absenceCount,
+    updatedBy: data.updatedBy,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 }
 
 // ─── 시스템 설정 ──────────────────────────────

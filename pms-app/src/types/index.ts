@@ -546,6 +546,12 @@ export interface InnovationEval {
   instructed?: boolean;
 }
 
+/** 교육수강현황 항목 (육성면담서 직무정보) */
+export interface EducationEntry {
+  type: '법정' | '일반직무';   // 교육 종류
+  name: string;                // 교육명
+}
+
 export interface MentoringForm {
   id: string;               // `${userId}_${year}`
   userId: string;
@@ -561,6 +567,7 @@ export interface MentoringForm {
   mainDuties: string;       // 주요담당업무
   promotionDate: string;    // 현 직위 승진일
   certifications: string;   // 직무관련 보유자격증
+  educationHistory?: EducationEntry[];  // 교육수강현황 (법정/일반직무 + 교육명)
   achievements: string;     // (deprecated v0.9) 당해년도 주요업적 — 폼 UI 제거, 하위호환 위해 필드 보존
 
   // 경력개발 계획
@@ -684,6 +691,20 @@ export interface Award {
   awardDate: string;      // YYYY-MM-DD
   grantedBy: string;      // 수여자 userId
   createdAt: Date;
+  updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────
+// 근태현황 (연도별 개인 지각·결근 — HR 입력)
+// ─────────────────────────────────────────────
+export interface Attendance {
+  id: string;             // `${userId}_${year}`
+  userId: string;
+  organizationId: string;
+  year: number;
+  latenessCount: number;  // 지각 횟수
+  absenceCount: number;   // 결근 횟수
+  updatedBy: string;      // 입력한 HR userId
   updatedAt: Date;
 }
 

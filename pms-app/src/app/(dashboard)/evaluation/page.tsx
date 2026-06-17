@@ -21,6 +21,7 @@ import {
   getWeeklyTasksByMembersAndYear,
   listInnovationActivities,
   getAllOrgAnnualGoals,
+  getAttendancesByYear,
 } from '@/lib/firestore';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import { approverTitle } from '@/lib/approval-filters';
@@ -36,6 +37,7 @@ import WeeklyTasksGrid from '@/components/evaluation/WeeklyTasksGrid';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AiEvalPanel from '@/components/evaluation/AiEvalPanel';
 import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
+import AttendanceBody from '@/components/evaluation/AttendanceBody';
 import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -44,7 +46,7 @@ import { cn, shiftEnterSubmit } from '@/lib/utils';
 import type {
   EvaluationCycle, Goal, SelfEvaluation, IndividualEvaluation,
   EvaluationGrade, User, Organization, DivisionGradeQuota, MentoringForm, WeeklyTask,
-  InnovationActivity, AnnualGoal,
+  InnovationActivity, AnnualGoal, Attendance,
 } from '@/types';
 
 // ─ TeamLeadEvalView는 /evaluation/team/page.tsx 로 분리됨 ─
@@ -127,6 +129,7 @@ function ExecutiveEvalView() {
   const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
   const [scopeGoals, setScopeGoals] = useState<Goal[]>([]); // 스코프 전체 목표(팀장 가·감점 완료율 계산용)
   const [annualGoals, setAnnualGoals] = useState<AnnualGoal[]>([]); // 회사·조직 연간목표(B⑤ 정렬 가·감점)
+  const [attByUser, setAttByUser] = useState<Record<string, Attendance>>({}); // 근태현황(당해년도)
   const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [innovationsByMember, setInnovationsByMember] = useState<Record<string, InnovationActivity[]>>({});
   const [quotas, setQuotas]           = useState<DivisionGradeQuota | null>(null);
@@ -231,6 +234,7 @@ function ExecutiveEvalView() {
       setGoalsByMember(gbMap);
       setScopeGoals(allGoals);
       getAllOrgAnnualGoals(year).then(setAnnualGoals).catch(() => setAnnualGoals([]));
+      getAttendancesByYear(year).then(list => setAttByUser(Object.fromEntries(list.map(a => [a.userId, a])))).catch(() => setAttByUser({}));
 
       const seMap: Record<string, SelfEvaluation> = {};
       seList.forEach(se => { seMap[se.userId] = se; });
@@ -604,6 +608,9 @@ function ExecutiveEvalView() {
                           <p className="text-sm font-bold text-gray-800 mb-2">육성면담서</p>
                           <MentoringPerfBody form={mentoringForms[member.id]?.status === 'SUBMITTED' ? mentoringForms[member.id] : null} />
                         </div>
+
+                        {/* 근태현황 (당해년도) */}
+                        <AttendanceBody year={year} attendance={attByUser[member.id] ?? null} />
                       </div>
                     );
                   })()}

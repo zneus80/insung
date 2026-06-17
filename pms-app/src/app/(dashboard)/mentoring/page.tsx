@@ -21,7 +21,7 @@ import {
   Save, Send, CheckCircle2, Briefcase, Pencil, XCircle,
   TrendingUp, MapPin, MessageSquare, RefreshCw, Plus, X, AlertCircle,
 } from 'lucide-react';
-import type { MentoringForm, JobRequestType } from '@/types';
+import type { MentoringForm, JobRequestType, EducationEntry } from '@/types';
 import { shiftEnterSubmit } from '@/lib/utils';
 
 const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
@@ -29,6 +29,7 @@ const IS_MOCK = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
 const EMPTY_FORM: Omit<MentoringForm, 'id' | 'userId' | 'organizationId' | 'cycleYear' | 'createdAt' | 'updatedAt' | 'status' | 'submittedAt'> = {
   interviewDate: '', interviewerName: '',
   currentPosition: '', mainDuties: '', promotionDate: '', certifications: '', achievements: '',
+  educationHistory: [] as EducationEntry[],
   careerPlan: '',
   jobRequest: 'SATISFIED', jobRequestReason: '',
   desiredJob1: '', desiredJob2: '', jobChangeReason: '',
@@ -77,6 +78,8 @@ function MentoringContent() {
   const [carriedOver, setCarriedOver] = useState(false); // 이전 데이터 불러왔는지 여부
   // 자격증 개별 입력 목록
   const [certList, setCertList] = useState<string[]>(['']);
+  // 교육수강현황 개별 입력 목록 (법정/일반직무 + 교육명)
+  const [eduList, setEduList] = useState<EducationEntry[]>([]);
   // 수정 요청 (A4) 관련 state
   const [editRequestPending, setEditRequestPending] = useState(false);
   const [editRequestReason, setEditRequestReason] = useState('');
@@ -92,12 +95,19 @@ function MentoringContent() {
     setForm(prev => ({ ...prev, certifications: list.filter(Boolean).join('\n') }));
   }
 
+  // eduList → form.educationHistory 동기화 (교육명 빈 항목은 저장 시 제외)
+  function updateEdu(list: EducationEntry[]) {
+    setEduList(list);
+    setForm(prev => ({ ...prev, educationHistory: list.filter(e => e.name.trim()) }));
+  }
+
   const load = useCallback(async () => {
     if (!userProfile) return;
     setLoading(true);
     setForm(EMPTY_FORM);
     setStatus('DRAFT');
     setCertList(['']);
+    setEduList([]);
     setCarriedOver(false);
     try {
       if (IS_MOCK) {
@@ -120,6 +130,7 @@ function MentoringContent() {
         setEditRequestPending(!!erp);
         setEditRequestReason(err ?? '');
         setCertList(record.certifications ? record.certifications.split('\n').filter(Boolean) : ['']);
+        setEduList(record.educationHistory ?? []);
       } else {
         // 현재 연도 폼 없으면 작년 폼에서 고정 필드(직책·자격증·승진일) 자동 불러오기
         const prevRecord = await getMentoringForm(userProfile.id, year - 1);
@@ -131,6 +142,10 @@ function MentoringContent() {
             if (prevRecord.certifications) {
               const certs = prevRecord.certifications.split('\n').filter(Boolean);
               if (certs.length > 0) setCertList(certs);
+            }
+            if (prevRecord.educationHistory?.length) {
+              setEduList(prevRecord.educationHistory);
+              setForm(prev => ({ ...prev, educationHistory: prevRecord.educationHistory }));
             }
             setCarriedOver(true);
           }
@@ -433,6 +448,58 @@ function MentoringContent() {
                     )}
                   </div>
                 </Field>
+                <div className="col-span-2">
+                <Field label="교육수강현황">
+                  <div className="space-y-2">
+                    {eduList.map((edu, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <select
+                          value={edu.type}
+                          disabled={isSubmitted}
+                          onChange={e => {
+                            const next = [...eduList];
+                            next[idx] = { ...edu, type: e.target.value as '법정' | '일반직무' };
+                            updateEdu(next);
+                          }}
+                          className="h-9 rounded-md border border-gray-200 bg-white px-2 text-sm shrink-0 disabled:bg-gray-50"
+                        >
+                          <option value="법정">법정</option>
+                          <option value="일반직무">일반직무</option>
+                        </select>
+                        <Input
+                          className="flex-1"
+                          placeholder={`교육명 ${idx + 1}`}
+                          value={edu.name}
+                          disabled={isSubmitted}
+                          onChange={e => {
+                            const next = [...eduList];
+                            next[idx] = { ...edu, name: e.target.value };
+                            updateEdu(next);
+                          }}
+                        />
+                        {!isSubmitted && (
+                          <button
+                            type="button"
+                            onClick={() => updateEdu(eduList.filter((_, i) => i !== idx))}
+                            className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {!isSubmitted && (
+                      <button
+                        type="button"
+                        onClick={() => updateEdu([...eduList, { type: '법정', name: '' }])}
+                        className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> 교육 추가
+                      </button>
+                    )}
+                  </div>
+                </Field>
+                </div>
               </div>
               <Field label="주요 담당업무">
                 <Textarea placeholder="현재 담당하고 있는 주요 업무를 세부적으로 기재하세요."

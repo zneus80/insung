@@ -277,6 +277,13 @@ const navItems: NavItem[] = [
     group: '기본정보입력',
   },
   {
+    label: '근태 현황 관리',
+    href: '/admin/attendance',
+    icon: <CalendarClock className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: '기본정보입력',
+  },
+  {
     label: '혁신활동 관리',
     href: '/admin/innovation',
     icon: <Lightbulb className="h-5 w-5" />,
