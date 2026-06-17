@@ -58,6 +58,13 @@ export default function MentoringPerfBody({ form }: { form: MentoringForm | null
             ? <div className="flex flex-wrap gap-1.5">{certs.map((c, i) => <span key={i} className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-700">{c}</span>)}</div>
             : <p className="text-sm text-gray-300">—</p>}
         </Block>
+        <Block label="교육수강현황">
+          {(form.educationHistory ?? []).length
+            ? <div className="flex flex-wrap gap-1.5">{(form.educationHistory ?? []).map((e, i) => (
+                <span key={i} className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs text-emerald-700">[{e.type}] {e.name}</span>
+              ))}</div>
+            : <p className="text-sm text-gray-300">—</p>}
+        </Block>
         <Block label="주요 담당업무"><Val text={form.mainDuties} /></Block>
       </Section>
 

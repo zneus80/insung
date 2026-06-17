@@ -134,6 +134,7 @@ export default function AiEvalPanel({
           mentoring: mf ? {
             currentPosition: mf.currentPosition,
             mainDuties: mf.mainDuties,
+            education: (mf.educationHistory ?? []).map(e => `[${e.type}] ${e.name}`).join(', ') || undefined,
             careerPlan: mf.careerPlan,
             jobRequest: mf.jobRequest ? (JR[mf.jobRequest] ?? mf.jobRequest) : undefined,
             jobChangeReason: mf.jobChangeReason,

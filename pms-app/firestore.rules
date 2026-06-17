@@ -283,6 +283,12 @@ service cloud.firestore {
       allow write: if isHrAdmin();
     }
 
+    // 근태현황 (전사 읽기, HR관리자·CEO 쓰기)
+    match /attendances/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isHrAdmin() || isCeo();
+    }
+
     // 혁신활동 (전사 읽기, HR관리자만 쓰기)
     match /innovationActivities/{id} {
       allow read: if isAuthenticated();

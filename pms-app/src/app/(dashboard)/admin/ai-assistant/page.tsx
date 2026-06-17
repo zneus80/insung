@@ -17,7 +17,7 @@ import {
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { askAssistant, type AssistantTurn } from '@/lib/ai-assistant';
-import { SHARED_EVAL_CRITERIA, buildAnnualGoalContext } from '@/lib/ai-eval';
+import { EVAL_CRITERIA_BODY, buildAnnualGoalContext } from '@/lib/ai-eval';
 import { computeLeaderTeamAchievement } from '@/lib/team-achievement';
 import { cn } from '@/lib/utils';
 import MarkdownLite from '@/components/ui/MarkdownLite';
@@ -63,7 +63,7 @@ function AssistantContent() {
   useEffect(() => {
     (async () => {
       const s = await getSystemSettings().catch(() => null);
-      const cur = (s?.aiEvalCriteria && s.aiEvalCriteria.length > 0) ? s.aiEvalCriteria : SHARED_EVAL_CRITERIA;
+      const cur = (s?.aiEvalCriteria && s.aiEvalCriteria.length > 0) ? s.aiEvalCriteria : EVAL_CRITERIA_BODY;
       setCriteriaText(cur.join('\n'));
       setCriteriaCustom(!!(s?.aiEvalCriteria && s.aiEvalCriteria.length > 0));
     })();
@@ -88,7 +88,7 @@ function AssistantContent() {
   }
 
   function resetCriteriaToDefault() {
-    setCriteriaText(SHARED_EVAL_CRITERIA.join('\n'));
+    setCriteriaText(EVAL_CRITERIA_BODY.join('\n'));
     toast.info('기본값을 불러왔습니다. 저장해야 적용됩니다.');
   }
   // 스트리밍 자동 스크롤 — 사용자가 위로 올려 읽는 중이면 따라가지 않음
@@ -186,7 +186,7 @@ function AssistantContent() {
           const selfHasContent = !!se && ((se.goalEvals ?? []).some(g => g.score != null || !!(g.comment || '').trim())
             || (se.generalEvals ?? []).some(g => g.score != null || !!(g.comment || '').trim())
             || (se.innovationEvals ?? []).some(i => !!(i.comment || '').trim()));
-          const mentoringHasContent = !!mf && !!((mf.mainDuties || '').trim() || (mf.careerPlan || '').trim() || mf.jobRequest || (mf.selfOpinion || '').trim());
+          const mentoringHasContent = !!mf && !!((mf.mainDuties || '').trim() || (mf.careerPlan || '').trim() || mf.jobRequest || (mf.selfOpinion || '').trim() || (mf.educationHistory?.length ?? 0) > 0);
           const hasGrade = !!ie && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') && !!ie.execGrade;
           if (evalGoals.length === 0 && weeklyHi.length === 0 && innovNames.length === 0 && !selfHasContent && !mentoringHasContent && !hasGrade) continue;
           // 목표별 주간 추진내용(본인 작성, goalId 연계) — 임팩트·진척 추정 근거
@@ -210,7 +210,7 @@ function AssistantContent() {
             selfEvalCore: (se?.goalEvals ?? []).map(g => ({ t: g.goalTitle, 점수: g.score, 의견: (g.comment || '').slice(0, 100) })).slice(0, 15),
             generalWork: (se?.generalEvals ?? []).map(g => ({ t: g.title, 점수: g.score, 의견: (g.comment || '').slice(0, 100) })).slice(0, 10),
             weeklyHighlights: weeklyHi,
-            mentoring: mf ? { 직무: mf.mainDuties?.slice(0, 120), 경력개발: mf.careerPlan?.slice(0, 120), 직무요청: mf.jobRequest ? (JR[mf.jobRequest] ?? mf.jobRequest) : undefined, 종합의견: mf.selfOpinion?.slice(0, 150) } : undefined,
+            mentoring: mf ? { 직무: mf.mainDuties?.slice(0, 120), 교육수강: (mf.educationHistory ?? []).map(e => `[${e.type}] ${e.name}`).join(', ') || undefined, 경력개발: mf.careerPlan?.slice(0, 120), 직무요청: mf.jobRequest ? (JR[mf.jobRequest] ?? mf.jobRequest) : undefined, 종합의견: mf.selfOpinion?.slice(0, 150) } : undefined,
             innovation: innovNames,
             // 팀장·본부장 가·감점 — 책임 조직(+산하) 완료율
             teamAchievement: computeLeaderTeamAchievement(u.id, orgs, d.goals) ?? undefined,
@@ -326,7 +326,7 @@ function AssistantContent() {
             {showCriteria && (
               <div className="border-t p-4 space-y-3">
                 <p className="text-xs text-gray-500">
-                  AI 성과요약·챗봇이 순위·등급을 매길 때 적용하는 평가기준입니다. <b>한 줄에 한 항목</b>으로 작성하며, <code>【B. …】</code>처럼 대괄호로 시작하는 줄은 카테고리 제목입니다(가중치·데이터 해석·등급/분포·순위). 저장하면 다음 분석부터 즉시 반영됩니다. 출력 형식·역할 정의 같은 시스템 골격은 안전을 위해 편집 대상이 아닙니다.
+                  AI 성과요약·챗봇이 순위·등급을 매길 때 적용하는 평가기준입니다. <b>한 줄에 한 항목</b>으로 작성하며, <code>【B. …】</code>처럼 대괄호로 시작하는 줄은 카테고리 제목입니다(가중치·데이터 해석·등급/분포·순위). 저장하면 다음 분석부터 즉시 반영됩니다. 회사 배경(A)·출력 형식·역할 정의 같은 시스템 골격은 자동 적용되며 편집 대상이 아닙니다.
                 </p>
                 <Textarea value={criteriaText} onChange={e => setCriteriaText(e.target.value)}
                   rows={16} className="font-mono text-xs leading-relaxed resize-y"
