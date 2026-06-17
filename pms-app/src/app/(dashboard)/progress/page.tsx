@@ -244,11 +244,12 @@ export default function ProgressPage() {
           const VISIBLE_STATUSES = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
           const scopeGoals  = allGoals.filter(g => {
             if (!scopeUserIdSet.has(g.userId)) return false;
-            if (g.trashedAt) return false;
-            // 포기 확정(승인된 ABANDONED)은 본인이 화면에서 제거(softDeletedAt)해도 평가 기록으로 계속 표시
-            if (g.softDeletedAt && !(g.status === 'ABANDONED' && !!g.approvedBy)) return false;
+            // 포기 확정(승인·비자동 ABANDONED)은 휴지통·화면제거 상태여도 평가 기록으로 계속 표시
+            const isConfirmedAbandon = g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange;
+            if (g.trashedAt && !isConfirmedAbandon) return false;
+            if (g.softDeletedAt && !isConfirmedAbandon) return false;
             if (VISIBLE_STATUSES.has(g.status)) return true;
-            if (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange) return true;
+            if (isConfirmedAbandon) return true;
             return false;
           });
           const usersByOrg: Record<string, User[]> = {};
@@ -278,11 +279,12 @@ export default function ProgressPage() {
           const VISIBLE_STATUSES = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
           const scopeGoals  = allGoals.filter(g => {
             if (!scopeUserIdSet.has(g.userId)) return false;
-            if (g.trashedAt) return false;
-            // 포기 확정(승인된 ABANDONED)은 본인이 화면에서 제거(softDeletedAt)해도 평가 기록으로 계속 표시
-            if (g.softDeletedAt && !(g.status === 'ABANDONED' && !!g.approvedBy)) return false;
+            // 포기 확정(승인·비자동 ABANDONED)은 휴지통·화면제거 상태여도 평가 기록으로 계속 표시
+            const isConfirmedAbandon = g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange;
+            if (g.trashedAt && !isConfirmedAbandon) return false;
+            if (g.softDeletedAt && !isConfirmedAbandon) return false;
             if (VISIBLE_STATUSES.has(g.status)) return true;
-            if (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange) return true;
+            if (isConfirmedAbandon) return true;
             return false;
           });
           const usersByOrg: Record<string, User[]> = {};
