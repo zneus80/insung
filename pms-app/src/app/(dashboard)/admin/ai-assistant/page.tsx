@@ -12,12 +12,12 @@ import {
   getAllUsers, getOrganizations, getAllGoalsByYear, getAllIndividualEvaluations,
   getSelfEvaluationsByUsers, getMentoringFormsByUsers, getAllWeeklyTasksByYear,
   listInnovationActivities, getAllAwards, getAllMileages, createAuditLog,
-  getSystemSettings, updateSystemSettings,
+  getSystemSettings, updateSystemSettings, getAllOrgAnnualGoals,
 } from '@/lib/firestore';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { askAssistant, type AssistantTurn } from '@/lib/ai-assistant';
-import { SHARED_EVAL_CRITERIA } from '@/lib/ai-eval';
+import { SHARED_EVAL_CRITERIA, buildAnnualGoalContext } from '@/lib/ai-eval';
 import { computeLeaderTeamAchievement } from '@/lib/team-achievement';
 import { cn } from '@/lib/utils';
 import MarkdownLite from '@/components/ui/MarkdownLite';
@@ -48,6 +48,7 @@ function AssistantContent() {
   const [dossierYear, setDossierYear] = useState<number | 'all' | null>(null);
   const [memberCount, setMemberCount] = useState(0);
   const [dossierChars, setDossierChars] = useState(0);
+  const [annualCtx, setAnnualCtx] = useState(''); // 회사 경영목표·조직 연간목표 컨텍스트(B⑤)
   const [building, setBuilding] = useState(false);
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const [input, setInput] = useState('');
@@ -129,6 +130,9 @@ function AssistantContent() {
         }
         return names.join(' > ');
       };
+      // 회사 경영목표·조직 연간목표 컨텍스트(B⑤ 정렬 가·감점) — 대표 연도 기준
+      const repYear = year === 'all' ? NOW_YEAR : year;
+      getAllOrgAnnualGoals(repYear).then(ag => setAnnualCtx(buildAnnualGoalContext(ag, orgs))).catch(() => setAnnualCtx(''));
       // 평가 대상 인원 (임원·CEO 제외) — 차순위 임원(EXEC_SUB)은 팀장 권한·평가 대상이므로 포함
       const people = allUsers.filter(u => u.isActive && u.role !== 'CEO' && u.role !== 'EXECUTIVE');
       const ids = people.map(u => u.id);
@@ -255,6 +259,7 @@ function AssistantContent() {
       const answer = await askAssistant({
         question, history, dossier,
         yearLabel: dossierYear === 'all' ? '전체 누적' : `${dossierYear}년`,
+        annualContext: annualCtx,
         onChunk: setLast,
         signal: controller.signal,
       });

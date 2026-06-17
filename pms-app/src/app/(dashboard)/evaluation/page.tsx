@@ -20,6 +20,7 @@ import {
   getAllDivisionGradeQuotas,
   getWeeklyTasksByMembersAndYear,
   listInnovationActivities,
+  getAllOrgAnnualGoals,
 } from '@/lib/firestore';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import { approverTitle } from '@/lib/approval-filters';
@@ -43,7 +44,7 @@ import { cn, shiftEnterSubmit } from '@/lib/utils';
 import type {
   EvaluationCycle, Goal, SelfEvaluation, IndividualEvaluation,
   EvaluationGrade, User, Organization, DivisionGradeQuota, MentoringForm, WeeklyTask,
-  InnovationActivity,
+  InnovationActivity, AnnualGoal,
 } from '@/types';
 
 // ─ TeamLeadEvalView는 /evaluation/team/page.tsx 로 분리됨 ─
@@ -125,6 +126,7 @@ function ExecutiveEvalView() {
   const [mentoringForms, setMentoringForms] = useState<Record<string, MentoringForm>>({});
   const [goalsByMember, setGoalsByMember] = useState<Record<string, Goal[]>>({});
   const [scopeGoals, setScopeGoals] = useState<Goal[]>([]); // 스코프 전체 목표(팀장 가·감점 완료율 계산용)
+  const [annualGoals, setAnnualGoals] = useState<AnnualGoal[]>([]); // 회사·조직 연간목표(B⑤ 정렬 가·감점)
   const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [innovationsByMember, setInnovationsByMember] = useState<Record<string, InnovationActivity[]>>({});
   const [quotas, setQuotas]           = useState<DivisionGradeQuota | null>(null);
@@ -228,6 +230,7 @@ function ExecutiveEvalView() {
       });
       setGoalsByMember(gbMap);
       setScopeGoals(allGoals);
+      getAllOrgAnnualGoals(year).then(setAnnualGoals).catch(() => setAnnualGoals([]));
 
       const seMap: Record<string, SelfEvaluation> = {};
       seList.forEach(se => { seMap[se.userId] = se; });
@@ -415,6 +418,7 @@ function ExecutiveEvalView() {
                 scopeLabel="산하 전체"
                 allOrgs={allOrgs}
                 allScopeGoals={scopeGoals}
+                annualGoals={annualGoals}
               />
             )}
             {/* 팀 탭 바 */}

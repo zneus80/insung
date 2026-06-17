@@ -95,6 +95,10 @@ export interface AiEvalResult {
  * 한쪽만 바꾸면 기준이 갈리므로 반드시 이 상수에서 단일 관리한다.
  */
 export const SHARED_EVAL_CRITERIA: string[] = [
+  '【A. 회사·평가 배경】',
+  '- 회사는 전통 제조업이며, 평가 대상 인원은 관리직 약 100명·생산직 약 100명 규모입니다. 임팩트·난도를 추정할 때 제조업 맥락(생산성·품질·원가·납기·안전·설비 등)을 고려하세요.',
+  '- 좋은 평가는 매년 회사 경영목표·소속 조직목표에 연관된 목표를 수립·추진한 사람에게 돌아가야 합니다(아래 B⑤ 정렬 가·감점).',
+  '',
   '【B. 평가 가중치 — 가장 중요】',
   '- ① 조직 기여 임팩트(최우선): 핵심목표의 조직 기여도·전략적 영향력을 가장 높게 봅니다. 쉬운 목표를 여러 개 한 것보다 조직에 큰 영향을 주는 목표 하나를 해낸 것이 더 높은 가치이며, 단순 완료 갯수로 줄세우지 않습니다. (난도·복잡도는 임팩트의 일부로 포함)',
   '  · 고가치 성과의 예: 신규 시스템 도입, 회사의 경제적 이익 창출(매출 증대·원가/비용 절감), 신시장·신제품 개발, 생산성 개선, 신사업 개척, 회사 시스템·프로세스 개편, 대규모 거래처 확보 등 전사·조직 단위 영향.',
@@ -102,6 +106,7 @@ export const SHARED_EVAL_CRITERIA: string[] = [
   '- ② 완료(임팩트와 동급 핵심): 특히 고임팩트 목표의 완료를 가장 높게 봅니다. 완료 실적이 없으면(완료 0) 상위 등급(A·B)을 줄 수 없습니다. 추진중은 진행률로 일부만 반영, 포기는 미달성으로 간주(목표 수 가산 제외, 포기가 많으면 부정적으로 반영하고 명시).',
   '- ③ 유효 목표 갯수(보조): 포기 제외, 임팩트가 대등할 때에 한해 많을수록 가점.',
   '- ④ 팀장·본부장(관리자) 가·감점: teamAchievement(책임 팀의 목표 완료율 %)가 주어진 사람은 팀 성과 책임자이므로, 본인 주간 실적이 적더라도 팀 성과를 점수에 반영합니다(100점 만점 기준). 완료율 100% → +5점, 90~99% → 0, 80~89% → -2점, 80% 미만 → -5점. 이 가·감점을 종합 점수·등급 판단에 더하세요.',
+  '- ⑤ 경영·조직목표 정렬 가·감점: 프롬프트에 함께 제공되는 [회사 경영목표]·[조직 연간목표]와 개인의 핵심목표가 연관·정렬되면 +1점, 회사·조직 방향과 전혀 무관한 목표만 있으면 -1점(100점 만점, ±1). 본인 소속 조직(org 경로) 또는 회사 차원의 연간 방향에 기여하는 목표를 높게 봅니다.',
   '',
   '【C. 데이터 해석 원칙】',
   '- 주간업무보고: ①효율성(투입 대비 산출) ②실효성(실제 성과·문제 해결로 이어졌는지) ③중대성(영향 범위·중요도) 관점으로 보고, 단순 나열·형식적 기록보다 구체적·실질적 성과를 높게 봅니다.',
@@ -136,7 +141,40 @@ export async function getEvalCriteria(): Promise<string[]> {
   return SHARED_EVAL_CRITERIA;
 }
 
-function buildPrompt(members: AiMemberInput[], criteria: string[] = SHARED_EVAL_CRITERIA): string {
+/**
+ * 회사 경영목표·조직 연간목표를 프롬프트용 텍스트로 구성(B⑤ 정렬 가·감점 근거).
+ * annualGoals: getAllOrgAnnualGoals(year) 결과. orgs: 조직 경로 표기용.
+ */
+export function buildAnnualGoalContext(
+  annualGoals: { type: 'company' | 'org'; organizationId?: string; content?: string; items?: { subject?: string; detail?: string; content?: string }[] }[],
+  orgs: { id: string; name: string; parentId?: string | null; type?: string }[],
+): string {
+  if (!annualGoals || annualGoals.length === 0) return '';
+  const orgById = new Map(orgs.map(o => [o.id, o]));
+  const pathOf = (id?: string): string => {
+    const names: string[] = [];
+    let cur = id ? orgById.get(id) : undefined;
+    let g = 0;
+    while (cur && g++ < 10) { if (cur.type !== 'COMPANY') names.unshift(cur.name); cur = cur.parentId ? orgById.get(cur.parentId) : undefined; }
+    return names.join(' > ');
+  };
+  const itemsText = (ag: { content?: string; items?: { subject?: string; detail?: string; content?: string }[] }): string => {
+    const its = (ag.items ?? []).map(it => [it.subject, it.detail ?? it.content].filter(Boolean).join(': ')).filter(Boolean);
+    if (its.length > 0) return its.join(' / ');
+    return (ag.content ?? '').trim();
+  };
+  const company = annualGoals.filter(a => a.type === 'company').map(itemsText).filter(Boolean);
+  const orgLines = annualGoals.filter(a => a.type === 'org').map(a => {
+    const t = itemsText(a);
+    return t ? `- ${pathOf(a.organizationId) || '조직'}: ${t}` : '';
+  }).filter(Boolean);
+  const parts: string[] = [];
+  if (company.length > 0) parts.push(`[회사 경영목표]\n${company.map(c => `- ${c}`).join('\n')}`);
+  if (orgLines.length > 0) parts.push(`[조직 연간목표]\n${orgLines.join('\n')}`);
+  return parts.join('\n');
+}
+
+function buildPrompt(members: AiMemberInput[], criteria: string[] = SHARED_EVAL_CRITERIA, annualContext = ''): string {
   // AI 가 긴 userId 를 그대로 못 받아쓰는 문제 방지 — idx(번호)로만 식별. userId 는 프롬프트에서 제외.
   const data = members.map((m, idx) => ({
     idx,
@@ -179,15 +217,17 @@ function buildPrompt(members: AiMemberInput[], criteria: string[] = SHARED_EVAL_
     ' "ranking":[{"idx":0,"rank":1,"reason":"근거 한 문장(목표의 조직 임팩트 우선, 비슷하면 완료 실적으로 세분)"}],',
     ' "disclaimer":"본 결과는 AI 참고 자료이며 최종 평가는 평가권자가 결정합니다."}',
     '',
+    ...(annualContext ? ['', '회사·조직 연간목표(B⑤ 정렬 가·감점 근거 — 개인 핵심목표와 비교):', annualContext] : []),
+    '',
     '구성원 데이터(각 항목의 idx 로 식별):',
     JSON.stringify(data, null, 0),
   ].join('\n');
 }
 
-export async function summarizeAndRankMembers(members: AiMemberInput[]): Promise<AiEvalResult> {
+export async function summarizeAndRankMembers(members: AiMemberInput[], annualContext = ''): Promise<AiEvalResult> {
   if (members.length === 0) return { summaries: [], ranking: [], disclaimer: '' };
   const criteria = await getEvalCriteria();
-  const prompt = buildPrompt(members, criteria);
+  const prompt = buildPrompt(members, criteria, annualContext);
   const t0 = (typeof performance !== 'undefined' ? performance.now() : 0);
   const res = await model().generateContent(prompt);
   const ms = Math.round((typeof performance !== 'undefined' ? performance.now() : 0) - t0);
