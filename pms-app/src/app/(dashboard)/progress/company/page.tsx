@@ -147,7 +147,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
           <div className="space-y-3">
             {/* 스마트 프로젝트 — 전체 폭, 접기 가능 */}
             {(() => {
-              const spOpen = expanded['__sp'] ?? true;
+              const spOpen = expanded['__sp'] ?? false;
               const list = innovations.filter(i => i.type === 'SMART_PROJECT');
               return (
                 <div className="rounded-xl border bg-white overflow-hidden">
@@ -173,7 +173,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
 
             {/* TDS — 스마트 프로젝트 아래, 2열 배치, 접기 가능 */}
             {(() => {
-              const tdsOpen = expanded['__tds'] ?? true;
+              const tdsOpen = expanded['__tds'] ?? false;
               const list = innovations.filter(i => i.type === 'TDS');
               return (
                 <div className="rounded-xl border bg-white overflow-hidden">
