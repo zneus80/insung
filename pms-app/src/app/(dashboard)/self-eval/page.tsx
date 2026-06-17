@@ -97,14 +97,16 @@ export default function SelfEvalPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // 가중치 — 핵심목표: 완료 목표 가중치 정규화 → ×0.8 (핵심 총 80%). 일반업무: 총 20% 균등.
+  // 가중치 — 핵심목표: 완료 목표 가중치 정규화 → ×0.8 (핵심 총 80%).
+  // 일반업무: 5개 기준 항목당 4% 고정(5개 만점 20%). 5개 미만이면 채우지 않은 만큼 총점에서 미실현(차감 효과).
   // 공동 목표는 사람마다 가중치가 다르므로 본인(weights[uid]) 슬롯을 우선 사용.
   const corePct = useMemo(() => {
     const uid = userProfile?.id ?? '';
     return normalizeWeights(goals.map(g => ({ ...g, weight: g.weights?.[uid] ?? g.weight })));
   }, [goals, userProfile?.id]);
   const coreEff = (id: string) => Math.round((corePct[id] ?? 0) * 0.8 * 10) / 10; // 80% 비율
-  const genEff = starred.length > 0 ? Math.round((20 / starred.length) * 10) / 10 : 0;
+  const GEN_SLOTS = 5;          // 일반업무 기준 개수
+  const genEff = 20 / GEN_SLOTS; // 항목당 4% 고정
 
   const num = (s: string) => Math.max(0, Math.min(100, Number(s) || 0));
   const totalScore = useMemo(() => {
@@ -237,7 +239,7 @@ export default function SelfEvalPage() {
           <div className="rounded-xl border bg-white px-5 py-4 flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-gray-700">{year}년 자기평가</p>
-              <p className="text-xs text-gray-400 mt-0.5">핵심목표 80% · 일반업무 20% · 혁신활동(서술) · 각 항목 0~100점</p>
+              <p className="text-xs text-gray-400 mt-0.5">핵심목표 80% · 일반업무 항목당 4%(5개 만점 20%) · 혁신활동(서술) · 각 항목 0~100점</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-gray-400">가중 환산 총점</p>
@@ -279,7 +281,7 @@ export default function SelfEvalPage() {
           <section className="rounded-xl border bg-white overflow-hidden">
             <div className="flex items-center gap-2 border-b bg-gray-50/70 px-4 py-2.5">
               <Star className="h-4 w-4 text-amber-500" />
-              <h3 className="text-sm font-bold text-amber-700">주요 일반업무 <span className="text-xs font-normal text-gray-400">(주간보고 별표 · 총 20%)</span></h3>
+              <h3 className="text-sm font-bold text-amber-700">주요 일반업무 <span className="text-xs font-normal text-gray-400">(주간보고 별표 · 항목당 4%, 5개 만점 20%)</span></h3>
             </div>
             <div className="p-4 space-y-3">
               {starred.length === 0 ? <p className="text-xs text-gray-400">주간보고에서 별표(★)한 일반업무가 없습니다.</p> : starred.map(s => (
