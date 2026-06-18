@@ -29,6 +29,7 @@ import MileageCard from '@/components/mileage/MileageCard';
 import { OrgTreeNode, buildTree, findDescendantIds, avgProgress } from '@/components/goals/OrgGoalTree'; // findDescendantIds: ExecDashboard에서 사용
 import { CompanyProgressBody } from '@/app/(dashboard)/progress/company/page';
 import PolicyGuideButton from '@/components/dashboard/PolicyGuideButton';
+import FontScaleControl from '@/components/layout/FontScaleControl';
 import OrgStatusModal from '@/components/dashboard/OrgStatusModal';
 import { cn } from '@/lib/utils';
 import { filterMyActionableGoals } from '@/lib/approval-filters';
@@ -195,7 +196,10 @@ function MemberDashboard() {
               {year}년 목표 현황입니다.
             </p>
           </div>
-          <PolicyGuideButton />
+          <div className="flex items-center gap-2">
+            <FontScaleControl />
+            <PolicyGuideButton />
+          </div>
         </div>
 
         {/* ① 연간 목표 배너 — 항상 최상단 (회사 경영목표 + 조직 목표) */}
@@ -485,7 +489,10 @@ function ExecDashboard() {
               {year}년 조직 목표 진행 현황입니다.
             </p>
           </div>
-          <PolicyGuideButton />
+          <div className="flex items-center gap-2">
+            <FontScaleControl />
+            <PolicyGuideButton />
+          </div>
         </div>
 
         {/* ① 연간 목표 배너 — 회사 경영목표 + (있다면) 본인 부문/공장 목표 */}

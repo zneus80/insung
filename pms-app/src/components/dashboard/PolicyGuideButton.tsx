@@ -8,6 +8,10 @@
 import { useState } from 'react';
 import { Info, X, Award, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MILEAGE_TIERS } from '@/lib/mileage-tier';
+
+// 보상제도 표에 표시할 등급 — 누적 점수 구간별 라벨/아이콘 (mileage-tier.ts 단일 출처)
+const tierByMin = (min: number) => MILEAGE_TIERS.find(t => t.min === min);
 
 export default function PolicyGuideButton() {
   const [open, setOpen] = useState(false);
@@ -107,17 +111,22 @@ export default function PolicyGuideButton() {
                   <table className="w-full text-sm">
                     <thead className="bg-amber-100/70">
                       <tr>
-                        <th className="px-4 py-3 text-left font-semibold text-amber-900 w-1/3">누적 점수</th>
-                        <th className="px-4 py-3 text-left font-semibold text-amber-900 w-1/3">포상금</th>
+                        <th className="px-4 py-3 text-left font-semibold text-amber-900 w-1/4">등급</th>
+                        <th className="px-4 py-3 text-left font-semibold text-amber-900 w-1/4">누적 점수</th>
+                        <th className="px-4 py-3 text-left font-semibold text-amber-900 w-1/4">포상금</th>
                         <th className="px-4 py-3 text-left font-semibold text-amber-900">비고</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-amber-100 bg-white">
-                      <Row pts="200점"   prize="20만원" />
-                      <Row pts="400점"   prize="40만원" />
-                      <Row pts="600점"   prize="60만원" />
-                      <Row pts="800점"   prize="80만원" />
+                      <Row min={0}   pts="0 ~ 199점" prize="—" />
+                      <Row min={200} pts="200점"   prize="20만원" />
+                      <Row min={400} pts="400점"   prize="40만원" />
+                      <Row min={600} pts="600점"   prize="60만원" />
+                      <Row min={800} pts="800점"   prize="80만원" />
                       <tr className="bg-amber-50/60">
+                        <td className="px-4 py-3 font-bold text-amber-900">
+                          <TierBadge min={1000} />
+                        </td>
                         <td className="px-4 py-3 font-bold text-amber-900">1,000점</td>
                         <td className="px-4 py-3 font-bold text-amber-900">여행 상품권 400만원</td>
                         <td className="px-4 py-3 text-xs text-amber-800 font-medium">수령 시 테이블 초기화</td>
@@ -142,12 +151,24 @@ export default function PolicyGuideButton() {
   );
 }
 
-function Row({ pts, prize }: { pts: string; prize: string }) {
+function Row({ min, pts, prize }: { min: number; pts: string; prize: string }) {
   return (
     <tr>
+      <td className="px-4 py-2.5"><TierBadge min={min} /></td>
       <td className="px-4 py-2.5 font-medium text-gray-900">{pts}</td>
       <td className="px-4 py-2.5 text-gray-900">{prize}</td>
       <td className="px-4 py-2.5 text-xs text-gray-300">—</td>
     </tr>
+  );
+}
+
+function TierBadge({ min }: { min: number }) {
+  const tier = tierByMin(min);
+  if (!tier) return null;
+  return (
+    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold', tier.badge)}>
+      <span aria-hidden>{tier.icon}</span>
+      {tier.label}
+    </span>
   );
 }

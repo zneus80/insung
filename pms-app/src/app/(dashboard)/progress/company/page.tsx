@@ -303,9 +303,11 @@ function InnovationRow({ item, usersById, revealConfidential = false, compact = 
       <span className={cn(
         'font-bold rounded-full shrink-0',
         compact ? 'text-[10px] px-1.5 py-0.5' : 'text-xs px-2 py-0.5',
-        item.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700',
+        item.status === 'COMPLETED' ? 'bg-green-100 text-green-700'
+          : item.status === 'DROPPED' ? 'bg-gray-200 text-gray-600'
+          : 'bg-blue-100 text-blue-700',
       )}>
-        {item.status === 'COMPLETED' ? '완료' : '추진중'}
+        {item.status === 'COMPLETED' ? '완료' : item.status === 'DROPPED' ? 'Drop' : '추진중'}
       </span>
       <div className="flex-1 min-w-0">
         <p className={cn(

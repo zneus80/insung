@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signInWithEmail, sendPasswordReset } from '@/lib/auth';
 import { APP_VERSION } from '@/lib/version';
-import { getUser } from '@/lib/firestore';
+import { getUser, registerActiveSession } from '@/lib/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +50,8 @@ export default function LoginPage() {
         await signOut();
         return;
       }
+      // 중복로그인 방지 — 이 기기를 활성 세션으로 등록(다른 기기는 자동 로그아웃)
+      await registerActiveSession(fbUser.uid).catch(() => { /* 실패해도 로그인은 진행 */ });
       router.replace('/dashboard');
     } catch (err: any) {
       const code = err?.code ?? '';

@@ -21,6 +21,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko" className="h-full">
+      <head>
+        {/* 개인 글자 크기 배율을 페인트 전에 적용해 새로고침 시 깜빡임 방지 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var v=parseFloat(localStorage.getItem('pms_font_scale'));if(v>0){v=Math.min(1.4,Math.max(0.9,Math.round(v*10)/10));document.documentElement.style.setProperty('--font-scale',String(v));}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className={`${notoSansKr.className} h-full bg-gray-50 antialiased`}>
         <AuthProvider>
           {children}

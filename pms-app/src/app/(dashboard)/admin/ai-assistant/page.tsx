@@ -18,6 +18,7 @@ import {
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import { computePromotion, computeSmartProjectCounts } from '@/lib/promotion';
+import { compareUserByRolePositionHire } from '@/lib/user-sort';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { askAssistant, type AssistantTurn } from '@/lib/ai-assistant';
 import { EVAL_CRITERIA_BODY, buildAnnualGoalContext } from '@/lib/ai-eval';
@@ -142,10 +143,11 @@ function AssistantContent() {
         ? null
         : new Set(getMyScopeOrgIds(userProfile.id, userProfile.role, userProfile.organizationId, orgs));
       // 평가 대상 인원 (임원·CEO 제외). 임원이면 본인 스코프 조직 소속만.
-      const people = allUsers.filter(u =>
-        u.isActive && u.role !== 'CEO' && u.role !== 'EXECUTIVE'
-        && (!scopeOrgSet || scopeOrgSet.has(u.organizationId)),
-      );
+      // 정렬: 조직(경로)별 묶음 → 그 안에서 팀장→팀원(책임·주임 등 직급순, 동일 직급은 입사일순)
+      const people = allUsers
+        .filter(u => u.isActive && u.role !== 'CEO' && u.role !== 'EXECUTIVE'
+          && (!scopeOrgSet || scopeOrgSet.has(u.organizationId)))
+        .sort((a, b) => orgPath(a.organizationId).localeCompare(orgPath(b.organizationId), 'ko') || compareUserByRolePositionHire(a, b));
       const ids = people.map(u => u.id);
 
       // 연도별 데이터 로드
@@ -197,6 +199,7 @@ function AssistantContent() {
             .flatMap(w => (w.hasDoneItems ?? []).filter(i => (i.authorId ?? w.userId) === u.id).map(i => (i.title || i.content || '').trim()))
             .filter(Boolean).slice(0, 15);
           const innovNames = d.innov
+            .filter(a => a.status !== 'DROPPED')  // Drop(실패·중단)은 성과 집계 제외 — 기록용
             .filter(a => getPmIds(a).includes(u.id) || (a.memberIds ?? []).includes(u.id) || getPerformerIds(a).includes(u.id) || a.instructorId === u.id)
             .map(a => `${a.type === 'SMART_PROJECT' ? (getPmIds(a).includes(u.id) ? 'SP-PM' : 'SP') : 'TDS'}:${a.name}`).slice(0, 6);
           // 5종 데이터(목표·주간보고·자기평가·육성면담서·혁신활동) 중 실제 내용이 하나라도 있는 연도만 기록.

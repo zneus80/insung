@@ -15,6 +15,7 @@ const TYPE_COLOR: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   IN_PROGRESS: '진행중',
   COMPLETED: '완료',
+  DROPPED: 'Drop',
 };
 
 /** 해당 멤버의 활동 내 역할 라벨 */
@@ -53,7 +54,9 @@ export default function InnovationList({ items, memberId, revealConfidential = f
             </span>
             <span className={cn(
               'shrink-0 rounded-full px-2 py-0.5 font-medium',
-              a.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700',
+              a.status === 'COMPLETED' ? 'bg-green-100 text-green-700'
+                : a.status === 'DROPPED' ? 'bg-gray-200 text-gray-600'
+                : 'bg-orange-100 text-orange-700',
             )}>
               {STATUS_LABEL[a.status] ?? a.status}
             </span>

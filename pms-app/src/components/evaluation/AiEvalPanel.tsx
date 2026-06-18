@@ -110,8 +110,9 @@ export default function AiEvalPanel({
           inProgressCount,
           abandonedCount,
           selfEvalTotal: computeSelfEvalTotal(se ?? null) ?? undefined,
-          innovationCount: (innovationsByMember?.[m.id] ?? []).length || undefined,
-          innovationNames: (innovationsByMember?.[m.id] ?? []).map(a => a.name).filter(Boolean).slice(0, 8),
+          // Drop(실패·중단)은 성과 집계 제외 — 기록용
+          innovationCount: (innovationsByMember?.[m.id] ?? []).filter(a => a.status !== 'DROPPED').length || undefined,
+          innovationNames: (innovationsByMember?.[m.id] ?? []).filter(a => a.status !== 'DROPPED').map(a => a.name).filter(Boolean).slice(0, 8),
           goals: coreGoals.map(g => ({
             title: g.title, statusLabel: statusLabelOf(g), progress: g.progress,
             weight: g.weights?.[m.id] ?? g.weight,

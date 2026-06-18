@@ -107,6 +107,18 @@ export async function updateUser(uid: string, data: Partial<User>) {
   }
 }
 
+// ── 중복로그인 방지 (마지막 로그인 우선) ──────────────────────
+export const SESSION_KEY = 'pms_active_session';
+/** 로그인 직후 호출 — 새 세션 ID를 발급해 본인 문서·로컬에 저장. 다른 기기는 이 변경을 감지해 자동 로그아웃. */
+export async function registerActiveSession(userId: string): Promise<void> {
+  const sid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}_${Math.round(Math.random() * 1e9)}`;
+  if (typeof window !== 'undefined') localStorage.setItem(SESSION_KEY, sid);
+  await updateDoc(doc(db, COLLECTIONS.USERS, userId), { activeSessionId: sid, updatedAt: serverTimestamp() });
+}
+export function getLocalSessionId(): string | null {
+  return typeof window !== 'undefined' ? localStorage.getItem(SESSION_KEY) : null;
+}
+
 export async function updateUserProfile(userId: string, data: { position?: string; hireDate?: string; rank?: string }) {
   await updateDoc(doc(db, COLLECTIONS.USERS, userId), {
     ...data,
@@ -2164,6 +2176,16 @@ export async function createAward(data: Omit<Award, 'id' | 'createdAt' | 'update
 
 export async function deleteAward(id: string): Promise<void> {
   await deleteDoc(doc(db, COLLECTIONS.AWARDS, id));
+}
+
+export async function updateAward(
+  id: string,
+  data: Partial<Pick<Award, 'title' | 'description' | 'awardDate'>>,
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.AWARDS, id), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 // ─── 근태현황 (연도별 개인 지각·결근, HR 입력) ──────────────────────────────

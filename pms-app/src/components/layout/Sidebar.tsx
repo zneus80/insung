@@ -125,39 +125,6 @@ const navItems: NavItem[] = [
     roles: ['MEMBER', 'TEAM_LEAD', 'EXECUTIVE'],
   },
 
-  // ── 7-1. 전사 인원현황 (CEO + HR 마스터) — 그룹 없이 단독 ─
-  {
-    label: '전사 인원현황',
-    href: '/admin/all-members',
-    icon: <Users className="h-5 w-5" />,
-    roles: ['CEO'],
-  },
-  {
-    label: '전사 인원현황',
-    href: '/admin/all-members',
-    icon: <Users className="h-5 w-5" />,
-    requireHrMaster: true,
-  },
-  {
-    label: '전사 육성면담서·자기평가',
-    href: '/mentoring/all',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    roles: ['CEO'],
-  },
-  {
-    label: '전사 육성면담서·자기평가',
-    href: '/mentoring/all',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    requireHrMaster: true,
-  },
-  {
-    // HR관리자(마스터 아님) — 기존 육성면담서 확인 기능 유지 (등급·자기평가 미노출)
-    label: '전사 육성면담서 확인',
-    href: '/mentoring/all',
-    icon: <MessageSquareHeart className="h-5 w-5" />,
-    requireHrAdmin: true,
-  },
-
   // ══ AI 챗봇 (CEO + 임원 + HR 마스터) — 임원은 본인 책임 조직 산하만 분석(§6-1) ═══════════════
   {
     label: 'AI 인사·성과 분석',
@@ -245,6 +212,44 @@ const navItems: NavItem[] = [
     roles: ['MEMBER', 'TEAM_LEAD'],
     exact: true,
     group: '인사고과',
+  },
+
+  // ── HR 이력 (CEO + HR 마스터/관리자) — 인사고과 아래 ─────────────
+  {
+    label: '전사 인원현황',
+    href: '/admin/all-members',
+    icon: <Users className="h-5 w-5" />,
+    roles: ['CEO'],
+    group: 'HR 이력',
+  },
+  {
+    label: '전사 인원현황',
+    href: '/admin/all-members',
+    icon: <Users className="h-5 w-5" />,
+    requireHrMaster: true,
+    group: 'HR 이력',
+  },
+  {
+    label: '전사 육성면담서·자기평가',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    roles: ['CEO'],
+    group: 'HR 이력',
+  },
+  {
+    label: '전사 육성면담서·자기평가',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    requireHrMaster: true,
+    group: 'HR 이력',
+  },
+  {
+    // HR관리자(마스터 아님) — 기존 육성면담서 확인 기능 유지 (등급·자기평가 미노출)
+    label: '전사 육성면담서 확인',
+    href: '/mentoring/all',
+    icon: <MessageSquareHeart className="h-5 w-5" />,
+    requireHrAdmin: true,
+    group: 'HR 이력',
   },
 
   // ── HR관리자 전용 — 기본정보입력 ─────────────────────

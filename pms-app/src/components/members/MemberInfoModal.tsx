@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { getUser, getMileage, getOrganizations, getAwardsByUser, listInnovationActivitiesByUser } from '@/lib/firestore';
 import { getTier } from '@/lib/mileage-tier';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
+import { computePromotion, computeSmartProjectCounts } from '@/lib/promotion';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User, Mileage, Organization, Award, InnovationActivity } from '@/types';
 
@@ -221,27 +222,16 @@ function Row({ label, value }: { label: string; value?: string }) {
 // 승진요건 충족여부 — 전사 인원현황 computePromotion 과 동일 기준 (연도 무관 누적).
 // 정식 팀장 → 임원 승진조건(SP PM 1회) / 팀원·팀장대행 → 팀장 승진조건(SP 1회 참여 + ISKMS 마일리지 200점).
 function PromotionSection({ user, mileage, innovations }: { user: User; mileage: Mileage | null; innovations: InnovationActivity[] }) {
-  // 임원·CEO 는 승진요건 대상 아님
-  if (user.role === 'EXECUTIVE' || user.role === 'CEO') return null;
-
-  const spPmCount = innovations.filter(a => a.type === 'SMART_PROJECT' && getPmIds(a).includes(user.id)).length;
-  // 임원 승진 실적은 완료된 SP 만 인정 (추진중 제외)
-  const spPmCompletedCount = innovations.filter(a => a.type === 'SMART_PROJECT' && a.status === 'COMPLETED' && getPmIds(a).includes(user.id)).length;
-  const spMemberCount = innovations.filter(a => a.type === 'SMART_PROJECT' && (a.memberIds ?? []).includes(user.id)).length;
-  const points = mileage?.points ?? 0;
-  const isLeadTrack = user.role === 'TEAM_LEAD' && !user.isActingLead;
-
-  const rows = isLeadTrack
-    ? [{ label: '스마트 프로젝트 PM 1회 (완료 기준)', actual: `${spPmCompletedCount}회`, met: spPmCompletedCount >= 1 }]
-    : [
-        { label: '스마트 프로젝트 1회 참여', actual: `${spPmCount + spMemberCount}회`, met: spPmCount + spMemberCount >= 1 },
-        { label: 'ISKMS 마일리지 200점', actual: `${points.toLocaleString()}점`, met: points >= 200 },
-      ];
+  // 승진요건 — 전사 인원현황과 단일 기준 공유(lib/promotion.ts). 항목별 표시는 promo.requirements 사용.
+  const sp = computeSmartProjectCounts(innovations).get(user.id) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0, memberCompletedCount: 0 };
+  const promo = computePromotion(user, mileage ?? undefined, sp);
+  if (promo.target === '해당 없음') return null;
+  const rows = promo.requirements;
 
   return (
     <div>
       <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-        승진요건 충족여부 <span className="normal-case font-normal">({isLeadTrack ? '임원 승진조건' : '팀장 승진조건'})</span>
+        승진요건 충족여부 <span className="normal-case font-normal">({promo.target === '임원 승진' ? '임원 승진조건' : '팀장 승진조건'})</span>
       </h3>
       <div className="rounded-xl border bg-gray-50 divide-y">
         {rows.map(r => (
@@ -261,8 +251,9 @@ function PromotionSection({ user, mileage, innovations }: { user: User; mileage:
 // 혁신활동 실적 — 스마트프로젝트 PM/참여, TDS 지시/수행 카운트. 클릭 시 주제 목록 노출.
 function InnovationSection({ userId, items }: { userId: string; items: InnovationActivity[] }) {
   const [openKey, setOpenKey] = useState<'sp-pm' | 'sp-mem' | 'tds-ins' | 'tds-per' | null>(null);
-  const spPm = items.filter(a => a.type === 'SMART_PROJECT' && getPmIds(a).includes(userId));
-  const spMem = items.filter(a => a.type === 'SMART_PROJECT' && (a.memberIds ?? []).includes(userId));
+  // Drop(실패·중단)은 실적 집계에서 제외 — 기록용이라 승진·성과에 무관
+  const spPm = items.filter(a => a.type === 'SMART_PROJECT' && a.status !== 'DROPPED' && getPmIds(a).includes(userId));
+  const spMem = items.filter(a => a.type === 'SMART_PROJECT' && a.status !== 'DROPPED' && (a.memberIds ?? []).includes(userId));
   const tdsIns = items.filter(a => a.type === 'TDS' && a.instructorId === userId);
   const tdsPer = items.filter(a => a.type === 'TDS' && getPerformerIds(a).includes(userId));
 
@@ -304,8 +295,8 @@ function InnovationSection({ userId, items }: { userId: string; items: Innovatio
             <ul className="space-y-1">
               {openList.map(a => (
                 <li key={a.id} className="text-sm text-gray-700 flex items-center gap-2">
-                  <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${a.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                    {a.status === 'COMPLETED' ? '완료' : '추진중'}
+                  <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${a.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : a.status === 'DROPPED' ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-700'}`}>
+                    {a.status === 'COMPLETED' ? '완료' : a.status === 'DROPPED' ? 'Drop' : '추진중'}
                   </span>
                   <span>{a.name}</span>
                 </li>

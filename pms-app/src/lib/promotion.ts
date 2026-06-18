@@ -8,6 +8,13 @@ import { getPmIds } from '@/lib/innovation';
  * - CEO·임원: 승진 대상 아님
  */
 
+/** 승진요건 개별 항목 — 프로필(MemberInfoModal) 항목별 표시에 사용 */
+export interface PromotionRequirement {
+  label: string;
+  actual: string;
+  met: boolean;
+}
+
 export interface PromotionInfo {
   target: '팀장 승진' | '임원 승진' | '해당 없음';
   pmCount: number;
@@ -16,6 +23,7 @@ export interface PromotionInfo {
   totalPoints: number;
   meetsRequirement: boolean;
   reasonText: string;   // 미충족 사유(충족 시 빈 문자열)
+  requirements: PromotionRequirement[];  // 항목별 요건(충족여부)
 }
 
 export interface SmartProjectCount {
@@ -31,6 +39,7 @@ export function computeSmartProjectCounts(innovations: InnovationActivity[]): Ma
   const ensure = (uid: string) => m.get(uid) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0, memberCompletedCount: 0 };
   for (const a of innovations) {
     if (a.type !== 'SMART_PROJECT') continue;
+    if (a.status === 'DROPPED') continue;  // Drop(실패·중단)은 승진 집계에서 제외 — 기록용
     const done = a.status === 'COMPLETED';
     for (const uid of getPmIds(a)) {
       const c = ensure(uid);
@@ -55,7 +64,7 @@ export function computePromotion(user: User, mileage: Mileage | undefined, sp: S
   const totalPoints = mileage?.points ?? 0;
 
   if (user.role === 'CEO' || user.role === 'EXECUTIVE') {
-    return { target: '해당 없음', pmCount, pmCompletedCount: pmCompleted, memberCount, totalPoints, meetsRequirement: false, reasonText: '' };
+    return { target: '해당 없음', pmCount, pmCompletedCount: pmCompleted, memberCount, totalPoints, meetsRequirement: false, reasonText: '', requirements: [] };
   }
   // 정식 팀장(대행 아님) → 임원 승진: 완료 SP PM 1+
   if (user.role === 'TEAM_LEAD' && !user.isActingLead) {
@@ -64,19 +73,26 @@ export function computePromotion(user: User, mileage: Mileage | undefined, sp: S
       target: '임원 승진', pmCount, pmCompletedCount: pmCompleted, memberCount, totalPoints,
       meetsRequirement: meets,
       reasonText: meets ? '' : `스마트프로젝트 PM(완료) ${pmCompleted}/1`,
+      requirements: [
+        { label: '스마트 프로젝트 PM 1회 (완료 기준)', actual: `${pmCompleted}회`, met: meets },
+      ],
     };
   }
   // 팀원/팀장대행 → 팀장 승진: 완료된 SP 1+ (PM or 멤버) + 마일리지 200+ (추진중은 미인정)
-  const projectCount = sp.pmCompletedCount + sp.memberCompletedCount;
-  const meetsProject = projectCount >= 1;
+  const completedTotal = sp.pmCompletedCount + sp.memberCompletedCount;
+  const meetsProject = completedTotal >= 1;
   const meetsMileage = totalPoints >= 200;
   const meets = meetsProject && meetsMileage;
   const reasons: string[] = [];
-  if (!meetsProject) reasons.push(`스마트프로젝트(완료) ${projectCount}/1`);
+  if (!meetsProject) reasons.push(`스마트프로젝트(완료) ${completedTotal}/1`);
   if (!meetsMileage) reasons.push(`마일리지 ${totalPoints}/200`);
   return {
     target: '팀장 승진', pmCount, pmCompletedCount: pmCompleted, memberCount, totalPoints,
     meetsRequirement: meets,
     reasonText: reasons.join(', '),
+    requirements: [
+      { label: '스마트 프로젝트 1회 참여 (완료 기준)', actual: `${completedTotal}회`, met: meetsProject },
+      { label: 'ISKMS 마일리지 200점', actual: `${totalPoints.toLocaleString()}점`, met: meetsMileage },
+    ],
   };
 }
