@@ -11,17 +11,20 @@ import { Sparkles, Send, Loader2, Database, Square, SlidersHorizontal, RotateCcw
 import {
   getAllUsers, getOrganizations, getAllGoalsByYear, getAllIndividualEvaluations,
   getSelfEvaluationsByUsers, getMentoringFormsByUsers, getAllWeeklyTasksByYear,
-  listInnovationActivities, getAllAwards, getAllMileages, createAuditLog,
+  listInnovationActivities, listAllInnovationActivities, getAllAwards, getAllMileages, createAuditLog,
   getSystemSettings, updateSystemSettings, getAllOrgAnnualGoals,
+  getAttendancesByYear, getOrgEvaluations,
 } from '@/lib/firestore';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
+import { getMyScopeOrgIds } from '@/lib/approval-filters';
+import { computePromotion, computeSmartProjectCounts } from '@/lib/promotion';
 import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
 import { askAssistant, type AssistantTurn } from '@/lib/ai-assistant';
 import { EVAL_CRITERIA_BODY, buildAnnualGoalContext } from '@/lib/ai-eval';
 import { computeLeaderTeamAchievement } from '@/lib/team-achievement';
 import { cn } from '@/lib/utils';
 import MarkdownLite from '@/components/ui/MarkdownLite';
-import type { Goal, IndividualEvaluation, SelfEvaluation, MentoringForm, WeeklyTask, InnovationActivity, Award } from '@/types';
+import type { Goal, IndividualEvaluation, SelfEvaluation, MentoringForm, WeeklyTask, InnovationActivity, Award, Attendance, OrganizationEvaluation } from '@/types';
 
 const NOW_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS: (number | 'all')[] = [NOW_YEAR, NOW_YEAR - 1, NOW_YEAR - 2, 'all'];
@@ -35,7 +38,7 @@ const EXAMPLES = [
 
 export default function AiAssistantPage() {
   return (
-    <AuthGuard allowedRoles={['CEO']} requireHrMaster>
+    <AuthGuard allowedRoles={['CEO', 'EXECUTIVE']} requireHrMaster>
       <AssistantContent />
     </AuthGuard>
   );
@@ -133,26 +136,40 @@ function AssistantContent() {
       // 회사 경영목표·조직 연간목표 컨텍스트(B⑤ 정렬 가·감점) — 대표 연도 기준
       const repYear = year === 'all' ? NOW_YEAR : year;
       getAllOrgAnnualGoals(repYear).then(ag => setAnnualCtx(buildAnnualGoalContext(ag, orgs))).catch(() => setAnnualCtx(''));
-      // 평가 대상 인원 (임원·CEO 제외) — 차순위 임원(EXEC_SUB)은 팀장 권한·평가 대상이므로 포함
-      const people = allUsers.filter(u => u.isActive && u.role !== 'CEO' && u.role !== 'EXECUTIVE');
+      // 분석 대상 범위: CEO·HR마스터는 전사 / 임원은 본인 책임 조직(+산하)만 (§6-1 가시성)
+      const isFullAccess = userProfile?.role === 'CEO' || !!userProfile?.isHrMaster;
+      const scopeOrgSet = isFullAccess || !userProfile
+        ? null
+        : new Set(getMyScopeOrgIds(userProfile.id, userProfile.role, userProfile.organizationId, orgs));
+      // 평가 대상 인원 (임원·CEO 제외). 임원이면 본인 스코프 조직 소속만.
+      const people = allUsers.filter(u =>
+        u.isActive && u.role !== 'CEO' && u.role !== 'EXECUTIVE'
+        && (!scopeOrgSet || scopeOrgSet.has(u.organizationId)),
+      );
       const ids = people.map(u => u.id);
 
       // 연도별 데이터 로드
       const perYear: Record<number, {
         goals: Goal[]; ie: IndividualEvaluation[]; se: SelfEvaluation[];
         mf: MentoringForm[]; wt: WeeklyTask[]; innov: InnovationActivity[];
+        att: Attendance[]; orgEval: OrganizationEvaluation[];
       }> = {};
       await Promise.all(years.map(async y => {
-        const [goals, ie, se, mf, wt, innov] = await Promise.all([
+        const [goals, ie, se, mf, wt, innov, att, orgEval] = await Promise.all([
           getAllGoalsByYear(y),
           getAllIndividualEvaluations(y),
           getSelfEvaluationsByUsers(ids, y),
           getMentoringFormsByUsers(ids, y),
           getAllWeeklyTasksByYear(y),
           listInnovationActivities(y),
+          getAttendancesByYear(y).catch(() => [] as Attendance[]),
+          getOrgEvaluations(y).catch(() => [] as OrganizationEvaluation[]),
         ]);
-        perYear[y] = { goals, ie, se, mf, wt, innov };
+        perYear[y] = { goals, ie, se, mf, wt, innov, att, orgEval };
       }));
+      // 승진요건 — 스마트프로젝트는 전체 연도 누적 집계(승진 기준)
+      const allInnov = await listAllInnovationActivities().catch(() => [] as InnovationActivity[]);
+      const spCounts = computeSmartProjectCounts(allInnov);
       // 포상 — 전체 연도 단일 조회 후 사용자별 그룹화 (인원수만큼 개별 조회 시 Firestore resource-exhausted 발생)
       const allAwards: Award[] = await getAllAwards().catch(() => []);
       const awardsByUser: Record<string, Award[]> = {};
@@ -161,6 +178,7 @@ function AssistantContent() {
       const allMileages = await getAllMileages().catch(() => []);
       const mileageByUser: Record<string, number> = {};
       for (const m of allMileages) { mileageByUser[m.userId] = m.points; }
+      const mileageObjByUser = new Map(allMileages.map(m => [m.userId, m]));
 
       const JR: Record<string, string> = { EXPAND: '직무확대', REDUCE: '직무축소', CHANGE: '직무변경', RELOCATE: '근무지이동', SATISFIED: '만족' };
       const dossierArr = people.map(u => {
@@ -214,12 +232,22 @@ function AssistantContent() {
             innovation: innovNames,
             // 팀장·본부장 가·감점 — 책임 조직(+산하) 완료율
             teamAchievement: computeLeaderTeamAchievement(u.id, orgs, d.goals) ?? undefined,
+            // 근태현황(지각·결근) — HR 입력
+            attendance: (() => { const a = d.att.find(x => x.userId === u.id); return a ? { 지각: a.latenessCount, 결근: a.absenceCount } : undefined; })(),
+            // 소속 조직의 조직평가등급(확정분만)
+            조직평가등급: d.orgEval.find(o => o.organizationId === u.organizationId && o.status === 'APPROVED')?.grade,
           };
         }
         // 데이터가 전혀 없는 인원도 전체 명단에 포함 — years 가 비어 있으면 AI 가 '데이터 없음'으로 처리.
         const awards = (awardsByUser[u.id] ?? []).map(a => `${a.title}(${a.awardDate ?? ''})`).slice(0, 6);
         const noData = Object.keys(yrs).length === 0;
-        return { name: u.name, position: u.position ?? '', org: orgPath(u.organizationId), role: u.role, mileage: mileageByUser[u.id] ?? 0, awards, years: yrs, ...(noData ? { noData: true } : {}) };
+        // 승진요건(누적 기준) — 대상·충족 여부·미충족 사유
+        const promo = computePromotion(u, mileageObjByUser.get(u.id), spCounts.get(u.id) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0 });
+        const promotion = promo.target === '해당 없음' ? undefined : {
+          대상: promo.target, 충족: promo.meetsRequirement, 미충족사유: promo.reasonText || undefined,
+          SP_PM: promo.pmCount, SP_PM완료: promo.pmCompletedCount, SP_멤버: promo.memberCount, 마일리지: promo.totalPoints,
+        };
+        return { name: u.name, position: u.position ?? '', org: orgPath(u.organizationId), role: u.role, mileage: mileageByUser[u.id] ?? 0, awards, promotion, years: yrs, ...(noData ? { noData: true } : {}) };
       });
 
       const json = JSON.stringify(dossierArr);
