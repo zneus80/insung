@@ -55,6 +55,7 @@ export default function ProfilePage() {
         let pm = 0, pmCompleted = 0, member = 0;
         for (const a of innovations) {
           if (a.type !== 'SMART_PROJECT') continue;
+          if (a.status === 'DROPPED') continue;  // Drop(실패·중단)은 승진 집계 제외 — 기록용
           if (getPmIds(a).includes(uid)) {
             pm++;
             if (a.status === 'COMPLETED') pmCompleted++; // 임원 승진 실적은 완료만

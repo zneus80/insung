@@ -44,6 +44,13 @@ export default function InnovationPage() {
 const STATUS_LABEL: Record<InnovationActivityStatus, string> = {
   IN_PROGRESS: '추진중',
   COMPLETED: '완료',
+  DROPPED: 'Drop',
+};
+
+// 진행상태 선택 옵션 — TDS는 Drop 개념이 없어 스마트프로젝트에만 노출
+const STATUS_OPTIONS: Record<InnovationActivityType, InnovationActivityStatus[]> = {
+  SMART_PROJECT: ['IN_PROGRESS', 'COMPLETED', 'DROPPED'],
+  TDS: ['IN_PROGRESS', 'COMPLETED'],
 };
 
 const CATEGORY_SPAN = 10;
@@ -206,11 +213,13 @@ function InnovationContent() {
     const s = String(raw ?? '').trim();
     if (['추진중', '진행중', 'IN_PROGRESS'].includes(s)) return 'IN_PROGRESS';
     if (['완료', 'COMPLETED'].includes(s)) return 'COMPLETED';
+    if (['Drop', 'DROP', 'DROPPED', '드랍', '드롭', '중단', '실패'].includes(s)) return 'DROPPED';
     return null;
   }
 
   function downloadTemplate() {
-    const headers = ['수행년도*', '진행상태*(추진중/완료)', nameCol, '대내외비(Y/N)', peopleCol1, peopleCol2];
+    const statusHint = tab === 'SMART_PROJECT' ? '추진중/완료/Drop' : '추진중/완료';
+    const headers = ['수행년도*', `진행상태*(${statusHint})`, nameCol, '대내외비(Y/N)', peopleCol1, peopleCol2];
     const example = tab === 'SMART_PROJECT'
       ? [String(activeYear), '추진중', '예시 프로젝트', 'N', users[0]?.name ?? '홍길동', `${users[1]?.name ?? '김팀원'};${users[2]?.name ?? '이팀원'}`]
       : [String(activeYear), '완료', '예시 TDS', 'N', `${users[0]?.name ?? '홍길동'};${users[1]?.name ?? '김수행'}`, users[2]?.name ?? '박지시'];
@@ -260,7 +269,8 @@ function InnovationContent() {
         const confidential = parseBoolCell(row[3]);
 
         if (!Number.isFinite(year) || year < 2000 || year > 2100) { failed.push({ row: rowNum, reason: '수행년도가 올바르지 않습니다.' }); continue; }
-        if (!status) { failed.push({ row: rowNum, reason: `진행상태값 "${row[1]}"이 올바르지 않습니다. (추진중/완료)` }); continue; }
+        if (!status) { failed.push({ row: rowNum, reason: `진행상태값 "${row[1]}"이 올바르지 않습니다. (추진중/완료${tab === 'SMART_PROJECT' ? '/Drop' : ''})` }); continue; }
+        if (status === 'DROPPED' && tab !== 'SMART_PROJECT') { failed.push({ row: rowNum, reason: 'Drop 상태는 스마트 프로젝트에만 사용할 수 있습니다.' }); continue; }
         if (!name) { failed.push({ row: rowNum, reason: '이름이 비어있습니다.' }); continue; }
 
         // 중복 건너뜀 — 같은 이름·연도가 이미 등록돼 있거나(전체 연도 기준) 파일 안에서 반복된 경우
@@ -343,7 +353,7 @@ function InnovationContent() {
           {(['SMART_PROJECT', 'TDS'] as const).map(t => (
             <button
               key={t}
-              onClick={() => { setTab(t); setSearchResults([]); setSearchPerformed(false); }}
+              onClick={() => { setTab(t); setFormStatus('IN_PROGRESS'); setSearchResults([]); setSearchPerformed(false); }}
               className={cn(
                 'px-5 py-1.5 rounded-md text-sm font-medium transition-colors',
                 tab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700',
@@ -415,7 +425,7 @@ function InnovationContent() {
             <div className="space-y-1.5">
               <Label>진행상태 *</Label>
               <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-                {(['IN_PROGRESS', 'COMPLETED'] as const).map(s => (
+                {STATUS_OPTIONS[tab].map(s => (
                   <button
                     key={s}
                     type="button"
@@ -597,7 +607,9 @@ function InnovationItemRow({ it, usersById, onEdit, onDelete, deleting, showYear
           )}
           <span className={cn(
             'text-xs font-bold rounded-full px-2 py-0.5',
-            it.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700',
+            it.status === 'COMPLETED' ? 'bg-green-100 text-green-700'
+              : it.status === 'DROPPED' ? 'bg-gray-200 text-gray-600'
+              : 'bg-blue-100 text-blue-700',
           )}>
             {STATUS_LABEL[it.status]}
           </span>
@@ -745,7 +757,7 @@ function InnovationDialog({
           <div className="space-y-1.5">
             <Label>진행상태</Label>
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-              {(['IN_PROGRESS', 'COMPLETED'] as const).map(s => (
+              {STATUS_OPTIONS[type].map(s => (
                 <button
                   key={s}
                   type="button"

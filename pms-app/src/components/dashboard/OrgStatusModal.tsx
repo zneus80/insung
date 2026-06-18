@@ -165,6 +165,7 @@ export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
         const spByUser = new Map<string, { pm: number; pmCompleted: number; member: number }>();
         for (const a of innovations) {
           if (a.type !== 'SMART_PROJECT') continue;
+          if (a.status === 'DROPPED') continue;  // Drop(실패·중단)은 승진 집계 제외 — 기록용
           for (const uid of getPmIds(a)) {
             const c = spByUser.get(uid) ?? { pm: 0, pmCompleted: 0, member: 0 };
             c.pm++;

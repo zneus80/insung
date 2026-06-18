@@ -9,6 +9,7 @@ import {
   getAwardsByYear,
   getAllAwards,
   createAward,
+  updateAward,
   deleteAward,
 } from '@/lib/firestore';
 import { useAuth } from '@/contexts/AuthContext';
@@ -20,8 +21,9 @@ import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AuthGuard from '@/components/layout/AuthGuard';
-import { Plus, Trash2, X, ChevronDown, ChevronRight, Search, User as UserIcon, Calendar, Download, Upload, AlertCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, ChevronDown, ChevronRight, Search, User as UserIcon, Calendar, Download, Upload, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -58,6 +60,9 @@ function AwardsContent() {
   const [formDesc, setFormDesc] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  // 수정 다이얼로그
+  const [editTarget, setEditTarget] = useState<Award | null>(null);
 
   // 과거 이력 조회 (이름 / 연도)
   const [searchMode, setSearchMode] = useState<'NAME' | 'YEAR'>('NAME');
@@ -138,6 +143,13 @@ function AwardsContent() {
     } finally {
       setDeleting(null);
     }
+  }
+
+  // 수정 저장 후 — 목록·검색결과 모두 최신화
+  async function handleEditSaved(updated: Award) {
+    setEditTarget(null);
+    setSearchResults(prev => prev.map(a => (a.id === updated.id ? updated : a)));
+    await loadRecent();
   }
 
   // ── 카테고리(연도별) 그룹핑 ─────────────────────────
@@ -389,7 +401,7 @@ function AwardsContent() {
                       ) : (
                         <ul className="divide-y divide-gray-100 bg-gray-50/30">
                           {list.map(a => (
-                            <AwardRow key={a.id} award={a} usersById={usersById} onDelete={handleDelete} deleting={deleting} />
+                            <AwardRow key={a.id} award={a} usersById={usersById} onEdit={setEditTarget} onDelete={handleDelete} deleting={deleting} />
                           ))}
                         </ul>
                       )
@@ -451,20 +463,28 @@ function AwardsContent() {
             ) : (
               <ul className="divide-y divide-gray-100 border-t">
                 {searchResults.map(a => (
-                  <AwardRow key={a.id} award={a} usersById={usersById} onDelete={handleDelete} deleting={deleting} />
+                  <AwardRow key={a.id} award={a} usersById={usersById} onEdit={setEditTarget} onDelete={handleDelete} deleting={deleting} />
                 ))}
               </ul>
             )
           )}
         </div>
       </div>
+
+      <AwardEditDialog
+        award={editTarget}
+        userName={editTarget ? (usersById.get(editTarget.userId)?.name ?? '') : ''}
+        onClose={() => setEditTarget(null)}
+        onSaved={handleEditSaved}
+      />
     </div>
   );
 }
 
-function AwardRow({ award, usersById, onDelete, deleting }: {
+function AwardRow({ award, usersById, onEdit, onDelete, deleting }: {
   award: Award;
   usersById: Map<string, User>;
+  onEdit: (a: Award) => void;
   onDelete: (a: Award) => void;
   deleting: string | null;
 }) {
@@ -483,15 +503,89 @@ function AwardRow({ award, usersById, onDelete, deleting }: {
           <p className="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap leading-relaxed">{award.description}</p>
         )}
       </div>
-      <button
-        onClick={() => onDelete(award)}
-        disabled={deleting === award.id}
-        className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
-        title="삭제"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          onClick={() => onEdit(award)}
+          className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-colors"
+          title="수정"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => onDelete(award)}
+          disabled={deleting === award.id}
+          className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+          title="삭제"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </li>
+  );
+}
+
+// ── 포상 이력 수정 다이얼로그 ──────────────────────────────
+function AwardEditDialog({ award, userName, onClose, onSaved }: {
+  award: Award | null;
+  userName: string;
+  onClose: () => void;
+  onSaved: (updated: Award) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState('');
+  const [desc, setDesc] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!award) return;
+    setTitle(award.title);
+    setDate(award.awardDate);
+    setDesc(award.description ?? '');
+  }, [award]);
+
+  async function handleSave() {
+    if (!award) return;
+    if (!title.trim()) { toast.error('포상명을 입력하세요.'); return; }
+    if (!date) { toast.error('수여일을 입력하세요.'); return; }
+    setSaving(true);
+    try {
+      const patch = { title: title.trim(), awardDate: date, description: desc.trim() };
+      await updateAward(award.id, patch);
+      toast.success('수정되었습니다.');
+      onSaved({ ...award, ...patch, description: patch.description || undefined });
+    } catch (e: any) {
+      toast.error(`수정 실패: ${e?.message ?? '알 수 없는 오류'}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!award} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>포상 이력 수정{userName ? ` — ${userName}` : ''}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 mt-2">
+          <div className="space-y-1.5">
+            <Label>수여일 *</Label>
+            <Input type="date" min="2000-01-01" max="2099-12-31" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>포상명 *</Label>
+            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="예: 우수사원상" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>내용</Label>
+            <Textarea rows={3} value={desc} onChange={e => setDesc(e.target.value)} onKeyDown={shiftEnterSubmit(handleSave, !saving)} placeholder="포상 내용 (선택 · Shift+Enter 저장)" />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" onClick={onClose} disabled={saving}>취소</Button>
+            <Button onClick={handleSave} disabled={saving}>{saving ? '저장 중...' : '저장'}</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

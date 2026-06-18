@@ -420,9 +420,12 @@ export default function NotificationsPage() {
           </div>
         </div>
 
-        {/* 카테고리 필터 */}
+        {/* 카테고리 필터 — 보안(SECURITY) 탭은 HR관리자·마스터에게만 노출(보안 알림 수신자) */}
         <div className="flex flex-wrap gap-2">
-          {(['ALL', 'GOAL', 'WEEKLY_TASK', 'EVALUATION', 'MENTORING', 'SECURITY'] as const).map(c => (
+          {([
+            'ALL', 'GOAL', 'WEEKLY_TASK', 'EVALUATION', 'MENTORING',
+            ...((userProfile?.isHrAdmin || userProfile?.isHrMaster) ? ['SECURITY'] as const : []),
+          ] as (NotificationCategory | 'ALL')[]).map(c => (
             <button
               key={c}
               onClick={() => setFilter(c)}

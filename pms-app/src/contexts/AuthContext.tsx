@@ -8,8 +8,11 @@ import {
   type ReactNode,
 } from 'react';
 import type { User as FirebaseUser } from 'firebase/auth';
-import { onAuthChange } from '@/lib/auth';
-import { getUser, updateUser, getOrganizations } from '@/lib/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { toast } from 'sonner';
+import { onAuthChange, signOut } from '@/lib/auth';
+import { db } from '@/lib/firebase';
+import { getUser, updateUser, getOrganizations, getLocalSessionId, COLLECTIONS } from '@/lib/firestore';
 import { getEffectiveEvalRole, type EffectiveEvalRole } from '@/lib/approval-filters';
 import { useIdleLogout } from '@/hooks/useIdleLogout';
 import type { User, UserRole, Organization } from '@/types';
@@ -117,6 +120,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // E-4: 세션 비활성 자동 로그아웃 (5분) — 로그인 상태에만 활성
   useIdleLogout({ enabled: !IS_MOCK && !!firebaseUser });
+
+  // 중복로그인 방지 — 본인 활성 세션 ID 구독. 다른 기기에서 로그인하면(activeSessionId 변경)
+  // 로컬 세션과 달라지므로 이 기기는 자동 로그아웃(마지막 로그인 우선).
+  useEffect(() => {
+    if (IS_MOCK || !firebaseUser) return;
+    const unsub = onSnapshot(doc(db, COLLECTIONS.USERS, firebaseUser.uid), snap => {
+      const remote = snap.data()?.activeSessionId as string | undefined;
+      const local = getLocalSessionId();
+      if (remote && local && remote !== local) {
+        signOut().catch(() => {});
+        toast.error('다른 기기에서 로그인되어 이 기기는 로그아웃되었습니다.');
+      }
+    }, () => { /* 구독 실패 무시 */ });
+    return unsub;
+  }, [firebaseUser]);
 
   return (
     <AuthContext.Provider value={{ firebaseUser, userProfile, realProfile, loading, previewAs, previewKey, effectiveEvalRole }}>

@@ -64,6 +64,8 @@ export interface User {
   // 비밀번호 최종 변경 시각 — 90일 경과 시 변경 권장 배너 노출 (강제 X).
   // 값이 없으면 createdAt 으로 대체.
   passwordChangedAt?: Date;
+  /** 중복로그인 방지 — 마지막 로그인 세션 ID. 다른 기기에서 로그인하면 갱신되어 이전 기기는 자동 로그아웃. */
+  activeSessionId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -416,7 +418,8 @@ export interface AnnualGoal {
 // 혁신활동 (HR 입력, 전사 공유) - SmartProject / TDS
 // ─────────────────────────────────────────────
 export type InnovationActivityType = 'SMART_PROJECT' | 'TDS';
-export type InnovationActivityStatus = 'IN_PROGRESS' | 'COMPLETED';
+// DROPPED: 혁신활동이 실패/중단으로 종료된 사례 — 기록용. 승진·성과 집계에서 제외된다.
+export type InnovationActivityStatus = 'IN_PROGRESS' | 'COMPLETED' | 'DROPPED';
 
 export interface InnovationActivity {
   id: string;

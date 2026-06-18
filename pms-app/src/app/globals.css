@@ -126,20 +126,23 @@
   }
   html {
     @apply font-sans;
+    /* 개인 글자 크기 조절 — rem 기준점을 배율(--font-scale)로 조정.
+       Tailwind 텍스트는 대부분 rem 기반이라 전 역할에 적용된다(임원·CEO 큰글씨 pt 값도 위에서 동일 배율 사용). */
+    font-size: calc(100% * var(--font-scale, 1));
   }
 
   /* 임원·CEO 페이지 폰트 사이즈 — 최소 12pt 이상 (v0.75 B6) */
-  .exec-larger-text { font-size: 13pt; line-height: 1.55; }
-  .exec-larger-text .text-\[10px\] { font-size: 12pt !important; }
-  .exec-larger-text .text-\[11px\] { font-size: 12pt !important; }
-  .exec-larger-text .text-\[13px\] { font-size: 12pt !important; }
-  .exec-larger-text .text-xs { font-size: 12pt !important; line-height: 1.5 !important; }
-  .exec-larger-text .text-sm { font-size: 12pt !important; line-height: 1.55 !important; }
-  .exec-larger-text .text-base { font-size: 13pt !important; line-height: 1.55 !important; }
-  .exec-larger-text .text-lg { font-size: 14pt !important; }
-  .exec-larger-text .text-xl { font-size: 16pt !important; }
-  .exec-larger-text .text-2xl { font-size: 19pt !important; }
-  .exec-larger-text .text-3xl { font-size: 22pt !important; }
+  .exec-larger-text { font-size: calc(13pt * var(--font-scale, 1)); line-height: 1.55; }
+  .exec-larger-text .text-\[10px\] { font-size: calc(12pt * var(--font-scale, 1)) !important; }
+  .exec-larger-text .text-\[11px\] { font-size: calc(12pt * var(--font-scale, 1)) !important; }
+  .exec-larger-text .text-\[13px\] { font-size: calc(12pt * var(--font-scale, 1)) !important; }
+  .exec-larger-text .text-xs { font-size: calc(12pt * var(--font-scale, 1)) !important; line-height: 1.5 !important; }
+  .exec-larger-text .text-sm { font-size: calc(12pt * var(--font-scale, 1)) !important; line-height: 1.55 !important; }
+  .exec-larger-text .text-base { font-size: calc(13pt * var(--font-scale, 1)) !important; line-height: 1.55 !important; }
+  .exec-larger-text .text-lg { font-size: calc(14pt * var(--font-scale, 1)) !important; }
+  .exec-larger-text .text-xl { font-size: calc(16pt * var(--font-scale, 1)) !important; }
+  .exec-larger-text .text-2xl { font-size: calc(19pt * var(--font-scale, 1)) !important; }
+  .exec-larger-text .text-3xl { font-size: calc(22pt * var(--font-scale, 1)) !important; }
   /* input, textarea 등 form 요소도 부모 폰트 사이즈 상속 (브라우저 기본 폰트 상속 안 함) */
   .exec-larger-text input,
   .exec-larger-text textarea,
@@ -149,19 +152,19 @@
   /* 임원·CEO 팝업(Dialog) — body 로 포털되어 wrapper 밖에 렌더되므로 body.exec-fonts 로 동일 처리.
      큰 폰트로 문장이 잘리지 않도록 기본 폭이 좁은 팝업에 최소 폭을 확보(이미 넓은 팝업은 그대로). */
   body.exec-fonts [data-slot="dialog-content"] {
-    font-size: 13pt !important;
+    font-size: calc(13pt * var(--font-scale, 1)) !important;
     line-height: 1.55 !important;
     min-width: min(46rem, 94vw);
   }
   body.exec-fonts [data-slot="dialog-content"] .text-\[10px\],
   body.exec-fonts [data-slot="dialog-content"] .text-\[11px\],
   body.exec-fonts [data-slot="dialog-content"] .text-\[13px\],
-  body.exec-fonts [data-slot="dialog-content"] .text-xs { font-size: 12pt !important; line-height: 1.5 !important; }
-  body.exec-fonts [data-slot="dialog-content"] .text-sm { font-size: 12pt !important; line-height: 1.55 !important; }
-  body.exec-fonts [data-slot="dialog-content"] .text-base { font-size: 13pt !important; line-height: 1.55 !important; }
-  body.exec-fonts [data-slot="dialog-content"] .text-lg { font-size: 14pt !important; }
-  body.exec-fonts [data-slot="dialog-content"] .text-xl { font-size: 16pt !important; }
-  body.exec-fonts [data-slot="dialog-content"] .text-2xl { font-size: 19pt !important; }
+  body.exec-fonts [data-slot="dialog-content"] .text-xs { font-size: calc(12pt * var(--font-scale, 1)) !important; line-height: 1.5 !important; }
+  body.exec-fonts [data-slot="dialog-content"] .text-sm { font-size: calc(12pt * var(--font-scale, 1)) !important; line-height: 1.55 !important; }
+  body.exec-fonts [data-slot="dialog-content"] .text-base { font-size: calc(13pt * var(--font-scale, 1)) !important; line-height: 1.55 !important; }
+  body.exec-fonts [data-slot="dialog-content"] .text-lg { font-size: calc(14pt * var(--font-scale, 1)) !important; }
+  body.exec-fonts [data-slot="dialog-content"] .text-xl { font-size: calc(16pt * var(--font-scale, 1)) !important; }
+  body.exec-fonts [data-slot="dialog-content"] .text-2xl { font-size: calc(19pt * var(--font-scale, 1)) !important; }
   body.exec-fonts [data-slot="dialog-content"] input,
   body.exec-fonts [data-slot="dialog-content"] textarea,
   body.exec-fonts [data-slot="dialog-content"] select,
