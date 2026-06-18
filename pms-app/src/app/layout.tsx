@@ -25,7 +25,7 @@ export default function RootLayout({
         {/* 개인 글자 크기 배율을 페인트 전에 적용해 새로고침 시 깜빡임 방지 */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var v=parseFloat(localStorage.getItem('pms_font_scale'));if(v>0){v=Math.min(1.4,Math.max(0.9,Math.round(v*10)/10));document.documentElement.style.setProperty('--font-scale',String(v));}}catch(e){}})();`,
+            __html: `(function(){try{var v=parseFloat(localStorage.getItem('pms_font_scale'));if(v>0){v=Math.min(1.4,Math.max(0.9,Math.round(v*20)/20));document.documentElement.style.setProperty('--font-scale',String(v));}}catch(e){}})();`,
           }}
         />
       </head>

@@ -7,12 +7,12 @@
 export const FONT_SCALE_KEY = 'pms_font_scale';
 export const FONT_SCALE_MIN = 0.9;
 export const FONT_SCALE_MAX = 1.4;
-export const FONT_SCALE_STEP = 0.1;
+export const FONT_SCALE_STEP = 0.05;
 export const FONT_SCALE_DEFAULT = 1;
 
-/** 0.9 ~ 1.4 범위로 제한하고 소수 첫째자리로 반올림 */
+/** 0.9 ~ 1.4 범위로 제한하고 5%(0.05) 단위로 반올림 */
 export function clampFontScale(v: number): number {
-  const rounded = Math.round(v * 10) / 10;
+  const rounded = Math.round(v * 20) / 20;
   return Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, rounded));
 }
 
