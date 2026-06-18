@@ -565,10 +565,12 @@ function ExecutiveEvalView() {
           const role = roleByUnit[rid] ?? 'SOLE';
           const allFinalized = stats.total > 0 && stats.finalized === stats.total;
           const allUnitConfirmed = stats.total > 0 && (stats.unitConfirmed + stats.finalized) === stats.total;
-          // SOLE/UNIT: 전원 배정 시 활성 / FINAL: 전원 본부 확정 시 활성
+          // UNIT 이 본부 확정을 끝내고 부문 임원의 최종 확정을 대기하는 상태
+          const unitWaitingFinal = role === 'UNIT' && allUnitConfirmed && !allFinalized;
+          // SOLE/UNIT: 전원 배정 & 아직 확정 전 / FINAL: 전원 본부 확정 시 활성
           const canAct = role === 'FINAL'
             ? (allUnitConfirmed && !allFinalized && !locked && !beforePeriod)
-            : (stats.total > 0 && stats.assigned === stats.total && !allFinalized && !locked && !beforePeriod);
+            : (stats.total > 0 && stats.assigned === stats.total && !allUnitConfirmed && !allFinalized && !locked && !beforePeriod);
           const actBusy = finalizing === rid;
           const actLabel = role === 'SOLE' ? '평가완료' : role === 'UNIT' ? '본부 확정' : '최종 확정';
           const roleTag = role === 'UNIT' ? '본부 확정(1차)' : role === 'FINAL' ? '부문 최종 확정(2차)' : '평가완료';
@@ -588,6 +590,10 @@ function ExecutiveEvalView() {
                   {allFinalized ? (
                     <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 border border-green-200 px-3 py-1.5 text-xs font-bold text-green-700">
                       <CheckCircle2 className="h-3.5 w-3.5" /> 최종 확정 완료
+                    </span>
+                  ) : unitWaitingFinal ? (
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1.5 text-xs font-bold text-indigo-700">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> 본부 확정됨 · 부문 임원 최종 확정 대기
                     </span>
                   ) : (
                     <>
