@@ -344,7 +344,8 @@ function OrgEvaluationContent() {
     const allIEs = wasQuotaConfirmed ? await getAllIndividualEvaluations(year) : [];
     const affectedIEs = allIEs.filter(ie =>
       descIds.includes(ie.organizationId) &&
-      (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED')
+      // 최종 확정(EXEC_CONFIRMED/PUBLISHED) + 중간 단계인 본부 확정(HQ_REVIEWED)도 무효화 → 본부장 재배정 가능
+      (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED' || ie.status === 'HQ_REVIEWED')
     );
     if (wasQuotaConfirmed) {
       const msgParts: string[] = [
@@ -435,7 +436,8 @@ function OrgEvaluationContent() {
     const allIEs = await getAllIndividualEvaluations(year);
     const affected = allIEs.filter(ie =>
       descIds.includes(ie.organizationId) &&
-      (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED')
+      // 최종 확정 + 본부 확정(HQ_REVIEWED) 모두 무효화 → 쿼터 재조정 시 본부장부터 다시 배정
+      (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED' || ie.status === 'HQ_REVIEWED')
     );
 
     if (affected.length > 0) {
