@@ -14,6 +14,7 @@ import { onAuthChange, signOut } from '@/lib/auth';
 import { db } from '@/lib/firebase';
 import { getUser, updateUser, getOrganizations, getLocalSessionId, registerActiveSession, COLLECTIONS } from '@/lib/firestore';
 import { getEffectiveEvalRole, type EffectiveEvalRole } from '@/lib/approval-filters';
+import { leadsAnyEvalUnit } from '@/lib/org-eval';
 import { useIdleLogout } from '@/hooks/useIdleLogout';
 import type { User, UserRole, Organization } from '@/types';
 
@@ -26,6 +27,8 @@ interface AuthContextValue {
   previewKey: string | null;         // 현재 미리보기 중인 역할 키
   /** 조직 체인 기반 유효 평가 권한 (EXEC_TOP / HQ_HEAD / TEAM_LEAD / MEMBER) */
   effectiveEvalRole: EffectiveEvalRole;
+  /** 평가 단위 조직(부문/지정 본부 등)의 리더인가 — 평가등급확정 화면 진입·메뉴 노출 판단 */
+  leadsEvalUnit: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -36,6 +39,7 @@ const AuthContext = createContext<AuthContextValue>({
   previewAs: () => {},
   previewKey: null,
   effectiveEvalRole: 'MEMBER',
+  leadsEvalUnit: false,
 });
 
 // ── 역할별 미리보기 유저 ──
@@ -118,6 +122,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ? getEffectiveEvalRole(userProfile.id, userProfile.role, userProfile.organizationId, allOrgs)
     : 'MEMBER';
 
+  const leadsEvalUnit: boolean = !!userProfile && leadsAnyEvalUnit(userProfile.id, allOrgs);
+
   // E-4: 세션 비활성 자동 로그아웃 (5분) — 로그인 상태에만 활성
   useIdleLogout({ enabled: !IS_MOCK && !!firebaseUser });
 
@@ -149,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [firebaseUser]);
 
   return (
-    <AuthContext.Provider value={{ firebaseUser, userProfile, realProfile, loading, previewAs, previewKey, effectiveEvalRole }}>
+    <AuthContext.Provider value={{ firebaseUser, userProfile, realProfile, loading, previewAs, previewKey, effectiveEvalRole, leadsEvalUnit }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
@@ -79,9 +80,26 @@ function LoadingSpinner() {
 }
 
 export default function EvaluationTeamPage() {
-  const { userProfile, effectiveEvalRole } = useAuth();
+  const { userProfile, effectiveEvalRole, leadsEvalUnit } = useAuth();
+  const router = useRouter();
+
+  // 평가 단위(부문/지정 본부)의 리더(본부 임원)는 '본부 2차 의견' 단계를 생략하고
+  // 평가등급확정 화면에서 직접 본부 확정한다 → 그쪽으로 이동.
+  useEffect(() => {
+    if (leadsEvalUnit) router.replace('/evaluation');
+  }, [leadsEvalUnit, router]);
 
   if (!userProfile) return null;
+  if (leadsEvalUnit) {
+    return (
+      <div className="flex flex-col h-full">
+        <Header title="팀원 평가 의견 제출" />
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-gray-400 text-sm">평가등급확정 화면으로 이동 중…</p>
+        </div>
+      </div>
+    );
+  }
 
   // 팀장 또는 본부장(HQ leader) 또는 차순위 임원(EXEC_SUB) 진입 허용
   // 조직 체인 기반 effectiveEvalRole 로 판단 — role 필드는 보조 fallback
