@@ -1361,6 +1361,12 @@ export async function clearExecConfirmation(ie: IndividualEvaluation) {
     execComment: del(),
     execConfirmedBy: del(),
     execConfirmedAt: del(),
+    // 2단계 확정 표식도 함께 무효화 (본부 확정·수정요청 흔적 제거)
+    unitConfirmedBy: del(),
+    unitConfirmedAt: del(),
+    reviseComment: del(),
+    reviseBy: del(),
+    reviseAt: del(),
     updatedAt: serverTimestamp(),
   });
   if (ie.execGrade) {

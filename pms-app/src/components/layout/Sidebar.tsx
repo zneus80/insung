@@ -60,6 +60,10 @@ interface NavItem {
   requireHrMaster?: boolean;  // HR 마스터 전용 메뉴 (평가이력·조직평가인원·등급설정 등)
   /** 조직 체인 기반 유효 평가 권한으로 필터 (있으면 roles 대신 이쪽 우선) */
   evalRoles?: EffectiveEvalRole[];
+  /** 평가 단위(부문/지정 본부) 리더면 추가 노출 — 본부 임원의 평가등급확정 진입용 */
+  showIfLeadsEvalUnit?: boolean;
+  /** 평가 단위 리더면 숨김 — 본부 임원은 '인사평가(2차 의견)' 대신 평가등급확정에서 확정하므로 중복 제거 */
+  hideIfLeadsEvalUnit?: boolean;
   exact?: boolean;
   group?: string;
 }
@@ -173,14 +177,17 @@ const navItems: NavItem[] = [
     icon: <BarChart3 className="h-5 w-5" />,
     // 1차 의견(팀장) + 2차 의견(본부장 = HQ leader) + 차순위 임원(EXEC_SUB) 모두 진입
     evalRoles: ['TEAM_LEAD', 'HQ_HEAD', 'EXEC_SUB'],
+    // 평가단위 본부 임원은 '인사평가(2차 의견)' 생략 → 평가등급확정에서 직접 본부 확정
+    hideIfLeadsEvalUnit: true,
     group: '인사고과',
   },
   {
     label: '평가등급확정',
     href: '/evaluation',
     icon: <BarChart3 className="h-5 w-5" />,
-    // 최상위 임원(DIVISION leader / 상위에 DIVISION 없는 HQ leader) 만 확정 권한
+    // 최상위 임원 + 평가단위(부문/지정 본부) 리더(본부 임원도 자기 본부 확정)
     evalRoles: ['EXEC_TOP'],
+    showIfLeadsEvalUnit: true,
     exact: true,
     group: '인사고과',
   },
@@ -392,7 +399,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { userProfile, effectiveEvalRole } = useAuth();
+  const { userProfile, effectiveEvalRole, leadsEvalUnit } = useAuth();
   const { activeYear, calendarYear } = useActiveYear();
   const [unreadCount, setUnreadCount] = useState(0);
   const [approvalsCount, setApprovalsCount] = useState(0);
@@ -491,8 +498,10 @@ export default function Sidebar() {
   }
 
   const visibleItemsRaw = navItems.filter(item => {
+    // 평가단위 리더는 '인사평가(2차 의견)' 메뉴 숨김 — 평가등급확정으로 일원화
+    if (item.hideIfLeadsEvalUnit && leadsEvalUnit) return false;
     // 역할·HR·평가권한 제한이 모두 없으면 전체 표시
-    if (!item.roles && !item.requireHrAdmin && !item.requireHrMaster && !item.evalRoles) return true;
+    if (!item.roles && !item.requireHrAdmin && !item.requireHrMaster && !item.evalRoles && !item.showIfLeadsEvalUnit) return true;
     // 역할 조건: roles 배열이 있을 때만 체크
     const roleOk = !!item.roles && !!userProfile && item.roles.includes(userProfile.role);
     // HR 관리자 조건
@@ -500,9 +509,10 @@ export default function Sidebar() {
     const masterOk = !!item.requireHrMaster && !!userProfile?.isHrMaster;
     // 유효 평가 권한 조건 (조직 체인 기반)
     const evalOk = !!item.evalRoles && item.evalRoles.includes(effectiveEvalRole);
+    const evalUnitOk = !!item.showIfLeadsEvalUnit && leadsEvalUnit;
     // CEO Viewer — CEO 전용 메뉴 모두 표시 (read-only)
     const ceoViewerOk = !!item.roles && item.roles.includes('CEO') && !!userProfile?.isCeoViewer;
-    return roleOk || hrOk || masterOk || evalOk || ceoViewerOk;
+    return roleOk || hrOk || masterOk || evalOk || evalUnitOk || ceoViewerOk;
   });
   // CEO+HR 등 중복 진입(같은 href + group)을 한 번만 표시 — 먼저 정의된 항목(상위 권한 라벨) 우선
   const seenKeys = new Set<string>();

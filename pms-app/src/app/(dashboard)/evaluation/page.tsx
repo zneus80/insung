@@ -22,10 +22,11 @@ import {
   listInnovationActivities,
   getAllOrgAnnualGoals,
   getAttendancesByYear,
+  createNotification,
 } from '@/lib/firestore';
-import { notifyEvalReviewer } from '@/lib/eval-notifications';
 import { approverTitle } from '@/lib/approval-filters';
 import { compareUserByRoleHire } from '@/lib/user-sort';
+import { isEvalUnitOrg, nearestEvalUnitId } from '@/lib/org-eval';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import Header from '@/components/layout/Header';
 import { useEvalPeriod, EvalPeriodNotice } from '@/components/evaluation/EvalPeriodGate';
@@ -81,33 +82,6 @@ function getDescendantOrgIds(orgId: string, orgs: Organization[]): string[] {
   return result;
 }
 
-// 조직평가 단위 판정 — 조직평가인원관리(org/page) 의 평가대상 조직 규칙과 동일하게 맞춘다.
-// 부문(상위 부문 없으면 기본 평가단위) + isEvalUnit 지정 조직(본부 등) + 상위에 부문 없는 독립 팀.
-function isEvalUnitOrg(o: Organization, orgs: Organization[]): boolean {
-  if (o.type === 'DIVISION') return o.isEvalUnit !== false;
-  if (o.isEvalUnit) return true;
-  if (o.type === 'TEAM') {
-    let cur = o.parentId ? orgs.find(p => p.id === o.parentId) : undefined;
-    while (cur) {
-      if (cur.type === 'DIVISION') return false;
-      cur = cur.parentId ? orgs.find(p => p.id === cur!.parentId) : undefined;
-    }
-    return true;
-  }
-  return false;
-}
-
-// 특정 조직에서 위로 올라가며 가장 가까운 '평가 단위' 조직 id 를 찾는다(자기 자신 포함).
-// 쿼터는 평가 단위 조직에 달리므로, 멤버의 쿼터/등급 게이트는 이 조직을 기준으로 한다.
-function nearestEvalUnitId(orgId: string, orgs: Organization[]): string | null {
-  let cur: Organization | undefined = orgs.find(o => o.id === orgId);
-  while (cur) {
-    if (isEvalUnitOrg(cur, orgs)) return cur.id;
-    cur = cur.parentId ? orgs.find(p => p.id === cur!.parentId) : undefined;
-  }
-  return null;
-}
-
 function LoadingSpinner() {
   return (
     <div className="flex min-h-[200px] items-center justify-center">
@@ -118,11 +92,12 @@ function LoadingSpinner() {
 
 // ─── 라우터 ───────────────────────────────────────────────
 export default function EvaluationPage() {
-  const { userProfile, effectiveEvalRole } = useAuth();
+  const { userProfile, effectiveEvalRole, leadsEvalUnit } = useAuth();
 
   if (!userProfile) return null;
-  // 평가등급확정은 EXEC_TOP(최상위 임원) 만
-  if (effectiveEvalRole === 'EXEC_TOP') return <ExecutiveEvalView />;
+  // 평가등급확정 — 최상위 임원(EXEC_TOP) + 평가단위(부문/지정 본부)의 리더(본부 임원).
+  // 본부가 평가단위이면 그 본부 임원이 자기 본부를 확정해야 하므로 HQ_HEAD 라도 진입 허용.
+  if (effectiveEvalRole === 'EXEC_TOP' || leadsEvalUnit) return <ExecutiveEvalView />;
   // 자기평가는 육성면담서로 통합(v0.9) — 작성 대상자는 /mentoring 으로 이동
   return <RedirectToMentoring />;
 }
@@ -164,6 +139,8 @@ function ExecutiveEvalView() {
   // 멤버 소속 조직 → 가장 가까운 평가 단위 조직 매핑. 멤버의 쿼터/등급 게이트 기준.
   const [unitByOrg, setUnitByOrg]     = useState<Record<string, string>>({});
   const [unitIds, setUnitIds]         = useState<string[]>([]); // 화면에 표시할 평가 단위 목록(멤버가 속한 단위, 정렬)
+  // 평가 단위별 내 역할: SOLE(단독 확정·상위 임원 없음) / UNIT(본부 확정 1차) / FINAL(부문 임원 최종 확정·수정요청)
+  const [roleByUnit, setRoleByUnit]   = useState<Record<string, 'SOLE' | 'UNIT' | 'FINAL'>>({});
   const [confirmInputs, setConfirm]   = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null); // 선택된 멤버(하단 상세)
   const [loading, setLoading]         = useState(true);
@@ -185,32 +162,40 @@ function ExecutiveEvalView() {
       const orgs = orgsRaw.filter(o => !o.archivedAt);
       setAllOrgs(orgs);
 
-      // 내가 leaderId 인 조직 중 DIVISION 또는 (상위에 DIVISION 없는) HQ 만 — 최상위 임원 영역으로 한정
-      // (CLAUDE.md §2 임원 권한 케이스: 차순위 임원/본부장은 이 화면 진입 자체가 차단되어야 함)
-      function isTopLevelLeaderOrg(o: Organization): boolean {
-        if (o.type === 'DIVISION') return true;
-        if (o.type === 'HEADQUARTERS') {
-          // 상위 체인에 DIVISION 없으면 최상위 HQ
-          let cur = o.parentId ? orgs.find(p => p.id === o.parentId) : null;
-          while (cur) {
-            if (cur.type === 'DIVISION') return false;
-            cur = cur.parentId ? orgs.find(p => p.id === cur!.parentId) : null;
-          }
-          return true;
+      // ── 내가 관여하는 평가 단위 산출 ──
+      // 평가 단위(부문/지정 본부 등) 중 ① 내가 그 단위의 리더이거나 ② 내가 그 단위의 상위 임원(부문 임원)인 단위.
+      const userRoleById = new Map(allUsers.map(u => [u.id, u.role]));
+      const evalUnits = orgs.filter(o => isEvalUnitOrg(o, orgs));
+      // 단위의 상위 임원 — 단위 위쪽에서 가장 가까운 EXECUTIVE 리더(없으면 null = 단독 확정).
+      const higherExecOf = (unit: Organization): string | null => {
+        let cur = unit.parentId ? orgs.find(o => o.id === unit.parentId) : undefined;
+        while (cur) {
+          if (cur.leaderId && userRoleById.get(cur.leaderId) === 'EXECUTIVE') return cur.leaderId;
+          cur = cur.parentId ? orgs.find(o => o.id === cur!.parentId) : undefined;
         }
-        return false;
+        return null;
+      };
+      const roleMap: Record<string, 'SOLE' | 'UNIT' | 'FINAL'> = {};
+      for (const u of evalUnits) {
+        const higher = higherExecOf(u);
+        if (u.leaderId === userProfile.id) roleMap[u.id] = higher ? 'UNIT' : 'SOLE';
+        else if (higher === userProfile.id) roleMap[u.id] = 'FINAL';
       }
-      const myLeadOrgs = orgs.filter(o => o.leaderId === userProfile.id && isTopLevelLeaderOrg(o));
-      const rootIds = myLeadOrgs.length > 0
-        ? myLeadOrgs.map(o => o.id)
-        : [userProfile.organizationId]; // fallback: leaderId 미설정 환경
-      const descIds = [...new Set(rootIds.flatMap(id => getDescendantOrgIds(id, orgs)))];
+      let myUnits = evalUnits.filter(u => roleMap[u.id]);
+      // fallback: leaderId 미설정 등으로 관여 단위가 없으면 본인 소속 기준 평가단위
+      if (myUnits.length === 0) {
+        const fb = userProfile.organizationId ? nearestEvalUnitId(userProfile.organizationId, orgs) : null;
+        const fbUnit = fb ? orgs.find(o => o.id === fb) : undefined;
+        if (fbUnit) { myUnits = [fbUnit]; roleMap[fbUnit.id] = higherExecOf(fbUnit) ? 'FINAL' : 'SOLE'; }
+      }
+      setRoleByUnit(roleMap);
+
+      const descIds = [...new Set(myUnits.flatMap(u => getDescendantOrgIds(u.id, orgs)))];
 
       const active = allUsers.filter(u => (u.role === 'MEMBER' || u.role === 'TEAM_LEAD') && u.isActive && descIds.includes(u.organizationId));
       active.sort(compareUserByRoleHire); // 팀장 → 팀원, 동일 역할 입사일순
 
       // 멤버 소속 조직 → 가장 가까운 평가 단위 조직 매핑.
-      // 평가 단위는 부문일 수도, 평가단위로 지정된 본부일 수도 있다(영업부문처럼 부문이 평가단위가 아니고 산하 본부들이 평가단위인 경우 대응).
       const unitByOrgMap: Record<string, string> = {};
       for (const m of active) {
         if (unitByOrgMap[m.organizationId]) continue;
@@ -345,16 +330,17 @@ function ExecutiveEvalView() {
     return assignedMembers(rootId, grade).length;
   }
 
-  // 부문 진행 현황 — 배정/확정 인원 집계 (평가완료 버튼 활성·라벨 판단)
-  function divisionStats(rootId: string): { total: number; assigned: number; finalized: number } {
+  // 평가 단위 진행 현황 — 배정/본부확정/최종확정 인원 집계 (버튼 활성·라벨 판단)
+  function divisionStats(rootId: string): { total: number; assigned: number; unitConfirmed: number; finalized: number } {
     const list = members.filter(m => unitByOrg[m.organizationId] === rootId);
-    let assigned = 0, finalized = 0;
+    let assigned = 0, unitConfirmed = 0, finalized = 0;
     for (const m of list) {
       const ie = indivEvals[m.id];
       if (ie?.execGrade) assigned++;
+      if (ie?.status === 'HQ_REVIEWED') unitConfirmed++;
       if (ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED') finalized++;
     }
-    return { total: list.length, assigned, finalized };
+    return { total: list.length, assigned, unitConfirmed, finalized };
   }
 
   function getQuotaCount(rootId: string, grade: EvaluationGrade): number {
@@ -367,30 +353,38 @@ function ExecutiveEvalView() {
     return getQuotaCount(rootId, grade) - getUsed(rootId, grade);
   }
 
-  // 개인 등급 '배정' — 임시 저장(편집 가능). 부문 '평가완료' 전까지는 EXEC_CONFIRMED 로 승격하지 않는다.
-  // (status 를 확정으로 올리지 않으므로 평가이력·평가결과 등 다운스트림에는 '확정'으로 노출되지 않음 — §6-1 보수적 보호)
+  // 멤버가 속한 평가 단위에서 내 역할(SOLE/UNIT/FINAL). 없으면 null(관여 단위 아님).
+  function roleOfMember(m: User): 'SOLE' | 'UNIT' | 'FINAL' | null {
+    return roleByUnit[unitByOrg[m.organizationId]] ?? null;
+  }
+  // 내가 이 멤버의 등급을 '배정/수정'할 수 있는가 — 배정 권한은 SOLE/UNIT 확정자만(FINAL=부문 임원은 배정 불가).
+  function canAssignMember(m: User): boolean {
+    const role = roleOfMember(m);
+    if (role !== 'SOLE' && role !== 'UNIT') return false;
+    const s = indivEvals[m.id]?.status;
+    // 본부 확정(HQ_REVIEWED)·최종 확정(EXEC_CONFIRMED/PUBLISHED) 이후엔 수정 불가
+    return s !== 'HQ_REVIEWED' && s !== 'EXEC_CONFIRMED' && s !== 'PUBLISHED';
+  }
+
+  // 개인 등급 '배정' — 임시 저장(편집 가능). 단위 확정/최종 확정 전까지는 status 를 올리지 않는다.
   async function handleConfirm(memberId: string) {
     if (!userProfile) return;
     if (locked) { toast.error(`${year}년은 확정된 연도입니다. 등급 배정/변경이 불가합니다.`); return; }
     const member0 = members.find(m => m.id === memberId);
-    if (!member0 || !quotaOfMember(member0)) { toast.error('해당 부문의 조직 평가 등급(쿼터)이 확정되지 않았습니다. HR 관리자가 등급 쿼터를 확정한 후 개인 등급을 부여할 수 있습니다.'); return; }
-    if (member0.id && (indivEvals[memberId]?.status === 'EXEC_CONFIRMED' || indivEvals[memberId]?.status === 'PUBLISHED')) {
-      toast.error('이미 평가완료된 부문입니다. 수정하려면 HR 관리자가 쿼터를 재조정해야 합니다.'); return;
-    }
+    if (!member0 || !quotaOfMember(member0)) { toast.error('해당 평가단위의 조직 평가 등급(쿼터)이 확정되지 않았습니다. HR 관리자가 등급 쿼터를 확정한 후 등급을 배정할 수 있습니다.'); return; }
+    if (!canAssignMember(member0)) { toast.error('이미 확정되어 수정할 수 없습니다. (수정요청 또는 HR 쿼터 재조정 필요)'); return; }
     const input = confirmInputs[memberId];
     if (!input?.grade) { toast.error('등급을 선택해주세요.'); return; }
 
     setSaving(memberId);
     try {
-      const member = members.find(m => m.id === memberId);
-      // organizationId 누락 시 후속 getIndividualEvaluationsByOrg 쿼리에 잡히지 않아 "표시" 안 되는 버그 방지.
-      const orgId = member?.organizationId ?? userProfile.organizationId;
+      const orgId = member0.organizationId ?? userProfile.organizationId;
       await upsertIndividualEvaluation(memberId, year, {
         organizationId: orgId,
         execGrade: input.grade as EvaluationGrade,
         execComment: input.comment,
       });
-      toast.success(`${member?.name ?? ''} 등급을 배정했습니다. (평가완료 전까지 수정 가능)`);
+      toast.success(`${member0.name ?? ''} 등급을 배정했습니다. (확정 전까지 수정 가능)`);
       await load();
     } catch (err) {
       console.error('[등급배정] 실패:', err);
@@ -398,41 +392,112 @@ function ExecutiveEvalView() {
     } finally { setSaving(null); }
   }
 
-  // 부문 '평가완료' — 부문 전원의 배정 등급을 EXEC_CONFIRMED 로 최종 확정(잠금).
-  // 수정이 필요하면 HR 이 쿼터를 재조정(재확정)하여 무효화한다(clearExecConfirmation).
-  async function handleFinalize(rootId: string) {
+  // 평가 단위 확정 — 역할별:
+  //  SOLE  : 배정 등급을 바로 EXEC_CONFIRMED(최종). (상위 임원 없음)
+  //  UNIT  : 배정 등급을 HQ_REVIEWED(본부 확정 1차). 이후 부문 임원의 최종 확정 필요.
+  //  FINAL : 본부 확정(HQ_REVIEWED)된 단위를 EXEC_CONFIRMED(최종 확정).
+  async function handleUnitAction(rootId: string) {
     if (!userProfile) return;
     if (locked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
     if (!quotaByUnit[rootId]) { toast.error('조직 평가 등급(쿼터)이 확정되지 않았습니다.'); return; }
-    const list = members.filter(m => unitByOrg[m.organizationId] === rootId);
-    const unassigned = list.filter(m => !indivEvals[m.id]?.execGrade);
-    if (unassigned.length > 0) { toast.error(`미배정 ${unassigned.length}명 — 부문 전원에게 등급을 배정해야 평가완료할 수 있습니다.`); return; }
+    const role = roleByUnit[rootId];
     const orgName = allOrgs.find(o => o.id === rootId)?.name ?? '';
-    if (!confirm(`${orgName} 부문 ${list.length}명의 평가를 최종 확정(평가완료)합니다.\n확정 후에는 이 화면에서 수정할 수 없으며, 수정이 필요하면 HR 관리자가 쿼터를 재조정해야 합니다.\n진행하시겠습니까?`)) return;
+    const list = members.filter(m => unitByOrg[m.organizationId] === rootId);
+
+    if (role === 'FINAL') {
+      const notConfirmed = list.filter(m => indivEvals[m.id]?.status !== 'HQ_REVIEWED' && indivEvals[m.id]?.status !== 'EXEC_CONFIRMED' && indivEvals[m.id]?.status !== 'PUBLISHED');
+      if (notConfirmed.length > 0) { toast.error(`본부 확정 대기 중입니다. (미확정 ${notConfirmed.length}명) 본부 임원의 본부 확정 후 최종 확정할 수 있습니다.`); return; }
+      if (!confirm(`${orgName} ${list.length}명의 평가를 최종 확정합니다.\n최종 확정 후에는 수정하려면 HR 관리자가 쿼터를 재조정해야 합니다.\n진행하시겠습니까?`)) return;
+      setFinalizing(rootId);
+      try {
+        const targets = list.filter(m => indivEvals[m.id]?.status === 'HQ_REVIEWED');
+        await Promise.all(targets.map(m => {
+          const ie = indivEvals[m.id]!;
+          return upsertIndividualEvaluation(m.id, year, {
+            organizationId: m.organizationId,
+            execGrade: ie.execGrade as EvaluationGrade,
+            execComment: ie.execComment ?? '',
+            execConfirmedBy: userProfile.id,
+            execConfirmedAt: new Date(),
+            status: 'EXEC_CONFIRMED',
+          });
+        }));
+        toast.success(`${orgName} 평가가 최종 확정되었습니다. (${list.length}명)`);
+        await load();
+      } catch (err) { console.error('[최종확정] 실패:', err); toast.error('최종 확정에 실패했습니다.'); }
+      finally { setFinalizing(null); }
+      return;
+    }
+
+    // SOLE / UNIT — 전원 배정 필요
+    const unassigned = list.filter(m => !indivEvals[m.id]?.execGrade);
+    if (unassigned.length > 0) { toast.error(`미배정 ${unassigned.length}명 — 전원에게 등급을 배정해야 확정할 수 있습니다.`); return; }
+    const targetStatus: IndividualEvaluation['status'] = role === 'SOLE' ? 'EXEC_CONFIRMED' : 'HQ_REVIEWED';
+    const actionLabel = role === 'SOLE' ? '평가완료(최종 확정)' : '본부 확정';
+    const note = role === 'SOLE'
+      ? '확정 후에는 수정하려면 HR 관리자가 쿼터를 재조정해야 합니다.'
+      : '본부 확정 후에는 부문 임원의 최종 확정이 진행됩니다. 수정이 필요하면 부문 임원의 수정요청 또는 HR 쿼터 재조정이 필요합니다.';
+    if (!confirm(`${orgName} ${list.length}명을 ${actionLabel} 처리합니다.\n${note}\n진행하시겠습니까?`)) return;
 
     setFinalizing(rootId);
     try {
       const targets = list.filter(m => {
         const s = indivEvals[m.id]?.status;
-        return s !== 'EXEC_CONFIRMED' && s !== 'PUBLISHED';
+        return s !== 'EXEC_CONFIRMED' && s !== 'PUBLISHED' && s !== 'HQ_REVIEWED';
       });
       await Promise.all(targets.map(m => {
         const ie = indivEvals[m.id]!;
-        return upsertIndividualEvaluation(m.id, year, {
+        const patch: Partial<IndividualEvaluation> = {
           organizationId: m.organizationId,
           execGrade: ie.execGrade as EvaluationGrade,
           execComment: ie.execComment ?? '',
-          execConfirmedBy: userProfile.id,
-          execConfirmedAt: new Date(),
-          status: 'EXEC_CONFIRMED',
-        });
+          status: targetStatus,
+        };
+        if (role === 'SOLE') { patch.execConfirmedBy = userProfile.id; patch.execConfirmedAt = new Date(); }
+        else { patch.unitConfirmedBy = userProfile.id; patch.unitConfirmedAt = new Date(); }
+        return upsertIndividualEvaluation(m.id, year, patch);
       }));
-      toast.success(`${orgName} 부문 평가가 최종 확정되었습니다. (${list.length}명)`);
+      toast.success(`${orgName} ${actionLabel} 완료 (${list.length}명)`);
       await load();
-    } catch (err) {
-      console.error('[평가완료] 실패:', err);
-      toast.error('평가완료 처리에 실패했습니다.');
-    } finally { setFinalizing(null); }
+    } catch (err) { console.error('[단위확정] 실패:', err); toast.error('확정 처리에 실패했습니다.'); }
+    finally { setFinalizing(null); }
+  }
+
+  // 부문 임원 '수정요청' — 본부 확정(HQ_REVIEWED)을 LEAD_REVIEWED 로 되돌려 본부 임원이 재배정하게 한다.
+  async function handleReviseRequest(rootId: string) {
+    if (!userProfile) return;
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
+    const orgName = allOrgs.find(o => o.id === rootId)?.name ?? '';
+    const list = members.filter(m => unitByOrg[m.organizationId] === rootId && indivEvals[m.id]?.status === 'HQ_REVIEWED');
+    if (list.length === 0) { toast.error('본부 확정된 인원이 없어 수정요청할 수 없습니다.'); return; }
+    const comment = window.prompt(`${orgName} 본부 임원에게 전달할 수정 의견을 입력하세요. (전체 인원 재검토 요청)`);
+    if (comment === null) return;
+    setFinalizing(rootId);
+    try {
+      await Promise.all(list.map(m => upsertIndividualEvaluation(m.id, year, {
+        organizationId: m.organizationId,
+        status: 'LEAD_REVIEWED',
+        reviseComment: comment.trim(),
+        reviseBy: userProfile.id,
+        reviseAt: new Date(),
+      })));
+      // 본부 임원에게 알림
+      const unitLeaderId = allOrgs.find(o => o.id === rootId)?.leaderId;
+      if (unitLeaderId && unitLeaderId !== userProfile.id) {
+        await createNotification({
+          userId: unitLeaderId,
+          type: 'EVAL_REVISE_REQUESTED',
+          category: 'EVALUATION',
+          title: `${orgName} 평가 수정요청`,
+          message: `${userProfile.name} 임원이 ${orgName} 평가에 대해 수정을 요청했습니다.${comment.trim() ? ` — "${comment.trim()}"` : ''}`,
+          link: '/evaluation',
+          read: false,
+        }).catch(() => {});
+      }
+      toast.success(`${orgName} 수정요청을 보냈습니다. (${list.length}명, 본부 임원 재배정 대기)`);
+      await load();
+    } catch (err) { console.error('[수정요청] 실패:', err); toast.error('수정요청에 실패했습니다.'); }
+    finally { setFinalizing(null); }
   }
 
   const membersByOrg = members.reduce<Record<string, User[]>>((acc, m) => {
@@ -497,36 +562,57 @@ function ExecutiveEvalView() {
             );
           }
           const stats = divisionStats(rid);
+          const role = roleByUnit[rid] ?? 'SOLE';
           const allFinalized = stats.total > 0 && stats.finalized === stats.total;
-          const canFinalize = stats.total > 0 && stats.assigned === stats.total && !allFinalized && !locked && !beforePeriod;
+          const allUnitConfirmed = stats.total > 0 && (stats.unitConfirmed + stats.finalized) === stats.total;
+          // SOLE/UNIT: 전원 배정 시 활성 / FINAL: 전원 본부 확정 시 활성
+          const canAct = role === 'FINAL'
+            ? (allUnitConfirmed && !allFinalized && !locked && !beforePeriod)
+            : (stats.total > 0 && stats.assigned === stats.total && !allFinalized && !locked && !beforePeriod);
+          const actBusy = finalizing === rid;
+          const actLabel = role === 'SOLE' ? '평가완료' : role === 'UNIT' ? '본부 확정' : '최종 확정';
+          const roleTag = role === 'UNIT' ? '본부 확정(1차)' : role === 'FINAL' ? '부문 최종 확정(2차)' : '평가완료';
+          const progressText = role === 'FINAL'
+            ? `본부확정 ${stats.unitConfirmed + stats.finalized}/${stats.total}`
+            : `배정 ${stats.assigned}/${stats.total}`;
           return (
             <div key={rid} className="rounded-xl border bg-white px-5 py-4 space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <p className="text-xs font-semibold text-gray-500">
                   {unitIds.length > 1 && <span className="text-gray-700">{orgName} · </span>}
                   {year}년 {orgName} 등급 쿼터 (조직 {q.orgGrade}등급 · 총 {q.totalMembers}명)
-                  <span className="ml-2 font-normal text-gray-400">배정 {stats.assigned}/{stats.total}{allFinalized && ' · 평가완료'}</span>
+                  <span className="ml-2 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">{roleTag}</span>
+                  <span className="ml-2 font-normal text-gray-400">{progressText}{allFinalized && ' · 최종 확정 완료'}</span>
                 </p>
-                {allFinalized ? (
-                  <span className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-green-50 border border-green-200 px-3 py-1.5 text-xs font-bold text-green-700">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> 평가완료됨
-                  </span>
-                ) : (
-                  <Button
-                    size="sm"
-                    className="shrink-0"
-                    disabled={!canFinalize || finalizing === rid}
-                    title={
-                      locked ? '확정된 연도입니다.'
-                        : beforePeriod ? '평가기간에만 확정할 수 있습니다.'
-                        : stats.assigned !== stats.total ? `미배정 ${stats.total - stats.assigned}명 — 부문 전원 배정 후 평가완료할 수 있습니다.`
-                        : '부문 평가를 최종 확정합니다.'
-                    }
-                    onClick={() => handleFinalize(rid)}
-                  >
-                    {finalizing === rid ? '확정 중...' : '평가완료'}
-                  </Button>
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {allFinalized ? (
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 border border-green-200 px-3 py-1.5 text-xs font-bold text-green-700">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> 최종 확정 완료
+                    </span>
+                  ) : (
+                    <>
+                      {role === 'FINAL' && (stats.unitConfirmed > 0) && (
+                        <Button size="sm" variant="outline" disabled={actBusy || locked} onClick={() => handleReviseRequest(rid)}>
+                          수정요청
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        disabled={!canAct || actBusy}
+                        title={
+                          locked ? '확정된 연도입니다.'
+                            : beforePeriod ? '평가기간에만 확정할 수 있습니다.'
+                            : role === 'FINAL'
+                              ? (allUnitConfirmed ? '본부 확정된 평가를 최종 확정합니다.' : '본부 임원의 본부 확정 후 최종 확정할 수 있습니다.')
+                              : (stats.assigned !== stats.total ? `미배정 ${stats.total - stats.assigned}명 — 전원 배정 후 확정할 수 있습니다.` : `${actLabel} 처리`)
+                        }
+                        onClick={() => handleUnitAction(rid)}
+                      >
+                        {actBusy ? '처리 중...' : actLabel}
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="flex gap-3 flex-wrap">
                 {GRADES.map(g => {
@@ -662,7 +748,11 @@ function ExecutiveEvalView() {
                     const isConfirmed = ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
                     const input = confirmInputs[member.id] ?? { grade: '', comment: '' };
                     const memberUnit = unitByOrg[member.organizationId];
-                    const memberQuota = quotaOfMember(member); // 멤버 소속 부문 쿼터(없으면 null = 미확정)
+                    const memberQuota = quotaOfMember(member); // 멤버 소속 평가단위 쿼터(없으면 null = 미확정)
+                    const memberRole = roleOfMember(member);          // SOLE/UNIT/FINAL
+                    const canAssign = canAssignMember(member);        // 등급 배정·수정 가능 여부
+                    const isUnitConfirmed = ie?.status === 'HQ_REVIEWED'; // 본부 확정(1차) 완료
+                    const isFinalView = memberRole === 'FINAL';        // 부문 임원(최종 확정자) 시점 — 읽기 전용
                     return (
                       <div className="rounded-xl border bg-white p-5 space-y-5">
                         <div className="flex items-center gap-2 border-b pb-3">
@@ -691,9 +781,20 @@ function ExecutiveEvalView() {
                           </div>
                         )}
 
-                        {/* 등급 배정 입력 (평가완료 전까지 수정 가능) */}
+                        {/* 수정요청 의견 (부문 임원 → 본부 임원) */}
+                        {ie?.reviseComment && !isConfirmed && (
+                          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+                            <p className="text-sm font-bold text-amber-700 mb-1">수정요청 — {approverTitle(ie.reviseBy, execUsersCache, '부문 임원')}</p>
+                            <p className="text-sm text-amber-800 whitespace-pre-wrap leading-relaxed">{ie.reviseComment}</p>
+                          </div>
+                        )}
+
+                        {/* 등급 배정 입력 */}
                         <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-3">
-                          <p className="text-sm font-bold text-indigo-700">{userProfile?.position || '임원'} 등급 배정 {isConfirmed && <span className="text-green-600">(평가완료)</span>}</p>
+                          <p className="text-sm font-bold text-indigo-700">
+                            {isFinalView ? '배정 등급 (본부 임원)' : `${userProfile?.position || '임원'} 등급 배정`}
+                            {isConfirmed ? <span className="text-green-600"> · 최종 확정</span> : isUnitConfirmed && <span className="text-indigo-500"> · 본부 확정(부문 최종 대기)</span>}
+                          </p>
                           <div>
                             <p className="text-xs text-gray-500 mb-2">등급 선택</p>
                             <div className="flex gap-2">
@@ -704,7 +805,7 @@ function ExecutiveEvalView() {
                                 return (
                                   <div key={g} className="text-center">
                                     <button
-                                      disabled={isConfirmed || saving === member.id || isFull || locked || !memberQuota}
+                                      disabled={!canAssign || saving === member.id || isFull || locked || !memberQuota}
                                       onClick={() => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], grade: g } }))}
                                       className={`w-10 h-10 rounded-lg text-sm font-bold border-2 transition-all ${
                                         isSelected ? `${GRADE_COLOR[g]} border-current`
@@ -724,19 +825,25 @@ function ExecutiveEvalView() {
                             <textarea
                               value={input.comment}
                               onChange={e => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
-                              onKeyDown={shiftEnterSubmit(() => handleConfirm(member.id), !isConfirmed && saving !== member.id && !!input.grade && !locked && !beforePeriod && !!memberQuota)}
-                              disabled={isConfirmed || saving === member.id || locked || !memberQuota}
+                              onKeyDown={shiftEnterSubmit(() => handleConfirm(member.id), canAssign && saving !== member.id && !!input.grade && !locked && !beforePeriod && !!memberQuota)}
+                              disabled={!canAssign || saving === member.id || locked || !memberQuota}
                               rows={2}
                               placeholder="등급 부여 이유 또는 의견을 작성해주세요 (Shift+Enter 배정)"
                               className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50" />
                           </div>
                           <div className="flex justify-end items-center gap-2">
                             {isConfirmed ? (
-                              <span className="text-xs text-green-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> 평가완료 — 확정됨</span>
+                              <span className="text-xs text-green-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> 최종 확정됨</span>
+                            ) : isFinalView ? (
+                              isUnitConfirmed
+                                ? <span className="text-xs text-indigo-600 font-medium">본부 확정됨 · 상단 ‘최종 확정’으로 확정하세요</span>
+                                : <span className="text-xs text-gray-400">본부 임원의 본부 확정 대기 중</span>
+                            ) : !canAssign ? (
+                              <span className="text-xs text-indigo-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> 본부 확정됨 · 부문 임원 최종 확정 대기</span>
                             ) : (
                               <>
-                                {ie?.execGrade && <span className="text-[11px] text-gray-400">배정됨 · 평가완료 전까지 수정 가능</span>}
-                                <Button size="sm" disabled={saving === member.id || !input.grade || locked || beforePeriod || !memberQuota} title={!memberQuota ? '해당 부문의 조직 평가 등급(쿼터) 확정 후 개인 등급을 배정할 수 있습니다.' : beforePeriod ? '평가기간에만 배정할 수 있습니다.' : undefined} onClick={() => handleConfirm(member.id)}>
+                                {ie?.execGrade && <span className="text-[11px] text-gray-400">배정됨 · 확정 전까지 수정 가능</span>}
+                                <Button size="sm" disabled={saving === member.id || !input.grade || locked || beforePeriod || !memberQuota} title={!memberQuota ? '해당 평가단위의 조직 평가 등급(쿼터) 확정 후 등급을 배정할 수 있습니다.' : beforePeriod ? '평가기간에만 배정할 수 있습니다.' : undefined} onClick={() => handleConfirm(member.id)}>
                                 {saving === member.id ? '배정 중...' : (ie?.execGrade ? '등급 수정' : '등급 배정')}
                                 </Button>
                               </>

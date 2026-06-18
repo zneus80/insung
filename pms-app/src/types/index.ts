@@ -377,10 +377,19 @@ export interface IndividualEvaluation {
   hqReviewedBy?: string;           // 본부장 userId
   hqReviewedAt?: Date;
 
-  execGrade?: EvaluationGrade;     // 임원 확정 등급
+  execGrade?: EvaluationGrade;     // 임원 확정 등급(평가단위에서 배정된 등급 — 본부 확정/최종 확정 공통)
   execComment?: string;            // 임원 의견
-  execConfirmedBy?: string;        // 임원 userId
+  execConfirmedBy?: string;        // 최종 확정한 임원 userId (부문 임원 또는 단일레벨 확정자)
   execConfirmedAt?: Date;
+
+  // 2단계 확정(본부가 평가단위인 경우) — 본부 임원의 1차 '본부 확정'(status=HQ_REVIEWED) 표식.
+  // 부문 임원의 '최종 확정'(status=EXEC_CONFIRMED)까지 되어야 공개 가능.
+  unitConfirmedBy?: string;        // 본부 확정한 본부 임원 userId
+  unitConfirmedAt?: Date;
+  // 부문 임원의 '수정요청'(반려) — status 를 LEAD_REVIEWED 로 되돌리고 의견 전달.
+  reviseComment?: string;
+  reviseBy?: string;
+  reviseAt?: Date;
 
   status: IndividualEvalStatus;
   /** 가시성 ACL — 본인 + 조직 트리 상위 리더 userId 목록.
@@ -751,6 +760,7 @@ export type NotificationType =
   | 'SELF_EVAL_EDIT_REJECTED'   // HR 가 자기평가 수정 거절 (HR → 개인)
   | 'EVAL_LEAD_REVIEWED'        // 팀장 1차 의견 제출 → 본부장 또는 임원
   | 'EVAL_HQ_REVIEWED'          // 본부장 2차 의견 제출 → 임원
+  | 'EVAL_REVISE_REQUESTED'     // 부문 임원이 본부 확정에 대해 수정요청 → 본부 임원
   | 'MENTORING_SUBMITTED'       // 육성면담서 제출 → 상위 검토자
   | 'SECURITY_READ_ANOMALY'     // 평가 데이터 대량 read 이상 탐지 → HR 마스터
   | 'BACKUP_FAILED';            // 백업 실패 → HR 마스터
