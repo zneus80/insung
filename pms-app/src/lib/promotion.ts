@@ -19,26 +19,29 @@ export interface PromotionInfo {
 }
 
 export interface SmartProjectCount {
-  pmCount: number;          // SMART_PROJECT PM 참여(추진중 포함 — 팀장 승진 집계용)
-  pmCompletedCount: number; // 완료된 SMART_PROJECT PM(임원 승진 요건은 완료만 인정)
-  memberCount: number;      // SMART_PROJECT 멤버 참여
+  pmCount: number;              // SMART_PROJECT PM 참여(추진중 포함)
+  pmCompletedCount: number;     // 완료된 SMART_PROJECT PM
+  memberCount: number;          // SMART_PROJECT 멤버 참여(추진중 포함)
+  memberCompletedCount: number; // 완료된 SMART_PROJECT 멤버 참여
 }
 
 /** 혁신활동(전체 연도)에서 사용자별 스마트프로젝트 참여 카운트 집계 */
 export function computeSmartProjectCounts(innovations: InnovationActivity[]): Map<string, SmartProjectCount> {
   const m = new Map<string, SmartProjectCount>();
-  const ensure = (uid: string) => m.get(uid) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0 };
+  const ensure = (uid: string) => m.get(uid) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0, memberCompletedCount: 0 };
   for (const a of innovations) {
     if (a.type !== 'SMART_PROJECT') continue;
+    const done = a.status === 'COMPLETED';
     for (const uid of getPmIds(a)) {
       const c = ensure(uid);
       c.pmCount++;
-      if (a.status === 'COMPLETED') c.pmCompletedCount++;
+      if (done) c.pmCompletedCount++;
       m.set(uid, c);
     }
     for (const uid of (a.memberIds ?? [])) {
       const c = ensure(uid);
       c.memberCount++;
+      if (done) c.memberCompletedCount++;
       m.set(uid, c);
     }
   }
@@ -63,13 +66,13 @@ export function computePromotion(user: User, mileage: Mileage | undefined, sp: S
       reasonText: meets ? '' : `스마트프로젝트 PM(완료) ${pmCompleted}/1`,
     };
   }
-  // 팀원/팀장대행 → 팀장 승진: SP 1+ (PM or 멤버) + 마일리지 200+
-  const projectCount = pmCount + memberCount;
+  // 팀원/팀장대행 → 팀장 승진: 완료된 SP 1+ (PM or 멤버) + 마일리지 200+ (추진중은 미인정)
+  const projectCount = sp.pmCompletedCount + sp.memberCompletedCount;
   const meetsProject = projectCount >= 1;
   const meetsMileage = totalPoints >= 200;
   const meets = meetsProject && meetsMileage;
   const reasons: string[] = [];
-  if (!meetsProject) reasons.push(`스마트프로젝트 ${projectCount}/1`);
+  if (!meetsProject) reasons.push(`스마트프로젝트(완료) ${projectCount}/1`);
   if (!meetsMileage) reasons.push(`마일리지 ${totalPoints}/200`);
   return {
     target: '팀장 승진', pmCount, pmCompletedCount: pmCompleted, memberCount, totalPoints,

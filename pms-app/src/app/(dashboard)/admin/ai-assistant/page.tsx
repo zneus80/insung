@@ -242,7 +242,7 @@ function AssistantContent() {
         const awards = (awardsByUser[u.id] ?? []).map(a => `${a.title}(${a.awardDate ?? ''})`).slice(0, 6);
         const noData = Object.keys(yrs).length === 0;
         // 승진요건(누적 기준) — 대상·충족 여부·미충족 사유
-        const promo = computePromotion(u, mileageObjByUser.get(u.id), spCounts.get(u.id) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0 });
+        const promo = computePromotion(u, mileageObjByUser.get(u.id), spCounts.get(u.id) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0, memberCompletedCount: 0 });
         const promotion = promo.target === '해당 없음' ? undefined : {
           대상: promo.target, 충족: promo.meetsRequirement, 미충족사유: promo.reasonText || undefined,
           SP_PM: promo.pmCount, SP_PM완료: promo.pmCompletedCount, SP_멤버: promo.memberCount, 마일리지: promo.totalPoints,

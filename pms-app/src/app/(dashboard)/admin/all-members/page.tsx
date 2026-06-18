@@ -221,7 +221,7 @@ function AllMembersContent() {
         mileage: userMileage,
         mileagePoints: userMileage?.points ?? 0,
         recentAwards,
-        promotion: computePromotion(u, userMileage, spCountByUser.get(u.id) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0 }),
+        promotion: computePromotion(u, userMileage, spCountByUser.get(u.id) ?? { pmCount: 0, pmCompletedCount: 0, memberCount: 0, memberCompletedCount: 0 }),
         latestMentoring: mentoring,
         jobRequest: jobReq,
         jobRequestLabel: jobReq ? JOB_REQUEST_LABELS[jobReq] : '',
