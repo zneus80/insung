@@ -105,7 +105,7 @@ export default function MemberInfoModal({ userId, userName, targetRole, renderTr
       )}
 
       {open && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div data-exec-modal className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* 배경 오버레이 */}
           <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
 

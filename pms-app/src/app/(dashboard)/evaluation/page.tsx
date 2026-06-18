@@ -81,6 +81,33 @@ function getDescendantOrgIds(orgId: string, orgs: Organization[]): string[] {
   return result;
 }
 
+// 조직평가 단위 판정 — 조직평가인원관리(org/page) 의 평가대상 조직 규칙과 동일하게 맞춘다.
+// 부문(상위 부문 없으면 기본 평가단위) + isEvalUnit 지정 조직(본부 등) + 상위에 부문 없는 독립 팀.
+function isEvalUnitOrg(o: Organization, orgs: Organization[]): boolean {
+  if (o.type === 'DIVISION') return o.isEvalUnit !== false;
+  if (o.isEvalUnit) return true;
+  if (o.type === 'TEAM') {
+    let cur = o.parentId ? orgs.find(p => p.id === o.parentId) : undefined;
+    while (cur) {
+      if (cur.type === 'DIVISION') return false;
+      cur = cur.parentId ? orgs.find(p => p.id === cur!.parentId) : undefined;
+    }
+    return true;
+  }
+  return false;
+}
+
+// 특정 조직에서 위로 올라가며 가장 가까운 '평가 단위' 조직 id 를 찾는다(자기 자신 포함).
+// 쿼터는 평가 단위 조직에 달리므로, 멤버의 쿼터/등급 게이트는 이 조직을 기준으로 한다.
+function nearestEvalUnitId(orgId: string, orgs: Organization[]): string | null {
+  let cur: Organization | undefined = orgs.find(o => o.id === orgId);
+  while (cur) {
+    if (isEvalUnitOrg(cur, orgs)) return cur.id;
+    cur = cur.parentId ? orgs.find(p => p.id === cur!.parentId) : undefined;
+  }
+  return null;
+}
+
 function LoadingSpinner() {
   return (
     <div className="flex min-h-[200px] items-center justify-center">
@@ -132,11 +159,11 @@ function ExecutiveEvalView() {
   const [attByUser, setAttByUser] = useState<Record<string, Attendance>>({}); // 근태현황(당해년도)
   const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [innovationsByMember, setInnovationsByMember] = useState<Record<string, InnovationActivity[]>>({});
-  // 부문별 쿼터(CONFIRMED) — 담당 부문이 여러 개일 수 있어 부문 단위로 관리.
-  const [quotaByRoot, setQuotaByRoot] = useState<Record<string, DivisionGradeQuota>>({});
-  // 조직 → 담당 부문(root) 역매핑. 멤버의 소속 부문 쿼터를 찾는 데 사용.
-  const [rootByOrg, setRootByOrg]     = useState<Record<string, string>>({});
-  const [rootIds, setRootIds]         = useState<string[]>([]); // 임원이 담당하는 부문(루트) 목록
+  // 평가 단위(부문 또는 평가단위로 지정된 본부 등)별 쿼터(CONFIRMED). 평가 단위에 쿼터가 달린다.
+  const [quotaByUnit, setQuotaByUnit] = useState<Record<string, DivisionGradeQuota>>({});
+  // 멤버 소속 조직 → 가장 가까운 평가 단위 조직 매핑. 멤버의 쿼터/등급 게이트 기준.
+  const [unitByOrg, setUnitByOrg]     = useState<Record<string, string>>({});
+  const [unitIds, setUnitIds]         = useState<string[]>([]); // 화면에 표시할 평가 단위 목록(멤버가 속한 단위, 정렬)
   const [confirmInputs, setConfirm]   = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null); // 선택된 멤버(하단 상세)
   const [loading, setLoading]         = useState(true);
@@ -177,17 +204,27 @@ function ExecutiveEvalView() {
       const rootIds = myLeadOrgs.length > 0
         ? myLeadOrgs.map(o => o.id)
         : [userProfile.organizationId]; // fallback: leaderId 미설정 환경
-      setRootIds(rootIds);
-      // 조직 → 담당 부문(root) 역매핑 — 멤버의 소속 부문 쿼터를 찾기 위함(부문별 개별 게이트)
-      const rootByOrgMap: Record<string, string> = {};
-      for (const rid of rootIds) {
-        for (const oid of getDescendantOrgIds(rid, orgs)) rootByOrgMap[oid] = rid;
-      }
-      setRootByOrg(rootByOrgMap);
       const descIds = [...new Set(rootIds.flatMap(id => getDescendantOrgIds(id, orgs)))];
 
       const active = allUsers.filter(u => (u.role === 'MEMBER' || u.role === 'TEAM_LEAD') && u.isActive && descIds.includes(u.organizationId));
       active.sort(compareUserByRoleHire); // 팀장 → 팀원, 동일 역할 입사일순
+
+      // 멤버 소속 조직 → 가장 가까운 평가 단위 조직 매핑.
+      // 평가 단위는 부문일 수도, 평가단위로 지정된 본부일 수도 있다(영업부문처럼 부문이 평가단위가 아니고 산하 본부들이 평가단위인 경우 대응).
+      const unitByOrgMap: Record<string, string> = {};
+      for (const m of active) {
+        if (unitByOrgMap[m.organizationId]) continue;
+        const uid = nearestEvalUnitId(m.organizationId, orgs);
+        if (uid) unitByOrgMap[m.organizationId] = uid;
+      }
+      setUnitByOrg(unitByOrgMap);
+      // 화면에 표시할 평가 단위 목록 — 멤버가 속한 distinct 평가단위, displayOrder 정렬
+      const unitIdSet = new Set(Object.values(unitByOrgMap));
+      const orderedUnits = orgs
+        .filter(o => unitIdSet.has(o.id))
+        .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999) || a.name.localeCompare(b.name, 'ko'))
+        .map(o => o.id);
+      setUnitIds(orderedUnits);
       setMembers(active);
 
       const evalResults = await Promise.all(
@@ -264,12 +301,12 @@ function ExecutiveEvalView() {
       });
       setWeeklyTasksByMember(wtMap);
 
-      // 담당 부문별 쿼터 (CONFIRMED 된 것만) — 부문 단위로 매핑
-      const qByRoot: Record<string, DivisionGradeQuota> = {};
+      // 평가 단위별 쿼터 (CONFIRMED 된 것만). 평가 단위(부문/본부 등)에 쿼터가 달리므로 organizationId 그대로 매핑.
+      const qByUnit: Record<string, DivisionGradeQuota> = {};
       for (const q of allQuotas) {
-        if (q.status === 'CONFIRMED' && rootIds.includes(q.organizationId)) qByRoot[q.organizationId] = q;
+        if (q.status === 'CONFIRMED') qByUnit[q.organizationId] = q;
       }
-      setQuotaByRoot(qByRoot);
+      setQuotaByUnit(qByUnit);
 
       const cinMap: Record<string, { grade: EvaluationGrade | ''; comment: string }> = {};
       active.forEach(m => {
@@ -295,13 +332,13 @@ function ExecutiveEvalView() {
 
   // 멤버의 소속 부문(root) 쿼터 — 없으면 null(해당 부문 조직평가 등급 미확정)
   function quotaOfMember(m: User): DivisionGradeQuota | null {
-    return quotaByRoot[rootByOrg[m.organizationId]] ?? null;
+    return quotaByUnit[unitByOrg[m.organizationId]] ?? null;
   }
 
   // 해당 부문에서 특정 등급으로 '배정된'(execGrade 저장됨) 멤버 목록.
   // 임시 배정(평가완료 전)과 최종 확정(EXEC_CONFIRMED) 모두 포함 — 쿼터 재조정으로 무효화되면 execGrade 가 삭제되어 자동 제외된다.
   function assignedMembers(rootId: string, grade: EvaluationGrade): User[] {
-    return members.filter(m => rootByOrg[m.organizationId] === rootId && indivEvals[m.id]?.execGrade === grade);
+    return members.filter(m => unitByOrg[m.organizationId] === rootId && indivEvals[m.id]?.execGrade === grade);
   }
 
   function getUsed(rootId: string, grade: EvaluationGrade): number {
@@ -310,7 +347,7 @@ function ExecutiveEvalView() {
 
   // 부문 진행 현황 — 배정/확정 인원 집계 (평가완료 버튼 활성·라벨 판단)
   function divisionStats(rootId: string): { total: number; assigned: number; finalized: number } {
-    const list = members.filter(m => rootByOrg[m.organizationId] === rootId);
+    const list = members.filter(m => unitByOrg[m.organizationId] === rootId);
     let assigned = 0, finalized = 0;
     for (const m of list) {
       const ie = indivEvals[m.id];
@@ -321,7 +358,7 @@ function ExecutiveEvalView() {
   }
 
   function getQuotaCount(rootId: string, grade: EvaluationGrade): number {
-    const q = quotaByRoot[rootId];
+    const q = quotaByUnit[rootId];
     if (!q) return 999;
     return q[`quota${grade}` as keyof DivisionGradeQuota] as number ?? 0;
   }
@@ -366,8 +403,8 @@ function ExecutiveEvalView() {
   async function handleFinalize(rootId: string) {
     if (!userProfile) return;
     if (locked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
-    if (!quotaByRoot[rootId]) { toast.error('조직 평가 등급(쿼터)이 확정되지 않았습니다.'); return; }
-    const list = members.filter(m => rootByOrg[m.organizationId] === rootId);
+    if (!quotaByUnit[rootId]) { toast.error('조직 평가 등급(쿼터)이 확정되지 않았습니다.'); return; }
+    const list = members.filter(m => unitByOrg[m.organizationId] === rootId);
     const unassigned = list.filter(m => !indivEvals[m.id]?.execGrade);
     if (unassigned.length > 0) { toast.error(`미배정 ${unassigned.length}명 — 부문 전원에게 등급을 배정해야 평가완료할 수 있습니다.`); return; }
     const orgName = allOrgs.find(o => o.id === rootId)?.name ?? '';
@@ -445,9 +482,9 @@ function ExecutiveEvalView() {
         <YearLockBanner />
       {beforePeriod && <div className="px-6 pt-4"><EvalPeriodNotice startDate={startDate} /></div>}
 
-        {/* 쿼터 현황 — 담당 부문별로 표시(부문별 개별 게이트) */}
-        {rootIds.map(rid => {
-          const q = quotaByRoot[rid];
+        {/* 쿼터 현황 — 평가 단위(부문/본부 등)별로 표시. 한 임원이 여러 평가단위를 담당하면 여러 블록이 표시된다. */}
+        {unitIds.map(rid => {
+          const q = quotaByUnit[rid];
           const orgName = allOrgs.find(o => o.id === rid)?.name ?? rid;
           if (!q) {
             return (
@@ -466,8 +503,8 @@ function ExecutiveEvalView() {
             <div key={rid} className="rounded-xl border bg-white px-5 py-4 space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <p className="text-xs font-semibold text-gray-500">
-                  {rootIds.length > 1 && <span className="text-gray-700">{orgName} · </span>}
-                  {year}년 부문 등급 쿼터 (조직 {q.orgGrade}등급 · 총 {q.totalMembers}명)
+                  {unitIds.length > 1 && <span className="text-gray-700">{orgName} · </span>}
+                  {year}년 {orgName} 등급 쿼터 (조직 {q.orgGrade}등급 · 총 {q.totalMembers}명)
                   <span className="ml-2 font-normal text-gray-400">배정 {stats.assigned}/{stats.total}{allFinalized && ' · 평가완료'}</span>
                 </p>
                 {allFinalized ? (
@@ -624,7 +661,7 @@ function ExecutiveEvalView() {
                     const ie = indivEvals[member.id];
                     const isConfirmed = ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
                     const input = confirmInputs[member.id] ?? { grade: '', comment: '' };
-                    const memberRoot = rootByOrg[member.organizationId];
+                    const memberUnit = unitByOrg[member.organizationId];
                     const memberQuota = quotaOfMember(member); // 멤버 소속 부문 쿼터(없으면 null = 미확정)
                     return (
                       <div className="rounded-xl border bg-white p-5 space-y-5">
@@ -661,7 +698,7 @@ function ExecutiveEvalView() {
                             <p className="text-xs text-gray-500 mb-2">등급 선택</p>
                             <div className="flex gap-2">
                               {GRADES.map(g => {
-                                const remaining = getRemaining(memberRoot, g);
+                                const remaining = getRemaining(memberUnit, g);
                                 const isSelected = input.grade === g;
                                 const isFull = !isSelected && remaining <= 0 && memberQuota !== null;
                                 return (
