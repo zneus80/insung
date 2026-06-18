@@ -132,11 +132,16 @@ function ExecutiveEvalView() {
   const [attByUser, setAttByUser] = useState<Record<string, Attendance>>({}); // 근태현황(당해년도)
   const [weeklyTasksByMember, setWeeklyTasksByMember] = useState<Record<string, WeeklyTask[]>>({});
   const [innovationsByMember, setInnovationsByMember] = useState<Record<string, InnovationActivity[]>>({});
-  const [quotas, setQuotas]           = useState<DivisionGradeQuota | null>(null);
+  // 부문별 쿼터(CONFIRMED) — 담당 부문이 여러 개일 수 있어 부문 단위로 관리.
+  const [quotaByRoot, setQuotaByRoot] = useState<Record<string, DivisionGradeQuota>>({});
+  // 조직 → 담당 부문(root) 역매핑. 멤버의 소속 부문 쿼터를 찾는 데 사용.
+  const [rootByOrg, setRootByOrg]     = useState<Record<string, string>>({});
+  const [rootIds, setRootIds]         = useState<string[]>([]); // 임원이 담당하는 부문(루트) 목록
   const [confirmInputs, setConfirm]   = useState<Record<string, { grade: EvaluationGrade | ''; comment: string }>>({});
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null); // 선택된 멤버(하단 상세)
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState<string | null>(null);
+  const [finalizing, setFinalizing]   = useState<string | null>(null); // 평가완료 처리 중인 부문(root) id
   const [execUsersCache, setExecUsersCache] = useState<User[]>([]); // 공동수행자 이름 조회용
   const [activeOrgTab, setActiveOrgTab] = useState<string>('');     // 팀별 탭 활성 orgId
 
@@ -172,6 +177,13 @@ function ExecutiveEvalView() {
       const rootIds = myLeadOrgs.length > 0
         ? myLeadOrgs.map(o => o.id)
         : [userProfile.organizationId]; // fallback: leaderId 미설정 환경
+      setRootIds(rootIds);
+      // 조직 → 담당 부문(root) 역매핑 — 멤버의 소속 부문 쿼터를 찾기 위함(부문별 개별 게이트)
+      const rootByOrgMap: Record<string, string> = {};
+      for (const rid of rootIds) {
+        for (const oid of getDescendantOrgIds(rid, orgs)) rootByOrgMap[oid] = rid;
+      }
+      setRootByOrg(rootByOrgMap);
       const descIds = [...new Set(rootIds.flatMap(id => getDescendantOrgIds(id, orgs)))];
 
       const active = allUsers.filter(u => (u.role === 'MEMBER' || u.role === 'TEAM_LEAD') && u.isActive && descIds.includes(u.organizationId));
@@ -252,11 +264,12 @@ function ExecutiveEvalView() {
       });
       setWeeklyTasksByMember(wtMap);
 
-      // 내 담당 조직 쿼터 (CONFIRMED 된 것만, 복수 조직 중 첫 번째)
-      const myQuota = allQuotas.find(q =>
-        rootIds.includes(q.organizationId) && q.status === 'CONFIRMED'
-      );
-      setQuotas(myQuota ?? null);
+      // 담당 부문별 쿼터 (CONFIRMED 된 것만) — 부문 단위로 매핑
+      const qByRoot: Record<string, DivisionGradeQuota> = {};
+      for (const q of allQuotas) {
+        if (q.status === 'CONFIRMED' && rootIds.includes(q.organizationId)) qByRoot[q.organizationId] = q;
+      }
+      setQuotaByRoot(qByRoot);
 
       const cinMap: Record<string, { grade: EvaluationGrade | ''; comment: string }> = {};
       active.forEach(m => {
@@ -280,50 +293,109 @@ function ExecutiveEvalView() {
     } catch { /* 무시 */ }
   }, []);
 
-  function getUsed(grade: EvaluationGrade): number {
-    // 잔여는 '등급 확정'을 눌러 저장된 확정 등급만 집계 — 단순 선택(confirmInputs)은 반영하지 않음.
-    // 확정 상태(EXEC_CONFIRMED/PUBLISHED)만 인정 — 쿼터 재확정 등으로 무효화된 건 제외.
-    return members.filter(m => {
+  // 멤버의 소속 부문(root) 쿼터 — 없으면 null(해당 부문 조직평가 등급 미확정)
+  function quotaOfMember(m: User): DivisionGradeQuota | null {
+    return quotaByRoot[rootByOrg[m.organizationId]] ?? null;
+  }
+
+  // 해당 부문에서 특정 등급으로 '배정된'(execGrade 저장됨) 멤버 목록.
+  // 임시 배정(평가완료 전)과 최종 확정(EXEC_CONFIRMED) 모두 포함 — 쿼터 재조정으로 무효화되면 execGrade 가 삭제되어 자동 제외된다.
+  function assignedMembers(rootId: string, grade: EvaluationGrade): User[] {
+    return members.filter(m => rootByOrg[m.organizationId] === rootId && indivEvals[m.id]?.execGrade === grade);
+  }
+
+  function getUsed(rootId: string, grade: EvaluationGrade): number {
+    return assignedMembers(rootId, grade).length;
+  }
+
+  // 부문 진행 현황 — 배정/확정 인원 집계 (평가완료 버튼 활성·라벨 판단)
+  function divisionStats(rootId: string): { total: number; assigned: number; finalized: number } {
+    const list = members.filter(m => rootByOrg[m.organizationId] === rootId);
+    let assigned = 0, finalized = 0;
+    for (const m of list) {
       const ie = indivEvals[m.id];
-      return ie?.execGrade === grade && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED');
-    }).length;
+      if (ie?.execGrade) assigned++;
+      if (ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED') finalized++;
+    }
+    return { total: list.length, assigned, finalized };
   }
 
-  function getQuotaCount(grade: EvaluationGrade): number {
-    if (!quotas) return 999;
-    return quotas[`quota${grade}` as keyof DivisionGradeQuota] as number ?? 0;
+  function getQuotaCount(rootId: string, grade: EvaluationGrade): number {
+    const q = quotaByRoot[rootId];
+    if (!q) return 999;
+    return q[`quota${grade}` as keyof DivisionGradeQuota] as number ?? 0;
   }
 
-  function getRemaining(grade: EvaluationGrade): number {
-    return getQuotaCount(grade) - getUsed(grade);
+  function getRemaining(rootId: string, grade: EvaluationGrade): number {
+    return getQuotaCount(rootId, grade) - getUsed(rootId, grade);
   }
 
+  // 개인 등급 '배정' — 임시 저장(편집 가능). 부문 '평가완료' 전까지는 EXEC_CONFIRMED 로 승격하지 않는다.
+  // (status 를 확정으로 올리지 않으므로 평가이력·평가결과 등 다운스트림에는 '확정'으로 노출되지 않음 — §6-1 보수적 보호)
   async function handleConfirm(memberId: string) {
     if (!userProfile) return;
-    if (locked) { toast.error(`${year}년은 확정된 연도입니다. 등급 확정/변경이 불가합니다.`); return; }
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다. 등급 배정/변경이 불가합니다.`); return; }
+    const member0 = members.find(m => m.id === memberId);
+    if (!member0 || !quotaOfMember(member0)) { toast.error('해당 부문의 조직 평가 등급(쿼터)이 확정되지 않았습니다. HR 관리자가 등급 쿼터를 확정한 후 개인 등급을 부여할 수 있습니다.'); return; }
+    if (member0.id && (indivEvals[memberId]?.status === 'EXEC_CONFIRMED' || indivEvals[memberId]?.status === 'PUBLISHED')) {
+      toast.error('이미 평가완료된 부문입니다. 수정하려면 HR 관리자가 쿼터를 재조정해야 합니다.'); return;
+    }
     const input = confirmInputs[memberId];
     if (!input?.grade) { toast.error('등급을 선택해주세요.'); return; }
 
     setSaving(memberId);
     try {
       const member = members.find(m => m.id === memberId);
-      // organizationId 누락 시 후속 getIndividualEvaluationsByOrg 쿼리에 잡히지 않아 "확정 표시" 안 되는 버그 방지.
-      // 새 문서 생성 경로(팀장 의견 단계 없이 임원이 바로 확정) 에서 반드시 필요.
+      // organizationId 누락 시 후속 getIndividualEvaluationsByOrg 쿼리에 잡히지 않아 "표시" 안 되는 버그 방지.
       const orgId = member?.organizationId ?? userProfile.organizationId;
       await upsertIndividualEvaluation(memberId, year, {
         organizationId: orgId,
         execGrade: input.grade as EvaluationGrade,
         execComment: input.comment,
-        execConfirmedBy: userProfile.id,
-        execConfirmedAt: new Date(),
-        status: 'EXEC_CONFIRMED',
       });
-      toast.success(`${member?.name ?? ''} 등급을 확정했습니다.`);
+      toast.success(`${member?.name ?? ''} 등급을 배정했습니다. (평가완료 전까지 수정 가능)`);
       await load();
     } catch (err) {
-      console.error('[등급확정] 실패:', err);
-      toast.error('등급 확정에 실패했습니다.');
+      console.error('[등급배정] 실패:', err);
+      toast.error('등급 배정에 실패했습니다.');
     } finally { setSaving(null); }
+  }
+
+  // 부문 '평가완료' — 부문 전원의 배정 등급을 EXEC_CONFIRMED 로 최종 확정(잠금).
+  // 수정이 필요하면 HR 이 쿼터를 재조정(재확정)하여 무효화한다(clearExecConfirmation).
+  async function handleFinalize(rootId: string) {
+    if (!userProfile) return;
+    if (locked) { toast.error(`${year}년은 확정된 연도입니다.`); return; }
+    if (!quotaByRoot[rootId]) { toast.error('조직 평가 등급(쿼터)이 확정되지 않았습니다.'); return; }
+    const list = members.filter(m => rootByOrg[m.organizationId] === rootId);
+    const unassigned = list.filter(m => !indivEvals[m.id]?.execGrade);
+    if (unassigned.length > 0) { toast.error(`미배정 ${unassigned.length}명 — 부문 전원에게 등급을 배정해야 평가완료할 수 있습니다.`); return; }
+    const orgName = allOrgs.find(o => o.id === rootId)?.name ?? '';
+    if (!confirm(`${orgName} 부문 ${list.length}명의 평가를 최종 확정(평가완료)합니다.\n확정 후에는 이 화면에서 수정할 수 없으며, 수정이 필요하면 HR 관리자가 쿼터를 재조정해야 합니다.\n진행하시겠습니까?`)) return;
+
+    setFinalizing(rootId);
+    try {
+      const targets = list.filter(m => {
+        const s = indivEvals[m.id]?.status;
+        return s !== 'EXEC_CONFIRMED' && s !== 'PUBLISHED';
+      });
+      await Promise.all(targets.map(m => {
+        const ie = indivEvals[m.id]!;
+        return upsertIndividualEvaluation(m.id, year, {
+          organizationId: m.organizationId,
+          execGrade: ie.execGrade as EvaluationGrade,
+          execComment: ie.execComment ?? '',
+          execConfirmedBy: userProfile.id,
+          execConfirmedAt: new Date(),
+          status: 'EXEC_CONFIRMED',
+        });
+      }));
+      toast.success(`${orgName} 부문 평가가 최종 확정되었습니다. (${list.length}명)`);
+      await load();
+    } catch (err) {
+      console.error('[평가완료] 실패:', err);
+      toast.error('평가완료 처리에 실패했습니다.');
+    } finally { setFinalizing(null); }
   }
 
   const membersByOrg = members.reduce<Record<string, User[]>>((acc, m) => {
@@ -355,12 +427,12 @@ function ExecutiveEvalView() {
   }
 
   // 탭별 평가 완료 진척도
+  // 탭 진행도 — 등급이 '배정'된(execGrade 저장) 인원 기준(임시 배정 포함). 평가완료 전 진행 상황을 보여준다.
   function tabProgress(orgId: string): { confirmed: number; total: number } {
     const list = membersByOrg[orgId] ?? [];
     let confirmed = 0;
     for (const m of list) {
-      const ie = indivEvals[m.id];
-      if (ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED') confirmed++;
+      if (indivEvals[m.id]?.execGrade) confirmed++;
     }
     return { confirmed, total: list.length };
   }
@@ -373,35 +445,79 @@ function ExecutiveEvalView() {
         <YearLockBanner />
       {beforePeriod && <div className="px-6 pt-4"><EvalPeriodNotice startDate={startDate} /></div>}
 
-        {/* 쿼터 현황 */}
-        {quotas ? (
-          <div className="rounded-xl border bg-white px-5 py-4 space-y-2">
-            <p className="text-xs font-semibold text-gray-500">
-              {year}년 부문 등급 쿼터 (조직 {quotas.orgGrade}등급 · 총 {quotas.totalMembers}명)
-            </p>
-            <div className="flex gap-3 flex-wrap">
-              {GRADES.map(g => {
-                const quota = getQuotaCount(g);
-                const used = getUsed(g);
-                const remaining = quota - used;
-                return (
-                  <div key={g} className={`rounded-lg border px-4 py-2.5 text-center min-w-[80px] ${
-                    remaining <= 0 && quota > 0 ? 'border-red-200 bg-red-50' : 'border-gray-200'
-                  }`}>
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold mb-1 ${GRADE_COLOR[g]}`}>{g}</span>
-                    <p className="text-lg font-bold text-gray-900">{quota}<span className="text-xs font-normal text-gray-400">명</span></p>
-                    <p className="text-xs text-gray-400">잔여 <span className={remaining <= 0 && quota > 0 ? 'text-red-500 font-medium' : 'text-gray-600'}>{remaining}</span></p>
-                  </div>
-                );
-              })}
+        {/* 쿼터 현황 — 담당 부문별로 표시(부문별 개별 게이트) */}
+        {rootIds.map(rid => {
+          const q = quotaByRoot[rid];
+          const orgName = allOrgs.find(o => o.id === rid)?.name ?? rid;
+          if (!q) {
+            return (
+              <div key={rid} className="rounded-xl border border-orange-200 bg-orange-50 px-5 py-3.5 flex items-center gap-3">
+                <AlertCircle className="h-5 w-5 text-orange-400 shrink-0" />
+                <p className="text-sm text-orange-700">
+                  <span className="font-semibold">{orgName}</span> — 조직 평가 등급(쿼터)이 확정되지 않았습니다. HR 관리자가 등급 쿼터를 확정한 후 개인 등급을 부여할 수 있습니다.
+                </p>
+              </div>
+            );
+          }
+          const stats = divisionStats(rid);
+          const allFinalized = stats.total > 0 && stats.finalized === stats.total;
+          const canFinalize = stats.total > 0 && stats.assigned === stats.total && !allFinalized && !locked && !beforePeriod;
+          return (
+            <div key={rid} className="rounded-xl border bg-white px-5 py-4 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-xs font-semibold text-gray-500">
+                  {rootIds.length > 1 && <span className="text-gray-700">{orgName} · </span>}
+                  {year}년 부문 등급 쿼터 (조직 {q.orgGrade}등급 · 총 {q.totalMembers}명)
+                  <span className="ml-2 font-normal text-gray-400">배정 {stats.assigned}/{stats.total}{allFinalized && ' · 평가완료'}</span>
+                </p>
+                {allFinalized ? (
+                  <span className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-green-50 border border-green-200 px-3 py-1.5 text-xs font-bold text-green-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> 평가완료됨
+                  </span>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="shrink-0"
+                    disabled={!canFinalize || finalizing === rid}
+                    title={
+                      locked ? '확정된 연도입니다.'
+                        : beforePeriod ? '평가기간에만 확정할 수 있습니다.'
+                        : stats.assigned !== stats.total ? `미배정 ${stats.total - stats.assigned}명 — 부문 전원 배정 후 평가완료할 수 있습니다.`
+                        : '부문 평가를 최종 확정합니다.'
+                    }
+                    onClick={() => handleFinalize(rid)}
+                  >
+                    {finalizing === rid ? '확정 중...' : '평가완료'}
+                  </Button>
+                )}
+              </div>
+              <div className="flex gap-3 flex-wrap">
+                {GRADES.map(g => {
+                  const quota = getQuotaCount(rid, g);
+                  const assignees = assignedMembers(rid, g);
+                  const used = assignees.length;
+                  const remaining = quota - used;
+                  return (
+                    <div key={g} className={`rounded-lg border px-4 py-2.5 text-center min-w-[80px] ${
+                      remaining <= 0 && quota > 0 ? 'border-red-200 bg-red-50' : 'border-gray-200'
+                    }`}>
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold mb-1 ${GRADE_COLOR[g]}`}>{g}</span>
+                      <p className="text-lg font-bold text-gray-900">{quota}<span className="text-xs font-normal text-gray-400">명</span></p>
+                      <p className="text-xs text-gray-400">잔여 <span className={remaining <= 0 && quota > 0 ? 'text-red-500 font-medium' : 'text-gray-600'}>{remaining}</span></p>
+                      {assignees.length > 0 && (
+                        <div className="mt-1.5 pt-1.5 border-t border-gray-100 space-y-0.5">
+                          {assignees.map(m => (
+                            <p key={m.id} className="text-[11px] font-medium text-gray-600 leading-tight truncate max-w-[120px]" title={m.name}>{m.name}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-orange-200 bg-orange-50 px-5 py-3.5 flex items-center gap-3">
-            <AlertCircle className="h-5 w-5 text-orange-400 shrink-0" />
-            <p className="text-sm text-orange-700">HR 관리자가 등급 쿼터를 확정한 후 개인 등급을 부여할 수 있습니다.</p>
-          </div>
-        )}
+          );
+        })}
 
         {/* 팀원 목록 — 팀별 탭 (F1) */}
         {loading ? <LoadingSpinner /> : members.length === 0 ? (
@@ -477,8 +593,12 @@ function ExecutiveEvalView() {
                               {member.name}
                               <span className="ml-1 text-xs font-normal text-gray-400">{isLead ? '팀장' : '팀원'}{member.position ? ` · ${member.position}` : ''}</span>
                             </p>
-                            {isConfirmed && ie?.execGrade && (
-                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold shrink-0 ${GRADE_COLOR[ie.execGrade]}`}>확정 {ie.execGrade}</span>
+                            {ie?.execGrade && (
+                              isConfirmed ? (
+                                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold shrink-0 ${GRADE_COLOR[ie.execGrade]}`}>확정 {ie.execGrade}</span>
+                              ) : (
+                                <span className="rounded-full px-2.5 py-0.5 text-xs font-bold shrink-0 border border-dashed border-gray-300 text-gray-500" title="임시 배정 — 평가완료 전까지 수정 가능">배정 {ie.execGrade}</span>
+                              )
                             )}
                           </div>
                           {/* 이전 평가등급 의견(임원 화면) — 팀장·본부 등급의견 + 자기평가 점수 */}
@@ -504,6 +624,8 @@ function ExecutiveEvalView() {
                     const ie = indivEvals[member.id];
                     const isConfirmed = ie?.status === 'EXEC_CONFIRMED' || ie?.status === 'PUBLISHED';
                     const input = confirmInputs[member.id] ?? { grade: '', comment: '' };
+                    const memberRoot = rootByOrg[member.organizationId];
+                    const memberQuota = quotaOfMember(member); // 멤버 소속 부문 쿼터(없으면 null = 미확정)
                     return (
                       <div className="rounded-xl border bg-white p-5 space-y-5">
                         <div className="flex items-center gap-2 border-b pb-3">
@@ -532,20 +654,20 @@ function ExecutiveEvalView() {
                           </div>
                         )}
 
-                        {/* 등급 확정 입력 */}
+                        {/* 등급 배정 입력 (평가완료 전까지 수정 가능) */}
                         <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-3">
-                          <p className="text-sm font-bold text-indigo-700">{userProfile?.position || '임원'} 등급 확정</p>
+                          <p className="text-sm font-bold text-indigo-700">{userProfile?.position || '임원'} 등급 배정 {isConfirmed && <span className="text-green-600">(평가완료)</span>}</p>
                           <div>
                             <p className="text-xs text-gray-500 mb-2">등급 선택</p>
                             <div className="flex gap-2">
                               {GRADES.map(g => {
-                                const remaining = getRemaining(g);
+                                const remaining = getRemaining(memberRoot, g);
                                 const isSelected = input.grade === g;
-                                const isFull = !isSelected && remaining <= 0 && quotas !== null;
+                                const isFull = !isSelected && remaining <= 0 && memberQuota !== null;
                                 return (
                                   <div key={g} className="text-center">
                                     <button
-                                      disabled={isConfirmed || saving === member.id || isFull || locked}
+                                      disabled={isConfirmed || saving === member.id || isFull || locked || !memberQuota}
                                       onClick={() => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], grade: g } }))}
                                       className={`w-10 h-10 rounded-lg text-sm font-bold border-2 transition-all ${
                                         isSelected ? `${GRADE_COLOR[g]} border-current`
@@ -554,7 +676,7 @@ function ExecutiveEvalView() {
                                       } disabled:opacity-50`}>
                                       {g}
                                     </button>
-                                    {quotas && <p className={`text-[10px] mt-0.5 ${remaining <= 0 ? 'text-red-400' : 'text-gray-400'}`}>잔여{remaining}</p>}
+                                    {memberQuota && <p className={`text-[10px] mt-0.5 ${remaining <= 0 ? 'text-red-400' : 'text-gray-400'}`}>잔여{remaining}</p>}
                                   </div>
                                 );
                               })}
@@ -565,19 +687,22 @@ function ExecutiveEvalView() {
                             <textarea
                               value={input.comment}
                               onChange={e => setConfirm(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
-                              onKeyDown={shiftEnterSubmit(() => handleConfirm(member.id), !isConfirmed && saving !== member.id && !!input.grade && !locked && !beforePeriod)}
-                              disabled={isConfirmed || saving === member.id || locked}
+                              onKeyDown={shiftEnterSubmit(() => handleConfirm(member.id), !isConfirmed && saving !== member.id && !!input.grade && !locked && !beforePeriod && !!memberQuota)}
+                              disabled={isConfirmed || saving === member.id || locked || !memberQuota}
                               rows={2}
-                              placeholder="등급 부여 이유 또는 의견을 작성해주세요 (Shift+Enter 확정)"
+                              placeholder="등급 부여 이유 또는 의견을 작성해주세요 (Shift+Enter 배정)"
                               className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50" />
                           </div>
-                          <div className="flex justify-end">
+                          <div className="flex justify-end items-center gap-2">
                             {isConfirmed ? (
-                              <span className="text-xs text-green-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> 확정 완료</span>
+                              <span className="text-xs text-green-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> 평가완료 — 확정됨</span>
                             ) : (
-                              <Button size="sm" disabled={saving === member.id || !input.grade || locked || beforePeriod} title={beforePeriod ? '평가기간에만 확정할 수 있습니다.' : undefined} onClick={() => handleConfirm(member.id)}>
-                                {saving === member.id ? '확정 중...' : '등급 확정'}
-                              </Button>
+                              <>
+                                {ie?.execGrade && <span className="text-[11px] text-gray-400">배정됨 · 평가완료 전까지 수정 가능</span>}
+                                <Button size="sm" disabled={saving === member.id || !input.grade || locked || beforePeriod || !memberQuota} title={!memberQuota ? '해당 부문의 조직 평가 등급(쿼터) 확정 후 개인 등급을 배정할 수 있습니다.' : beforePeriod ? '평가기간에만 배정할 수 있습니다.' : undefined} onClick={() => handleConfirm(member.id)}>
+                                {saving === member.id ? '배정 중...' : (ie?.execGrade ? '등급 수정' : '등급 배정')}
+                                </Button>
+                              </>
                             )}
                           </div>
                         </div>
