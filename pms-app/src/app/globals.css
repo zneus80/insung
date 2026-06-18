@@ -169,6 +169,23 @@
   body.exec-fonts [data-slot="dialog-content"] textarea,
   body.exec-fonts [data-slot="dialog-content"] select,
   body.exec-fonts [data-slot="dialog-content"] button { font-size: inherit; }
+
+  /* 임원·CEO 커스텀 팝업(body 로 포털되어 wrapper·dialog-content 어디에도 안 잡히는 모달 — 예: MemberInfoModal).
+     Dialog 와 동일하게 폰트·배율(--font-scale)을 적용한다. 폭 강제(min-width)는 모달별 레이아웃을 깨지 않도록 제외. */
+  body.exec-fonts [data-exec-modal] { font-size: calc(13pt * var(--font-scale, 1)) !important; line-height: 1.55 !important; }
+  body.exec-fonts [data-exec-modal] .text-\[10px\],
+  body.exec-fonts [data-exec-modal] .text-\[11px\],
+  body.exec-fonts [data-exec-modal] .text-\[13px\],
+  body.exec-fonts [data-exec-modal] .text-xs { font-size: calc(12pt * var(--font-scale, 1)) !important; line-height: 1.5 !important; }
+  body.exec-fonts [data-exec-modal] .text-sm { font-size: calc(12pt * var(--font-scale, 1)) !important; line-height: 1.55 !important; }
+  body.exec-fonts [data-exec-modal] .text-base { font-size: calc(13pt * var(--font-scale, 1)) !important; line-height: 1.55 !important; }
+  body.exec-fonts [data-exec-modal] .text-lg { font-size: calc(14pt * var(--font-scale, 1)) !important; }
+  body.exec-fonts [data-exec-modal] .text-xl { font-size: calc(16pt * var(--font-scale, 1)) !important; }
+  body.exec-fonts [data-exec-modal] .text-2xl { font-size: calc(19pt * var(--font-scale, 1)) !important; }
+  body.exec-fonts [data-exec-modal] input,
+  body.exec-fonts [data-exec-modal] textarea,
+  body.exec-fonts [data-exec-modal] select,
+  body.exec-fonts [data-exec-modal] button { font-size: inherit; }
 }
 /* 토스트 닫기(X) 버튼 항상 표시 — sonner 기본은 hover 시에만 노출 */
 [data-sonner-toast] [data-close-button] {
