@@ -12,7 +12,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { onAuthChange, signOut } from '@/lib/auth';
 import { db } from '@/lib/firebase';
-import { getUser, updateUser, getOrganizations, getLocalSessionId, COLLECTIONS } from '@/lib/firestore';
+import { getUser, updateUser, getOrganizations, getLocalSessionId, registerActiveSession, COLLECTIONS } from '@/lib/firestore';
 import { getEffectiveEvalRole, type EffectiveEvalRole } from '@/lib/approval-filters';
 import { useIdleLogout } from '@/hooks/useIdleLogout';
 import type { User, UserRole, Organization } from '@/types';
@@ -120,6 +120,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // E-4: 세션 비활성 자동 로그아웃 (5분) — 로그인 상태에만 활성
   useIdleLogout({ enabled: !IS_MOCK && !!firebaseUser });
+
+  // 로그인 상태인데 로컬 세션 ID가 없으면(기능 배포 전부터 유지된 세션·앱 복원 등) 지금 세션을 점유한다.
+  // 이렇게 해야 옛 세션도 새 코드를 로드하는 순간 activeSessionId 를 등록 → 단일 세션 강제가 실제로 작동한다.
+  useEffect(() => {
+    if (IS_MOCK || !firebaseUser) return;
+    if (getLocalSessionId()) return; // 이미 점유함(로그인 페이지에서 등록)
+    // 로그인 직후엔 로그인 페이지가 곧 등록하므로 잠시 양보 후 재확인 → 이중 등록·self-kick 레이스 방지.
+    const t = setTimeout(() => {
+      if (firebaseUser && !getLocalSessionId()) registerActiveSession(firebaseUser.uid).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [firebaseUser]);
 
   // 중복로그인 방지 — 본인 활성 세션 ID 구독. 다른 기기에서 로그인하면(activeSessionId 변경)
   // 로컬 세션과 달라지므로 이 기기는 자동 로그아웃(마지막 로그인 우선).
