@@ -158,12 +158,12 @@ const navItems: NavItem[] = [
     requireHrAdmin: true,
   },
 
-  // ══ AI 챗봇 (CEO + HR 마스터) ═══════════════
+  // ══ AI 챗봇 (CEO + 임원 + HR 마스터) — 임원은 본인 책임 조직 산하만 분석(§6-1) ═══════════════
   {
     label: 'AI 인사·성과 분석',
     href: '/admin/ai-assistant',
     icon: <Sparkles className="h-5 w-5" />,
-    roles: ['CEO'],
+    roles: ['CEO', 'EXECUTIVE'],
     group: 'AI 챗봇',
   },
   {
