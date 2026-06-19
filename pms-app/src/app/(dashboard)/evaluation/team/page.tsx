@@ -211,10 +211,11 @@ function TeamLeadEvalView() {
         } catch {
           setMyDivisionGrade(null);
         }
-        // 평가단위 쿼터(배분표) — 평가 작성 편의용. orgGrade 스냅샷이 쿼터에 있으므로 공개 게이트와 무관하게 배분표만 표시.
+        // 평가단위 쿼터(배분표) — 평가 작성 편의용. 정보성 표시이므로 DRAFT(미확정)도 보여주되 상태를 함께 표기한다.
+        // (확정 인원이 아닌 배분표 숫자만 → §6-1 무관)
         try {
           const quotas = await getAllDivisionGradeQuotas(year);
-          setMyQuota(quotas.find(q => q.organizationId === myDiv.id && q.status === 'CONFIRMED') ?? null);
+          setMyQuota(quotas.find(q => q.organizationId === myDiv.id) ?? null);
         } catch {
           setMyQuota(null);
         }
@@ -522,6 +523,9 @@ function TeamLeadEvalView() {
             <div className="rounded-xl border bg-white px-5 py-4 space-y-2">
               <p className="text-xs font-semibold text-gray-500">
                 {myDivision?.name} 등급 쿼터 (조직 {myQuota.orgGrade}등급 · 총 {myQuota.totalMembers}명)
+                {myQuota.status === 'DRAFT' && (
+                  <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">미확정</span>
+                )}
                 <span className="ml-2 font-normal text-gray-400">
                   {showCounts ? '— 내 의견 기준 잔여 표시' : '— 참고용 배분표'}
                 </span>
