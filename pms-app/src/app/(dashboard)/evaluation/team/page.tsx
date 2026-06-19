@@ -22,6 +22,7 @@ import {
   getOrgEvalPublish,
   getAllOrgAnnualGoals,
   getAttendancesByYear,
+  getAllDivisionGradeQuotas,
 } from '@/lib/firestore';
 import type { Organization, OrganizationEvaluation } from '@/types';
 import { notifyEvalReviewer } from '@/lib/eval-notifications';
@@ -47,6 +48,7 @@ import { cn, shiftEnterSubmit } from '@/lib/utils';
 import type {
   Goal, SelfEvaluation, IndividualEvaluation,
   EvaluationGrade, User, MentoringForm, WeeklyTask, InnovationActivity, AnnualGoal, Attendance,
+  DivisionGradeQuota,
 } from '@/types';
 
 const GRADES: EvaluationGrade[] = ['A', 'B', 'C', 'D', 'E'];
@@ -153,6 +155,8 @@ function TeamLeadEvalView() {
   // 본인 소속 부문/공장의 조직평가 등급
   const [myDivision, setMyDivision] = useState<Organization | null>(null);
   const [myDivisionGrade, setMyDivisionGrade] = useState<EvaluationGrade | null>(null);
+  // 본인 소속 평가단위의 등급 쿼터(CONFIRMED) — 평가 작성 시 참고용 배분표(§6-1: 확정 인원이 아닌 배분표만)
+  const [myQuota, setMyQuota] = useState<DivisionGradeQuota | null>(null);
 
   function getDescendantIds(orgId: string, allOrgs: Organization[]): string[] {
     const ids: string[] = [orgId];
@@ -206,6 +210,13 @@ function TeamLeadEvalView() {
           }
         } catch {
           setMyDivisionGrade(null);
+        }
+        // 평가단위 쿼터(배분표) — 평가 작성 편의용. orgGrade 스냅샷이 쿼터에 있으므로 공개 게이트와 무관하게 배분표만 표시.
+        try {
+          const quotas = await getAllDivisionGradeQuotas(year);
+          setMyQuota(quotas.find(q => q.organizationId === myDiv.id && q.status === 'CONFIRMED') ?? null);
+        } catch {
+          setMyQuota(null);
         }
       }
 
@@ -502,6 +513,48 @@ function TeamLeadEvalView() {
             <span className="text-xs text-gray-400 ml-auto">{year}년 확정</span>
           </div>
         )}
+
+        {/* 조직 등급 쿼터 배분표 — 평가 작성 시 참고용. (§6-1: 확정 인원이 아닌 배분표만 노출)
+            팀장: 배분 숫자만 / 단순임원(차순위 임원·본부장): 본인 의견 기준 잔여·대상자도 표시 */}
+        {myQuota && (() => {
+          const showCounts = effectiveEvalRole === 'EXEC_SUB' || effectiveEvalRole === 'HQ_HEAD' || isHQHead;
+          return (
+            <div className="rounded-xl border bg-white px-5 py-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-500">
+                {myDivision?.name} 등급 쿼터 (조직 {myQuota.orgGrade}등급 · 총 {myQuota.totalMembers}명)
+                <span className="ml-2 font-normal text-gray-400">
+                  {showCounts ? '— 내 의견 기준 잔여 표시' : '— 참고용 배분표'}
+                </span>
+              </p>
+              <div className="flex gap-3 flex-wrap">
+                {GRADES.map(g => {
+                  const quota = (myQuota[`quota${g}` as keyof DivisionGradeQuota] as number) ?? 0;
+                  const assignees = showCounts ? members.filter(m => opinions[m.id]?.grade === g) : [];
+                  const remaining = quota - assignees.length;
+                  return (
+                    <div key={g} className={cn(
+                      'rounded-lg border px-4 py-2.5 text-center min-w-[80px]',
+                      showCounts && remaining < 0 ? 'border-red-200 bg-red-50' : 'border-gray-200',
+                    )}>
+                      <span className={cn('inline-block rounded-full px-2 py-0.5 text-xs font-bold mb-1', GRADE_COLOR[g])}>{g}</span>
+                      <p className="text-lg font-bold text-gray-900">{quota}<span className="text-xs font-normal text-gray-400">명</span></p>
+                      {showCounts && (
+                        <p className="text-xs text-gray-400">잔여 <span className={remaining < 0 ? 'text-red-500 font-medium' : 'text-gray-600'}>{remaining}</span></p>
+                      )}
+                      {showCounts && assignees.length > 0 && (
+                        <div className="mt-1.5 pt-1.5 border-t border-gray-100 space-y-0.5">
+                          {assignees.map(m => (
+                            <p key={m.id} className="text-[11px] font-medium text-gray-600 leading-tight truncate max-w-[120px]" title={m.name}>{m.name}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {loading ? <LoadingSpinner /> : members.length === 0 ? (
           <div className="rounded-xl border border-dashed p-10 text-center text-gray-400">소속 팀원이 없습니다.</div>
