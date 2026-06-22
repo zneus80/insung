@@ -23,7 +23,7 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { cn, shiftEnterSubmit } from '@/lib/utils';
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star, Printer, Save, Lock, ChevronUp, ChevronDown,
+  ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Star, Printer, Save, Lock, ChevronUp, ChevronDown, Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { findDescendantIds } from '@/components/goals/OrgGoalTree';
@@ -44,6 +44,13 @@ function getISOWeek(date: Date) {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return { year: d.getUTCFullYear(), week: Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7) };
 }
+// 1차 베타 한시 조치 — 이 시점까지는 지난 주 주간업무보고도 작성·수정 허용(주 토요일 이후 잠금 해제).
+// 베타 종료 후엔 기존대로 해당 주 토요일 이후 본문 잠금으로 복귀.
+const BETA_PAST_EDIT_UNTIL = new Date('2026-08-31T23:59:59+09:00');
+function isBetaPastEditOpen(): boolean {
+  return new Date() <= BETA_PAST_EDIT_UNTIL;
+}
+
 function getWeekRange(year: number, week: number) {
   const jan4 = new Date(year, 0, 4);
   const jan4Day = (jan4.getDay() + 6) % 7;
@@ -122,6 +129,15 @@ function MemberTasksPage() {
           <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-gray-100 px-4 py-2.5 text-sm text-gray-600">
             <Lock className="h-4 w-4 shrink-0 text-gray-500" />
             <span><b>{year}년</b>은 확정된 연도입니다. 주간업무보고는 조회만 가능합니다.</span>
+          </div>
+        )}
+        {!locked && isBetaPastEditOpen() && (
+          <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
+            <Info className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
+            <span>
+              <b>주간업무보고 1차 베타 안내</b> — <b>8월 31일까지</b> 지난 주 주간업무보고도 한시적으로 <b>작성·수정</b>할 수 있습니다.
+              빠진 주차가 있다면 이 기간 안에 보완해 주세요. (베타 종료 후에는 해당 주 마감 이후 수정이 잠깁니다.)
+            </span>
           </div>
         )}
         {hasOtherTeams && (
@@ -606,7 +622,8 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
   const { start, end } = getWeekRange(year, week);
   const saturday = new Date(start); saturday.setDate(start.getDate() + 5); saturday.setHours(0, 0, 0, 0);
   // 검토자(read-only)는 항상 본문 잠금. 편집 가능자도 해당 주 토요일 이후 잠금.
-  const isBodyLocked = !editable || new Date() >= saturday;
+  // 단, 1차 베타 기간(~8/31)에는 지난 주도 한시적으로 작성·수정 허용(토요일 잠금 해제).
+  const isBodyLocked = !editable || (new Date() >= saturday && !isBetaPastEditOpen());
   // 핵심업무(골 연동) 항목은 해당 목표의 수행자(owner)+공동수행자만 추가/수정/삭제 가능.
   // 일반업무(goalId 없음)는 팀 공용이므로 누구나(편집권자) 가능.
   function canWriteGoalItem(goalId?: string): boolean {
