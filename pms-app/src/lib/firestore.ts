@@ -2670,9 +2670,15 @@ export async function syncWeeklyGoalProgress(params: {
   goalComments?: Record<string, string>;
 }): Promise<void> {
   const { orgId, actorId, year, week, goalProgress, goalComments = {} } = params;
-  const entries = Object.entries(goalProgress);
-  for (const [goalId, pct] of entries) {
-    if (!goalId || typeof pct !== 'number' || pct < 0 || pct > 100) continue;
+  // 진행률을 바꾼 목표 + 진행사항(코멘트)이 있는 목표 모두 연동 대상.
+  // (진행사항만 입력하고 진행률은 안 바꾼 경우에도 골카드에 반영되도록)
+  const goalIds = new Set<string>([...Object.keys(goalProgress), ...Object.keys(goalComments)]);
+  for (const goalId of goalIds) {
+    if (!goalId) continue;
+    const rawPct = goalProgress[goalId];
+    const pct = (typeof rawPct === 'number' && rawPct >= 0 && rawPct <= 100) ? rawPct : undefined;
+    const comment = goalComments[goalId];
+    if (pct === undefined && comment === undefined) continue; // 반영할 내용 없음
     const goalSnap = await getDoc(doc(db, COLLECTIONS.GOALS, goalId));
     if (!goalSnap.exists()) continue;
     const g = goalSnap.data();
@@ -2682,18 +2688,37 @@ export async function syncWeeklyGoalProgress(params: {
       g.userId === actorId ||
       (Array.isArray(g.collaboratorIds) && g.collaboratorIds.includes(actorId));
     if (!allowed) continue;
-    if ((g.progress ?? 0) === pct) continue; // 변동 없으면 skip
-    await updateDoc(goalSnap.ref, {
-      progress: pct,
-      status: g.status === 'APPROVED' ? 'IN_PROGRESS' : g.status,
-      updatedAt: serverTimestamp(),
-    });
-    await addDoc(collection(db, COLLECTIONS.PROGRESS_UPDATES), {
-      goalId, userId: actorId, progress: pct,
-      comment: goalComments[goalId] ?? `${year}년 ${week}주차 주간보고`,
+
+    // 진행률 변동 시에만 목표 progress 갱신
+    if (pct !== undefined && (g.progress ?? 0) !== pct) {
+      await updateDoc(goalSnap.ref, {
+        progress: pct,
+        status: g.status === 'APPROVED' ? 'IN_PROGRESS' : g.status,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    // 주간 진행기록(progressUpdate) — (목표·연·주차·작성자)당 1건 idempotent upsert.
+    // 같은 주차를 다시 저장하면 새로 쌓지 않고 기존 1건을 갱신(중복 방지).
+    const effPct = pct ?? (g.progress ?? 0);
+    const payload = {
+      goalId, userId: actorId, progress: effPct,
+      comment: comment ?? `${year}년 ${week}주차 주간보고`,
       weekNumber: week, weekYear: year,
-      createdAt: serverTimestamp(),
+    };
+    const existing = await getDocs(query(
+      collection(db, COLLECTIONS.PROGRESS_UPDATES),
+      where('goalId', '==', goalId),
+    ));
+    const mine = existing.docs.find(d => {
+      const x = d.data();
+      return x.userId === actorId && x.weekYear === year && x.weekNumber === week;
     });
+    if (mine) {
+      await updateDoc(mine.ref, { ...payload, updatedAt: serverTimestamp() });
+    } else {
+      await addDoc(collection(db, COLLECTIONS.PROGRESS_UPDATES), { ...payload, createdAt: serverTimestamp() });
+    }
   }
 }
 

@@ -715,15 +715,19 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
       try {
         const gpEff = gp ?? gpRef.current;
         await upsertTeamWeeklyTask(orgId, year, week, start, end, hd, wd, gpEff);
-        // 진행률 역류 (핵심목표 연동) — '저장' 버튼으로 수동 실행 시에만
-        if (syncGoals && gpEff && Object.keys(gpEff).length > 0) {
+        // 핵심목표 연동 — '저장·목표연동' 버튼으로 수동 실행 시에만.
+        // 진행률을 바꾼 목표 + 이번 주 진행사항(Has Done)이 있는 목표를 모두 연동(진행사항만 입력해도 골카드에 반영).
+        if (syncGoals) {
           const goalComments: Record<string, string> = {};
-          for (const gid of Object.keys(gpEff)) {
+          const noteGoalIds = new Set(hd.filter(i => i.goalId).map(i => i.goalId as string));
+          for (const gid of new Set<string>([...Object.keys(gpEff ?? {}), ...noteGoalIds])) {
             const titles = hd.filter(i => i.goalId === gid).map(i => (i.title || i.content).trim()).filter(Boolean);
             goalComments[gid] = titles.length ? `[${year}년 ${week}주차] ${titles.join(', ')}` : `${year}년 ${week}주차 주간보고`;
           }
-          try { await syncWeeklyGoalProgress({ orgId, actorId: currentUser.id, year, week, goalProgress: gpEff, goalComments }); }
-          catch (e) { console.error('[진행률 역류] 실패:', e); }
+          if (Object.keys(goalComments).length > 0) {
+            try { await syncWeeklyGoalProgress({ orgId, actorId: currentUser.id, year, week, goalProgress: gpEff ?? {}, goalComments }); }
+            catch (e) { console.error('[핵심목표 연동] 실패:', e); }
+          }
         }
         // 차주 hasDone 이월 동기화
         try {
