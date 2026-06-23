@@ -2698,8 +2698,8 @@ export async function syncWeeklyGoalProgress(params: {
       });
     }
 
-    // 주간 진행기록(progressUpdate) — (목표·연·주차·작성자)당 1건 idempotent upsert.
-    // 같은 주차를 다시 저장하면 새로 쌓지 않고 기존 1건을 갱신(중복 방지).
+    // 주간 진행기록(progressUpdate) — 주간보고는 팀 공유 문서이므로 (목표·연·주차)당 1건(팀 기준).
+    // 작성자와 무관하게 같은 주차 기록 1건을 갱신(최신 저장자로 표기)하고, 중복으로 쌓인 같은 주차 기록은 정리.
     const effPct = pct ?? (g.progress ?? 0);
     const payload = {
       goalId, userId: actorId, progress: effPct,
@@ -2710,12 +2710,14 @@ export async function syncWeeklyGoalProgress(params: {
       collection(db, COLLECTIONS.PROGRESS_UPDATES),
       where('goalId', '==', goalId),
     ));
-    const mine = existing.docs.find(d => {
+    const sameWeek = existing.docs.filter(d => {
       const x = d.data();
-      return x.userId === actorId && x.weekYear === year && x.weekNumber === week;
+      return x.weekYear === year && x.weekNumber === week;
     });
-    if (mine) {
-      await updateDoc(mine.ref, { ...payload, updatedAt: serverTimestamp() });
+    if (sameWeek.length > 0) {
+      await updateDoc(sameWeek[0].ref, { ...payload, updatedAt: serverTimestamp() });
+      // 같은 (목표·주차)로 중복 누적된 기록 정리 — 팀 기준 1건만 유지
+      for (const dup of sameWeek.slice(1)) await deleteDoc(dup.ref);
     } else {
       await addDoc(collection(db, COLLECTIONS.PROGRESS_UPDATES), { ...payload, createdAt: serverTimestamp() });
     }
