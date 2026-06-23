@@ -78,8 +78,8 @@ function MentoringContent() {
   const [carriedOver, setCarriedOver] = useState(false); // 이전 데이터 불러왔는지 여부
   // 자격증 개별 입력 목록
   const [certList, setCertList] = useState<string[]>(['']);
-  // 교육수강현황 개별 입력 목록 (법정/일반직무 + 교육명)
-  const [eduList, setEduList] = useState<EducationEntry[]>([]);
+  // 교육수강현황 개별 입력 목록 (법정/일반직무 + 교육명) — 자격증처럼 기본 입력칸 1개 표시
+  const [eduList, setEduList] = useState<EducationEntry[]>([{ type: '일반직무', name: '' }]);
   // 수정 요청 (A4) 관련 state
   const [editRequestPending, setEditRequestPending] = useState(false);
   const [editRequestReason, setEditRequestReason] = useState('');
@@ -107,7 +107,7 @@ function MentoringContent() {
     setForm(EMPTY_FORM);
     setStatus('DRAFT');
     setCertList(['']);
-    setEduList([]);
+    setEduList([{ type: '일반직무', name: '' }]);
     setCarriedOver(false);
     try {
       if (IS_MOCK) {
@@ -130,7 +130,7 @@ function MentoringContent() {
         setEditRequestPending(!!erp);
         setEditRequestReason(err ?? '');
         setCertList(record.certifications ? record.certifications.split('\n').filter(Boolean) : ['']);
-        setEduList(record.educationHistory ?? []);
+        setEduList(record.educationHistory?.length ? record.educationHistory : [{ type: '일반직무', name: '' }]);
       } else {
         // 현재 연도 폼 없으면 작년 폼에서 고정 필드(직책·자격증·승진일) 자동 불러오기
         const prevRecord = await getMentoringForm(userProfile.id, year - 1);
