@@ -81,6 +81,9 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid;
+      // 주간보고 목표연동: 팀 기준 (목표·주차)당 1건 유지를 위해 같은 팀원이 기존 진행기록을
+      // 갱신/중복정리할 수 있어야 함. 진행 로그라 민감도 낮음 → 인증 사용자 허용.
+      allow update, delete: if isAuthenticated();
     }
 
     // 1on1
