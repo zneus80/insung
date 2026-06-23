@@ -197,7 +197,7 @@ export default function AiEvalPanel({
       {result && (
         <div className="space-y-2">
           {result.ranking.length > 0 && (
-            <p className="text-xs text-violet-700">
+            <p className="text-sm text-violet-700">
               <span className="font-semibold">참고 순위:</span> {result.ranking.map(r => nameOf(r.userId)).join(' · ')}
             </p>
           )}
@@ -217,24 +217,24 @@ export default function AiEvalPanel({
                   className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-violet-50/50 transition-colors"
                 >
                   <span className={`text-gray-400 transition-transform text-xs ${isOpen ? 'rotate-90' : ''}`}>▶</span>
-                  {rank != null && <span className="text-[11px] font-bold text-violet-600 w-5 shrink-0">{rank}위</span>}
-                  <span className="text-sm font-semibold text-gray-800">{nameOf(s.userId)}</span>
-                  {s.suggestedGrade && <span className="text-[11px] rounded-full bg-violet-100 text-violet-700 px-2 py-0.5">추천 {s.suggestedGrade}</span>}
+                  {rank != null && <span className="text-[13px] font-bold text-violet-600 w-6 shrink-0">{rank}위</span>}
+                  <span className="text-base font-semibold text-gray-800">{nameOf(s.userId)}</span>
+                  {s.suggestedGrade && <span className="text-[13px] rounded-full bg-violet-100 text-violet-700 px-2 py-0.5">추천 {s.suggestedGrade}</span>}
                 </button>
                 {isOpen && (
                   <div className="px-3 pb-2.5 pt-0">
-                    <p className="text-xs text-gray-600 mt-0.5 whitespace-pre-wrap">{s.summary}</p>
-                    {s.strengths?.length > 0 && <p className="text-[11px] text-green-600 mt-0.5">강점: {s.strengths.join(', ')}</p>}
-                    {s.issues?.length > 0 && <p className="text-[11px] text-amber-600">보완: {s.issues.join(', ')}</p>}
+                    <p className="text-sm text-gray-600 mt-0.5 whitespace-pre-wrap">{s.summary}</p>
+                    {s.strengths?.length > 0 && <p className="text-[13px] text-green-600 mt-0.5">강점: {s.strengths.join(', ')}</p>}
+                    {s.issues?.length > 0 && <p className="text-[13px] text-amber-600">보완: {s.issues.join(', ')}</p>}
                     {s.mentoringSummary?.trim() && (
-                      <p className="text-[11px] text-violet-600 mt-1 pt-1 border-t border-violet-50">육성면담서 요약: {s.mentoringSummary}</p>
+                      <p className="text-[13px] text-violet-600 mt-1 pt-1 border-t border-violet-50">육성면담서 요약: {s.mentoringSummary}</p>
                     )}
                   </div>
                 )}
               </div>
             );
           })}
-          {result.disclaimer && <p className="text-[11px] text-gray-400">{result.disclaimer}</p>}
+          {result.disclaimer && <p className="text-[13px] text-gray-400">{result.disclaimer}</p>}
         </div>
       )}
     </div>
