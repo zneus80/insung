@@ -12,6 +12,8 @@ import {
   addGoalHistory,
   getGoalHistories,
   addProgressUpdate,
+  updateProgressUpdate,
+  deleteProgressUpdate,
   getProgressUpdates,
   getUser,
   getAllUsers,
@@ -138,6 +140,9 @@ export default function GoalDetailPage() {
 
   const [newProgress, setNewProgress] = useState(0);
   const [progressComment, setProgressComment] = useState('');
+  // 수동 진행기록 인라인 수정 (작성 1주일 이내·본인만)
+  const [editingUpdateId, setEditingUpdateId] = useState<string | null>(null);
+  const [editUpdateText, setEditUpdateText] = useState('');
   // 반려 의견
   const [rejectComment, setRejectComment] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
@@ -485,6 +490,39 @@ export default function GoalDetailPage() {
       }
       setProgressComment('');
       toast.success(canSetProgress ? '진행상황이 업데이트되었습니다.' : '코멘트를 등록했습니다.');
+      await load();
+    } finally { setActionLoading(false); }
+  }
+
+  // 수동 진행기록 수정 가능 여부 — 주간보고 연동(weekNumber) 아님 + 본인 작성 + 작성 1주일 이내 + 확정연도 아님
+  const PROGRESS_EDIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+  function canEditUpdate(u: ProgressUpdate): boolean {
+    return !u.weekNumber
+      && !!userProfile && u.userId === userProfile.id
+      && !goalLocked
+      && (Date.now() - u.createdAt.getTime()) <= PROGRESS_EDIT_WINDOW_MS;
+  }
+  function startEditUpdate(u: ProgressUpdate) {
+    setEditingUpdateId(u.id);
+    setEditUpdateText(u.comment ?? '');
+  }
+  async function saveEditedUpdate(u: ProgressUpdate) {
+    if (!canEditUpdate(u) || !editUpdateText.trim()) return;
+    setActionLoading(true);
+    try {
+      await updateProgressUpdate(u.id, { comment: editUpdateText.trim() });
+      setEditingUpdateId(null);
+      toast.success('진행사항을 수정했습니다.');
+      await load();
+    } finally { setActionLoading(false); }
+  }
+  async function removeUpdate(u: ProgressUpdate) {
+    if (!canEditUpdate(u)) return;
+    if (!confirm('이 진행사항을 삭제하시겠습니까?')) return;
+    setActionLoading(true);
+    try {
+      await deleteProgressUpdate(u.id);
+      toast.success('진행사항을 삭제했습니다.');
       await load();
     } finally { setActionLoading(false); }
   }
@@ -1486,11 +1524,38 @@ export default function GoalDetailPage() {
                               {format(u.createdAt, 'yyyy.MM.dd HH:mm', { locale: ko })}
                             </span>
                           </div>
-                          {isOwnerUpdate && (
-                            <span className="font-medium text-blue-600">{u.progress}%</span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {isOwnerUpdate && (
+                              <span className="font-medium text-blue-600">{u.progress}%</span>
+                            )}
+                            {canEditUpdate(u) && editingUpdateId !== u.id && (
+                              <>
+                                <button onClick={() => startEditUpdate(u)} className="p-1 text-gray-400 hover:text-blue-600" title="수정 (작성 1주일 이내)">
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button onClick={() => removeUpdate(u)} className="p-1 text-gray-400 hover:text-red-500" title="삭제 (작성 1주일 이내)">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{u.comment}</p>
+                        {editingUpdateId === u.id ? (
+                          <div className="space-y-2">
+                            <textarea
+                              value={editUpdateText}
+                              onChange={e => setEditUpdateText(e.target.value)}
+                              rows={2}
+                              className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <div className="flex justify-end gap-2">
+                              <Button size="sm" variant="ghost" onClick={() => setEditingUpdateId(null)} disabled={actionLoading}>취소</Button>
+                              <Button size="sm" onClick={() => saveEditedUpdate(u)} disabled={actionLoading || !editUpdateText.trim()}>저장</Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap">{u.comment}</p>
+                        )}
                       </div>
                     );
                   })}

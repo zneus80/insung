@@ -716,6 +716,19 @@ export async function addProgressUpdate(data: Omit<ProgressUpdate, 'id' | 'creat
   return ref.id;
 }
 
+/** 수동 진행기록 수정 — 작성자가 작성 1주일 이내에만(호출 측에서 기간·권한 검증). */
+export async function updateProgressUpdate(id: string, data: Partial<Pick<ProgressUpdate, 'comment' | 'progress'>>) {
+  await updateDoc(doc(db, COLLECTIONS.PROGRESS_UPDATES, id), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** 수동 진행기록 삭제 — 작성자가 작성 1주일 이내에만(호출 측에서 기간·권한 검증). */
+export async function deleteProgressUpdate(id: string) {
+  await deleteDoc(doc(db, COLLECTIONS.PROGRESS_UPDATES, id));
+}
+
 export async function getProgressUpdates(goalId: string): Promise<ProgressUpdate[]> {
   const snap = await getDocs(query(
     collection(db, COLLECTIONS.PROGRESS_UPDATES),
