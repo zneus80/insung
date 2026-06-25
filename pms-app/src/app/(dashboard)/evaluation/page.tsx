@@ -39,7 +39,7 @@ import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AiEvalPanel from '@/components/evaluation/AiEvalPanel';
 import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
 import AttendanceBody from '@/components/evaluation/AttendanceBody';
-import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
+import SelfEvalBody, { computeSelfEvalTotal, reconcileSelfEval } from '@/components/evaluation/SelfEvalBody';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
@@ -357,10 +357,15 @@ function ExecutiveEvalView() {
   function roleOfMember(m: User): 'SOLE' | 'UNIT' | 'FINAL' | null {
     return roleByUnit[unitByOrg[m.organizationId]] ?? null;
   }
+  // 평가 대상자가 자기평가·육성면담서를 모두 제출해야 평가(배정·확정) 가능
+  function isMemberReadyForEval(memberId: string): boolean {
+    return selfEvals[memberId]?.status === 'SUBMITTED' && mentoringForms[memberId]?.status === 'SUBMITTED';
+  }
   // 내가 이 멤버의 등급을 '배정/수정'할 수 있는가 — 배정 권한은 SOLE/UNIT 확정자만(FINAL=부문 임원은 배정 불가).
   function canAssignMember(m: User): boolean {
     const role = roleOfMember(m);
     if (role !== 'SOLE' && role !== 'UNIT') return false;
+    if (!isMemberReadyForEval(m.id)) return false; // 자기평가·육성면담서 미제출이면 배정 불가
     const s = indivEvals[m.id]?.status;
     // 본부 확정(HQ_REVIEWED)·최종 확정(EXEC_CONFIRMED/PUBLISHED) 이후엔 수정 불가
     return s !== 'HQ_REVIEWED' && s !== 'EXEC_CONFIRMED' && s !== 'PUBLISHED';
@@ -372,6 +377,9 @@ function ExecutiveEvalView() {
     if (locked) { toast.error(`${year}년은 확정된 연도입니다. 등급 배정/변경이 불가합니다.`); return; }
     const member0 = members.find(m => m.id === memberId);
     if (!member0 || !quotaOfMember(member0)) { toast.error('해당 평가단위의 조직 평가 등급(쿼터)이 확정되지 않았습니다. HR 관리자가 등급 쿼터를 확정한 후 등급을 배정할 수 있습니다.'); return; }
+    if (member0 && !isMemberReadyForEval(member0.id) && indivEvals[memberId]?.status !== 'EXEC_CONFIRMED' && indivEvals[memberId]?.status !== 'PUBLISHED') {
+      toast.error('평가 대상자가 자기평가와 육성면담서를 모두 제출해야 등급을 배정할 수 있습니다.'); return;
+    }
     if (!canAssignMember(member0)) { toast.error('이미 확정되어 수정할 수 없습니다. (수정요청 또는 HR 쿼터 재조정 필요)'); return; }
     const input = confirmInputs[memberId];
     if (!input?.grade) { toast.error('등급을 선택해주세요.'); return; }
@@ -732,7 +740,7 @@ function ExecutiveEvalView() {
                           </div>
                           {/* 이전 평가등급 의견(임원 화면) — 팀장·본부 등급의견 + 자기평가 점수 */}
                           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                            {(() => { const t = computeSelfEvalTotal(se); return t != null && (
+                            {(() => { const t = computeSelfEvalTotal(reconcileSelfEval(se, goalsByMember[member.id])); return t != null && (
                               <span className="text-[11px] rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold">자기평가 {t}점</span>
                             ); })()}
                             {ie?.leadGrade && <span className={`text-[11px] rounded-full px-2 py-0.5 ${GRADE_COLOR[ie.leadGrade]}`}>팀장 {ie.leadGrade}</span>}
@@ -801,6 +809,12 @@ function ExecutiveEvalView() {
                             {isFinalView ? '배정 등급 (본부 임원)' : `${userProfile?.position || '임원'} 등급 배정`}
                             {isConfirmed ? <span className="text-green-600"> · 최종 확정</span> : isUnitConfirmed && <span className="text-indigo-500"> · 본부 확정(부문 최종 대기)</span>}
                           </p>
+                          {!isConfirmed && !isUnitConfirmed && !isMemberReadyForEval(member.id) && (
+                            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                              평가 대상자가 <b>자기평가·육성면담서</b>를 모두 제출해야 등급을 배정할 수 있습니다.
+                              (자기평가 {selfEvals[member.id]?.status === 'SUBMITTED' ? '제출✓' : '미제출'} · 육성면담서 {mentoringForms[member.id]?.status === 'SUBMITTED' ? '제출✓' : '미제출'})
+                            </div>
+                          )}
                           <div>
                             <p className="text-xs text-gray-500 mb-2">등급 선택</p>
                             <div className="flex gap-2">
@@ -844,6 +858,8 @@ function ExecutiveEvalView() {
                               isUnitConfirmed
                                 ? <span className="text-xs text-indigo-600 font-medium">본부 확정됨 · 상단 ‘최종 확정’으로 확정하세요</span>
                                 : <span className="text-xs text-gray-400">본부 임원의 본부 확정 대기 중</span>
+                            ) : !isMemberReadyForEval(member.id) ? (
+                              <span className="text-xs text-amber-600 font-medium">자기평가·육성면담서 제출 후 배정 가능</span>
                             ) : !canAssign ? (
                               <span className="text-xs text-indigo-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> 본부 확정됨 · 부문 임원 최종 확정 대기</span>
                             ) : (
@@ -861,8 +877,8 @@ function ExecutiveEvalView() {
                         <div>
                           <p className="text-sm font-bold text-gray-800 mb-2">
                             자기평가
-                            {(() => { const t = computeSelfEvalTotal(selfEvals[member.id]?.status === 'SUBMITTED' ? selfEvals[member.id] : null); return t != null && (
-                              <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점)</span>
+                            {(() => { const t = computeSelfEvalTotal(reconcileSelfEval(selfEvals[member.id], goalsByMember[member.id])); return t != null && (
+                              <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점{selfEvals[member.id]?.status !== 'SUBMITTED' && ' · 작성중'})</span>
                             ); })()}
                           </p>
                           {(() => {
@@ -870,8 +886,9 @@ function ExecutiveEvalView() {
                               g.status === 'APPROVED' || g.status === 'IN_PROGRESS' || g.status === 'COMPLETED' ||
                               g.status === 'PENDING_ABANDON' || (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange));
                             const completed = cg.filter(g => g.status === 'COMPLETED').length;
+                            // (B) 미제출(작성중) 자기평가도 검토용 표시. goalEvals는 현재 완료된 핵심목표만 반영(정합화).
                             return (
-                              <SelfEvalBody form={selfEvals[member.id]?.status === 'SUBMITTED' ? selfEvals[member.id] : null}
+                              <SelfEvalBody form={reconcileSelfEval(selfEvals[member.id], goalsByMember[member.id])}
                                 abandonedGoals={cg.filter(g => g.status === 'ABANDONED').map(g => ({ goalId: g.id, goalTitle: g.title }))}
                                 goalSummary={{ total: cg.length, completed, notCompleted: cg.length - completed }} />
                             );

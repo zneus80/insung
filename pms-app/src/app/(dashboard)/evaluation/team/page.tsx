@@ -40,7 +40,7 @@ import MemberInfoModal from '@/components/members/MemberInfoModal';
 import AiEvalPanel from '@/components/evaluation/AiEvalPanel';
 import MentoringPerfBody from '@/components/evaluation/MentoringPerfBody';
 import AttendanceBody from '@/components/evaluation/AttendanceBody';
-import SelfEvalBody, { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
+import SelfEvalBody, { computeSelfEvalTotal, reconcileSelfEval } from '@/components/evaluation/SelfEvalBody';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -355,9 +355,15 @@ function TeamLeadEvalView() {
     } catch { /* 무시 */ }
   }, []);
 
+  // 평가 대상자가 자기평가·육성면담서를 모두 제출해야 평가(의견·확정) 가능
+  function isMemberReadyForEval(memberId: string): boolean {
+    return selfEvals[memberId]?.status === 'SUBMITTED' && mentoringForms[memberId]?.status === 'SUBMITTED';
+  }
+
   async function handleSubmitOpinion(memberId: string) {
     if (!userProfile) return;
     if (locked) { toast.error(`${year}년은 확정된 연도입니다. 평가 의견 제출/수정이 불가합니다.`); return; }
+    if (!isMemberReadyForEval(memberId)) { toast.error('평가 대상자가 자기평가와 육성면담서를 모두 제출해야 의견을 제출할 수 있습니다.'); return; }
     const op = opinions[memberId];
     if (!op?.grade) { toast.error('등급 의견을 선택해주세요.'); return; }
 
@@ -674,8 +680,8 @@ function TeamLeadEvalView() {
                           : <span className="text-gray-300">· 미제출</span>}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        {(() => { const t = computeSelfEvalTotal(se); return t != null && (
-                          <span className="text-[11px] rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold">자기평가 {t}점</span>
+                        {(() => { const t = computeSelfEvalTotal(reconcileSelfEval(se, goalsByMember[member.id])); return t != null && (
+                          <span className="text-[11px] rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold">자기평가 {t}점{!submitted && ' (작성중)'}</span>
                         ); })()}
                         {/* 본부장 2차 평가 시 — 팀장 1차 등급의견 표시 */}
                         {isHQHead && member.role === 'MEMBER' && indivEvals[member.id]?.leadGrade && (
@@ -705,6 +711,9 @@ function TeamLeadEvalView() {
             const canHQInput = isHQ2ndOpinion ? !!ie?.leadSubmittedBy : true;
             const op = opinions[member.id] ?? { grade: '', comment: '' };
             const leadOp = leadOpinionByMember[member.id];
+            // 평가 대상자가 자기평가·육성면담서를 모두 제출해야 의견 제출 가능
+            const ready = isMemberReadyForEval(member.id);
+            const notReadyTitle = !ready ? '평가 대상자가 자기평가·육성면담서를 모두 제출해야 의견을 제출할 수 있습니다.' : undefined;
             return (
               <div className="rounded-xl border bg-white p-5 space-y-5">
                 <div className="flex items-center gap-2 border-b pb-3">
@@ -743,11 +752,17 @@ function TeamLeadEvalView() {
                         return `${myTitle} 등급 의견`;
                       })()}
                     </p>
+                    {!ready && (
+                      <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                        평가 대상자가 <b>자기평가·육성면담서</b>를 모두 제출해야 의견을 제출할 수 있습니다.
+                        (자기평가 {selfEvals[member.id]?.status === 'SUBMITTED' ? '제출✓' : '미제출'} · 육성면담서 {mentoringForms[member.id]?.status === 'SUBMITTED' ? '제출✓' : '미제출'})
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs text-gray-500 mb-2">등급 선택</p>
                       <div className="flex gap-2">
                         {GRADES.map(g => (
-                          <button key={g} disabled={isReviewed || saving === member.id || locked}
+                          <button key={g} disabled={isReviewed || saving === member.id || locked || !ready}
                             onClick={() => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], grade: g } }))}
                             className={`w-10 h-10 rounded-lg text-sm font-bold border-2 transition-all ${op.grade === g ? `${GRADE_COLOR[g]} border-current` : 'bg-white border-gray-200 text-gray-400 hover:border-gray-400'} disabled:opacity-50 disabled:cursor-not-allowed`}>
                             {g}
@@ -759,8 +774,8 @@ function TeamLeadEvalView() {
                       <p className="text-xs text-gray-500 mb-1.5">의견 <span className="text-[11px] font-normal text-gray-400">— 육성면담서와 인사평가 등급에 대한 종합의견을 작성하십시오 (필수)</span></p>
                       <textarea value={op.comment}
                         onChange={e => setOpinions(p => ({ ...p, [member.id]: { ...p[member.id], comment: e.target.value } }))}
-                        onKeyDown={shiftEnterSubmit(() => handleSubmitOpinion(member.id), !isReviewed && saving !== member.id && !!op.grade && !locked && !beforePeriod)}
-                        disabled={isReviewed || saving === member.id || locked} rows={2} placeholder="등급 의견의 이유를 작성해주세요 (Shift+Enter 제출)"
+                        onKeyDown={shiftEnterSubmit(() => handleSubmitOpinion(member.id), !isReviewed && saving !== member.id && !!op.grade && !locked && !beforePeriod && ready)}
+                        disabled={isReviewed || saving === member.id || locked || !ready} rows={2} placeholder="등급 의견의 이유를 작성해주세요 (Shift+Enter 제출)"
                         className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
                     </div>
                     <div className="flex justify-end items-center gap-2 flex-wrap">
@@ -770,10 +785,10 @@ function TeamLeadEvalView() {
                         <>
                           <span className="text-xs text-blue-600 mr-auto">제출됨 · 상위 확정 전</span>
                           <Button variant="outline" size="sm" disabled={saving === member.id} onClick={() => handleWithdrawOpinion(member.id)}>의견 회수</Button>
-                          <Button size="sm" disabled={saving === member.id || !op.grade || locked || beforePeriod} title={beforePeriod ? '평가기간에만 제출할 수 있습니다.' : undefined} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '저장 중...' : '의견 수정'}</Button>
+                          <Button size="sm" disabled={saving === member.id || !op.grade || locked || beforePeriod || !ready} title={notReadyTitle ?? (beforePeriod ? '평가기간에만 제출할 수 있습니다.' : undefined)} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '저장 중...' : '의견 수정'}</Button>
                         </>
                       ) : (
-                        <Button size="sm" disabled={saving === member.id || !op.grade || locked || beforePeriod} title={beforePeriod ? '평가기간에만 제출할 수 있습니다.' : undefined} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '제출 중...' : '의견 제출'}</Button>
+                        <Button size="sm" disabled={saving === member.id || !op.grade || locked || beforePeriod || !ready} title={notReadyTitle ?? (beforePeriod ? '평가기간에만 제출할 수 있습니다.' : undefined)} onClick={() => handleSubmitOpinion(member.id)}>{saving === member.id ? '제출 중...' : '의견 제출'}</Button>
                       )}
                     </div>
                   </div>
@@ -787,8 +802,8 @@ function TeamLeadEvalView() {
                 <div>
                   <p className="text-sm font-bold text-gray-800 mb-2">
                     자기평가
-                    {(() => { const t = computeSelfEvalTotal(selfEvals[member.id]?.status === 'SUBMITTED' ? selfEvals[member.id] : null); return t != null && (
-                      <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점)</span>
+                    {(() => { const t = computeSelfEvalTotal(reconcileSelfEval(selfEvals[member.id], goalsByMember[member.id])); return t != null && (
+                      <span className="ml-1.5 text-indigo-600">(자기평가 점수 {t}점{selfEvals[member.id]?.status !== 'SUBMITTED' && ' · 작성중'})</span>
                     ); })()}
                   </p>
                   {(() => {
@@ -796,8 +811,9 @@ function TeamLeadEvalView() {
                       g.status === 'APPROVED' || g.status === 'IN_PROGRESS' || g.status === 'COMPLETED' ||
                       g.status === 'PENDING_ABANDON' || (g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange));
                     const completed = cg.filter(g => g.status === 'COMPLETED').length;
+                    // (B) 미제출(작성중) 자기평가도 검토용으로 표시. goalEvals는 현재 완료된 핵심목표만 반영(정합화).
                     return (
-                      <SelfEvalBody form={selfEvals[member.id]?.status === 'SUBMITTED' ? selfEvals[member.id] : null}
+                      <SelfEvalBody form={reconcileSelfEval(selfEvals[member.id], goalsByMember[member.id])}
                         abandonedGoals={cg.filter(g => g.status === 'ABANDONED').map(g => ({ goalId: g.id, goalTitle: g.title }))}
                         goalSummary={{ total: cg.length, completed, notCompleted: cg.length - completed }} />
                     );

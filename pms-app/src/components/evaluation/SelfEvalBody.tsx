@@ -1,6 +1,21 @@
 'use client';
 
-import type { SelfEvaluation } from '@/types';
+import type { SelfEvaluation, Goal } from '@/types';
+
+/**
+ * 자기평가 정합화 — 핵심목표 점수(goalEvals)는 '현재 완료(COMPLETED)된 핵심목표'만 유효.
+ * 목표가 완료→진행중으로 바뀌거나 삭제되면 stale goalEvals가 남아 점수가 어긋나므로,
+ * 표시·집계 전에 완료된 목표의 goalEvals만 남기고 정리한다. (자기평가 작성 화면과 동일 기준)
+ * completedGoalIds 가 주어지면 그 집합으로 필터, 없으면 원본 그대로 반환(하위호환).
+ */
+export function reconcileSelfEval<T extends SelfEvaluation | null | undefined>(
+  form: T,
+  goals?: Goal[] | null,
+): T {
+  if (!form || !goals) return form;
+  const completed = new Set(goals.filter(g => g.status === 'COMPLETED').map(g => g.id));
+  return { ...form, goalEvals: (form.goalEvals ?? []).filter(e => completed.has(e.goalId)) } as T;
+}
 
 /** 자기평가 가중 환산 총점(0~100). 제출 폼이 없거나 점수 미입력이면 null. */
 export function computeSelfEvalTotal(form: SelfEvaluation | null | undefined): number | null {
