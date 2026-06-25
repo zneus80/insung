@@ -19,7 +19,7 @@ import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import { computePromotion, computeSmartProjectCounts } from '@/lib/promotion';
 import { compareUserByRolePositionHire } from '@/lib/user-sort';
-import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
+import { computeSelfEvalTotal, reconcileSelfEval } from '@/components/evaluation/SelfEvalBody';
 import { askAssistant, type AssistantTurn } from '@/lib/ai-assistant';
 import { EVAL_CRITERIA_BODY, buildAnnualGoalContext } from '@/lib/ai-eval';
 import { computeLeaderTeamAchievement } from '@/lib/team-achievement';
@@ -226,7 +226,7 @@ function AssistantContent() {
               notes: goalNotes(g.id),
             })).slice(0, 15),
             goalStat: { total: completed + (evalGoals.length - completed - abandoned), 완료: completed, 포기: abandoned },
-            selfEvalScore: computeSelfEvalTotal(se ?? null) ?? undefined,
+            selfEvalScore: computeSelfEvalTotal(reconcileSelfEval(se ?? null, myGoals)) ?? undefined,
             // 자기평가 상세 — 핵심목표·일반업무 항목별 점수·의견(요약)
             selfEvalCore: (se?.goalEvals ?? []).map(g => ({ t: g.goalTitle, 점수: g.score, 의견: (g.comment || '').slice(0, 100) })).slice(0, 15),
             generalWork: (se?.generalEvals ?? []).map(g => ({ t: g.title, 점수: g.score, 의견: (g.comment || '').slice(0, 100) })).slice(0, 10),

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createAuditLog } from '@/lib/firestore';
-import { computeSelfEvalTotal } from '@/components/evaluation/SelfEvalBody';
+import { computeSelfEvalTotal, reconcileSelfEval } from '@/components/evaluation/SelfEvalBody';
 import { computeLeaderTeamAchievement } from '@/lib/team-achievement';
 import { buildAnnualGoalContext } from '@/lib/ai-eval';
 import type {
@@ -78,7 +78,8 @@ export default function AiEvalPanel({
       const input = members.map(m => {
         const ie = indivEvals[m.id];
         const mf = mentoringForms[m.id];
-        const se = selfEvals[m.id];
+        // 자기평가 정합화 — 핵심목표 점수는 현재 완료된 목표만 유효(stale goalEvals 제외)
+        const se = reconcileSelfEval(selfEvals[m.id], goalsByMember[m.id]);
         // 근거 = ①핵심목표관리 각 목표 ②주간업무보고 ③자기평가(점수 포함). 육성면담서는 요약용 종합의견만 별도 전달.
         const selfEvalComments: string[] = [
           ...(se?.goalEvals ?? []).map(e => `[핵심목표] ${e.goalTitle}${e.score != null ? ` (${e.score}점)` : ''}: ${e.comment ?? ''}`),
