@@ -100,6 +100,9 @@ export interface Goal {
   organizationId: string;
   cycleYear: number;            // 평가 연도 (e.g. 2026)
 
+  /** 성과지표(KPI) — 목표 달성을 측정할 지표 목록(선택). 작성 시 직접 입력하거나 AI 추천을 채택. (v0.9.2) */
+  kpis?: string[];
+
   // 공동 수행자 (collaborator) — userId 와 함께 목표 owner 로 인정. 임원 최종 승인(APPROVED) 후
   // 해당 인원에게도 목표 목록·대시보드 카운트에 표시됨. 본인(userId) 은 포함하지 않음.
   collaboratorIds?: string[];
