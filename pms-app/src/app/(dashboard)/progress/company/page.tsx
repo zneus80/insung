@@ -131,6 +131,19 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   function annualGoalForOrg(orgId: string): AnnualGoal | undefined {
     return annualGoals.find(g => g.organizationId === orgId);
   }
+  // 조직목표(연간목표) 주제 목록 — 신규 스키마(subject/detail) 우선, 구버전 content 호환.
+  function subjectsForOrg(orgId: string): string[] {
+    const ag = annualGoalForOrg(orgId);
+    if (!ag) return [];
+    if (ag.items && ag.items.length > 0) return ag.items.map(it => it.subject ?? it.content ?? '').filter(Boolean);
+    return ag.content ? [ag.content] : [];
+  }
+  // 조직목표가 등록된 부문/공장만 노출 (#1: 조직목표 비어있으면 조직 자체를 표시하지 않음)
+  const shownDivisions = useMemo(
+    () => divisions.filter(d => subjectsForOrg(d.id).length > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [divisions, annualGoals],
+  );
 
   return (
     <div className={embedded ? '' : 'flex-1 overflow-y-auto'}>
@@ -210,43 +223,39 @@ function Content({ embedded = false }: { embedded?: boolean }) {
           </div>
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">{[1,2,3].map(i => <div key={i} className="h-40 animate-pulse rounded-xl bg-gray-100" />)}</div>
-          ) : divisions.length === 0 ? (
-            <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">등록된 부문/공장이 없습니다.</p>
+          ) : shownDivisions.length === 0 ? (
+            <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">조직목표가 등록된 부문/공장이 없습니다.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
-              {divisions.map(div => {
-                const ag = annualGoalForOrg(div.id);
-                // 신규 스키마(subject/detail) 우선, 구버전 content 도 호환. 본 화면은 주제만 표시.
-                const subjects: string[] = (() => {
-                  if (!ag) return [];
-                  if (ag.items && ag.items.length > 0) {
-                    return ag.items.map(it => it.subject ?? it.content ?? '').filter(Boolean);
-                  }
-                  return ag.content ? [ag.content] : [];
-                })();
+              {shownDivisions.map(div => {
+                const subjects = subjectsForOrg(div.id);
                 const divGoals = goalsForDivision(div.id);
-                const isOpen = expanded[div.id] ?? true;
+                const doneN = divGoals.filter(g => g.status === 'COMPLETED').length;
+                const ongoingN = divGoals.length - doneN;
+                // #2: 핵심목표 리스트는 기본 접힘 — 페이지가 길어지지 않도록. 조직목표·카운트는 항상 표시.
+                const isOpen = expanded[div.id] ?? false;
                 return (
                   <div key={div.id} className="rounded-xl border bg-white overflow-hidden">
                     <button
                       onClick={() => setExpanded(p => ({ ...p, [div.id]: !isOpen }))}
-                      className="w-full flex items-center gap-2 px-4 py-3 hover:bg-gray-50 transition-colors"
+                      className="w-full flex items-start gap-2 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
                     >
-                      <div className="flex-1 text-left min-w-0">
+                      <div className="flex-1 min-w-0 space-y-1">
                         <p className="text-sm font-semibold text-gray-900 truncate">{div.name}</p>
+                        {/* 조직목표(연간목표) 주제 — 항상 표시 */}
+                        {subjects.map((s, idx) => (
+                          <p key={idx} className="text-xs font-medium text-blue-800 leading-snug break-words">· {s}</p>
+                        ))}
+                        {/* 핵심목표 요약 카운트 */}
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <span className="text-[10px] rounded-full bg-green-100 text-green-700 px-1.5 py-0.5 font-medium">완료 {doneN}</span>
+                          <span className="text-[10px] rounded-full bg-blue-100 text-blue-700 px-1.5 py-0.5 font-medium">추진중 {ongoingN}</span>
+                        </div>
                       </div>
-                      <ChevronDown className={cn('h-4 w-4 text-gray-400 shrink-0 transition-transform', !isOpen && '-rotate-90')} />
+                      <ChevronDown className={cn('h-4 w-4 text-gray-400 shrink-0 mt-0.5 transition-transform', !isOpen && '-rotate-90')} />
                     </button>
                     {isOpen && (
                       <div className="border-t">
-                        {/* 부문/공장 연간 목표 — 주제만 표시, 타이틀 없이 배경색으로 구분 */}
-                        {subjects.length > 0 && (
-                          <div className="px-3 py-2.5 bg-blue-50 border-b space-y-1">
-                            {subjects.map((s, idx) => (
-                              <p key={idx} className="text-sm font-semibold text-blue-900 leading-snug">{s}</p>
-                            ))}
-                          </div>
-                        )}
                         {/* 핵심목표 리스트 */}
                         {divGoals.length === 0 ? (
                           <p className="px-3 py-3 text-xs text-gray-400">추진 중/완료 목표 없음</p>
