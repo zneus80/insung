@@ -170,21 +170,30 @@ export interface Goal {
   leadApprovedAt?: Date;
   hqApprovedBy?: string;      // 본부장 2차 승인 (본부 조직이 있는 경우)
   hqApprovedAt?: Date;
-  approvedBy?: string;        // 임원 최종 승인
+  approvedBy?: string;        // 임원(부문) 승인 — 상위조직 있으면 중간 단계, 없으면 최종
   approvedAt?: Date;
+  // 상위임원(TOP_EXEC) 승인 — 부문 위에 상위조직(DIVISION)이 있을 때만. 최종 승인 단계. (v0.9.3)
+  topApprovedBy?: string;
+  topApprovedAt?: Date;
   rejectedReason?: string;
 
   // 포기 승인 정보 (목표 승인 필드와 분리)
   abandonLeadApprovedBy?: string;   // 팀장 포기 1차 승인
   abandonLeadApprovedAt?: Date;
+  abandonExecApprovedBy?: string;   // 임원(부문) 포기 승인 — 상위조직 있으면 중간 단계 (v0.9.3)
+  abandonExecApprovedAt?: Date;
+  abandonTopApprovedBy?: string;    // 상위임원 포기 최종 승인 (v0.9.3)
+  abandonTopApprovedAt?: Date;
 
   // 완료 승인 정보 (초기 목표 승인 필드와 분리 — leadApprovedBy 등은 최초 등록 승인용)
   completionLeadApprovedBy?: string;   // 팀장 완료 1차 확인
   completionLeadApprovedAt?: Date;
   completionHqApprovedBy?: string;     // 본부장 완료 2차 확인
   completionHqApprovedAt?: Date;
-  completionExecApprovedBy?: string;   // 임원 완료 최종 확인
+  completionExecApprovedBy?: string;   // 임원(부문) 완료 확인 — 상위조직 있으면 중간 단계
   completionExecApprovedAt?: Date;
+  completionTopApprovedBy?: string;    // 상위임원 완료 최종 확인 (v0.9.3)
+  completionTopApprovedAt?: Date;
 
   // 본인 휴지통 표시 — 설정 시 본인의 My 목표 목록에서는 숨김, 팀장·임원은 계속 확인 가능
   trashedAt?: Date;
