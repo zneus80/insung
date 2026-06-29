@@ -120,6 +120,9 @@ function MemberTasksPage() {
 
   if (!userProfile) return null;
   const hasOtherTeams = otherTeams.length > 0;
+  // 팀장 역할 본부 책임자 — 본부 주간보고를 따로 두지 않고 산하 팀 주간보고에 직접 작성.
+  const homeOrg = orgsAll.find(o => o.id === userProfile.organizationId);
+  const isHqTeamLead = userProfile.role === 'TEAM_LEAD' && homeOrg?.type === 'HEADQUARTERS' && homeOrg?.leaderId === userProfile.id;
 
   return (
     <div className="flex flex-col h-full">
@@ -140,7 +143,7 @@ function MemberTasksPage() {
             </span>
           </div>
         )}
-        {hasOtherTeams && (
+        {hasOtherTeams && !isHqTeamLead && (
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
             {(['my', 'team'] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
@@ -149,6 +152,12 @@ function MemberTasksPage() {
                 {t === 'my' ? '우리 팀 주간보고' : '산하 팀 현황'}
               </button>
             ))}
+          </div>
+        )}
+        {isHqTeamLead && (
+          <div className="flex items-start gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm text-violet-700">
+            <Info className="h-4 w-4 shrink-0 mt-0.5 text-violet-500" />
+            <span>본부 책임자({homeOrg?.name})는 별도 본부 주간보고 대신 <b>산하 팀 주간보고</b>에 직접 작성합니다. 본인이 수행하는 핵심업무가 있는 팀 탭에서 입력하세요.</span>
           </div>
         )}
 
@@ -160,7 +169,13 @@ function MemberTasksPage() {
           onSelect={(y, w) => { setYear(y); setWeek(w); }}
         />
 
-        {(tab === 'my' || !hasOtherTeams) ? (
+        {isHqTeamLead ? (
+          // 팀장 역할 본부 책임자 — 산하 팀 주간보고 직접 작성(본부 보고서 없음)
+          <ScopeTeamsView year={year} week={week} teams={otherTeams} orgs={orgsAll}
+            locked={locked}
+            currentUser={{ id: userProfile.id, name: userProfile.name }}
+            currentUserRole={userProfile.role} />
+        ) : (tab === 'my' || !hasOtherTeams) ? (
           <div className="max-w-6xl">
             <TeamWeeklyForm
               orgId={userProfile.organizationId}
@@ -173,7 +188,8 @@ function MemberTasksPage() {
         ) : (
           <ScopeTeamsView year={year} week={week} teams={otherTeams} orgs={orgsAll}
             locked={locked}
-            currentUser={{ id: userProfile.id, name: userProfile.name }} />
+            currentUser={{ id: userProfile.id, name: userProfile.name }}
+            currentUserRole={userProfile.role} />
         )}
       </div>
     </div>
@@ -1215,12 +1231,13 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
 }
 
 // ── 산하 팀 현황 (팀장·본부장 — 본인 팀 외 산하 팀 read-only) ───────────
-function ScopeTeamsView({ year, week, teams, orgs, currentUser, locked }: {
+function ScopeTeamsView({ year, week, teams, orgs, currentUser, currentUserRole, locked }: {
   locked?: boolean;
   year: number; week: number;
   teams: Organization[];          // 본인 팀 제외, 산하 leaf 팀들 (호출 측에서 계산)
   orgs: Organization[];
   currentUser: { id: string; name: string };
+  currentUserRole?: string;       // 팀장 역할 본부 책임자 판정용
 }) {
   const [activeId, setActiveId] = useState('');
   useEffect(() => {
@@ -1248,13 +1265,18 @@ function ScopeTeamsView({ year, week, teams, orgs, currentUser, locked }: {
           </button>
         ))}
       </div>
-      {active && (
-        <>
-          <p className="text-xs text-gray-400">{teamPath(active)}</p>
-          {/* 해당 산하 팀의 리더(팀장)면 업무추가 등 편집 가능, 아니면 읽기전용(코멘트만) */}
-          <TeamWeeklyForm orgId={active.id} year={year} week={week} editable={!locked && active.leaderId === currentUser.id} currentUser={currentUser} />
-        </>
-      )}
+      {active && (() => {
+        // 해당 산하 팀의 리더(팀장) 또는 그 팀의 부모(본부) 리더인 팀장 역할 본부 책임자면 편집 가능.
+        const parent = active.parentId ? orgs.find(p => p.id === active.parentId) : undefined;
+        const iLeadParent = currentUserRole === 'TEAM_LEAD' && !!parent && parent.leaderId === currentUser.id;
+        const canEdit = !locked && (active.leaderId === currentUser.id || iLeadParent);
+        return (
+          <>
+            <p className="text-xs text-gray-400">{teamPath(active)}</p>
+            <TeamWeeklyForm orgId={active.id} year={year} week={week} editable={canEdit} currentUser={currentUser} />
+          </>
+        );
+      })()}
     </div>
   );
 }
