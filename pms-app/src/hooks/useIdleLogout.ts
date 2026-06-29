@@ -22,7 +22,7 @@ interface Options {
   warnBeforeMs?: number;
 }
 
-const DEFAULT_TIMEOUT = 5 * 60 * 1000;    // 5분
+const DEFAULT_TIMEOUT = 10 * 60 * 1000;   // 10분
 const DEFAULT_WARN_BEFORE = 60 * 1000;    // 60초 전 경고
 
 export function useIdleLogout({ enabled, timeoutMs = DEFAULT_TIMEOUT, warnBeforeMs = DEFAULT_WARN_BEFORE }: Options) {

@@ -553,6 +553,7 @@ export interface GeneralWorkEval {
 export interface InnovationEval {
   activityId: string;
   name: string;
+  type?: InnovationActivityType;  // 스마트프로젝트(SMART_PROJECT) / TDS 구분 — 평가화면 배지 표시용
   comment: string;  // 본인 자기평가 (자유 서술)
   /** TDS 지시자(수행자 아님) — 서술 없이 '(지시)' 표시만 */
   instructed?: boolean;

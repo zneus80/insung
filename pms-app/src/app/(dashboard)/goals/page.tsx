@@ -375,17 +375,18 @@ function MyGoalsView() {
   async function handlePermanentDelete(goalId: string) {
     if (locked) { toast.error(`${year}년은 확정된 연도입니다. 삭제할 수 없습니다.`); return; }
     const target = myGoals.find(g => g.id === goalId);
-    const isFinalAbandoned = target?.status === 'ABANDONED' && !!target.approvedBy;
-    const message = isFinalAbandoned
+    // 포기(ABANDONED) 목표는 인사평가 기록 보존을 위해 영구 삭제하지 않고 본인 화면에서만 제거(소프트 삭제).
+    const isAbandoned = target?.status === 'ABANDONED';
+    const message = isAbandoned
       ? '본인 화면에서 완전히 제거합니다.\n\n' +
-        '※ 인사평가 자료는 보존되어 팀장·임원의 평가 화면에는 계속 표시됩니다.\n\n계속하시겠습니까?'
+        '※ 포기된 목표는 영구 삭제되지 않으며, 인사평가 자료로 보존됩니다.\n\n계속하시겠습니까?'
       : '목표를 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.';
     if (!confirm(message)) return;
     try {
-      if (isFinalAbandoned) {
-        // 포기 확정 목표는 소프트 삭제(인사평가 기록 보존)
+      if (isAbandoned) {
+        // 포기 목표는 소프트 삭제(영구 삭제 금지 — 인사평가 기록 보존)
         await updateGoal(goalId, { softDeletedAt: new Date() });
-        toast.success('본인 화면에서 제거되었습니다. (평가 자료는 보존됩니다)');
+        toast.success('본인 화면에서 제거되었습니다. (포기 목표는 영구 삭제되지 않고 보존됩니다)');
       } else {
         // 임시저장·반려 목표는 Firestore에서 완전 삭제
         await deleteGoal(goalId);
