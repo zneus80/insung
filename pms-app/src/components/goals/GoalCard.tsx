@@ -41,7 +41,12 @@ export default function GoalCard({ goal, ownerName, participantNames, effectiveW
   // 본인이 owner 든 collaborator 든 collaboratorIds 가 비어있지 않으면 "공동과제업무"
   const hasCollaborators = (goal.collaboratorIds ?? []).length > 0;
   const styleKey: keyof typeof CARD_STYLES = hasCollaborators ? 'collaborate' : 'default';
-  const { border, badge, bg, label } = CARD_STYLES[styleKey];
+  const { badge, label } = CARD_STYLES[styleKey];
+  // 완료·포기 목표는 유형(파랑/보라)과 무관하게 상태 색으로 구분 — 완료=초록, 포기=회색
+  const isCompletedGoal = goal.status === 'COMPLETED';
+  const isAbandonedGoal = goal.status === 'ABANDONED';
+  const border = isCompletedGoal ? 'border-l-emerald-500' : isAbandonedGoal ? 'border-l-gray-400' : CARD_STYLES[styleKey].border;
+  const bg = isCompletedGoal ? 'bg-emerald-50/40' : isAbandonedGoal ? 'bg-gray-100/60' : CARD_STYLES[styleKey].bg;
 
   const hasActions = onEdit || onTrash || onWithdraw || onResubmit;
 

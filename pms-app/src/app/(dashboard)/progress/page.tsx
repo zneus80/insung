@@ -8,6 +8,7 @@ import { getAllUsers, getOrganizationsForYear, getAllGoalsByYear, getGoalsByUser
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
+import YearTabBar from '@/components/layout/YearTabBar';
 import { Progress } from '@/components/ui/progress';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
 import { OrgTreeNode, buildTree, findDescendantIds, type OrgNode } from '@/components/goals/OrgGoalTree';
@@ -159,7 +160,12 @@ function ExecProgressSection({
 
 export default function ProgressPage() {
   const { userProfile } = useAuth();
-  const { activeYear: year } = useActiveYear();
+  const { activeYear } = useActiveYear();
+  // 조회 연도 — 당해 포함 직전 3개년
+  const YEAR_TABS = [activeYear, activeYear - 1, activeYear - 2] as const;
+  const [viewYear, setViewYear] = useState(activeYear);
+  useEffect(() => { setViewYear(activeYear); }, [activeYear]);
+  const year = viewYear;
   const [loading, setLoading] = useState(true);
   const [myGoals, setMyGoals] = useState<Goal[]>([]);
   const [treeNodes, setTreeNodes] = useState<ReturnType<typeof buildTree>>([]);
@@ -320,10 +326,13 @@ export default function ProgressPage() {
       <Header title="진행 현황" />
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-4xl space-y-4">
-          <p className="text-sm text-gray-500">
-            {year}년{' '}
-            {role === 'EXECUTIVE' ? '소관 조직' : isOrgTree ? '조직' : '내'} 목표 진행 현황
-          </p>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-gray-500">
+              {year}년{' '}
+              {role === 'EXECUTIVE' ? '소관 조직' : isOrgTree ? '조직' : '내'} 목표 진행 현황
+            </p>
+            <YearTabBar selectedYear={year} yearTabs={YEAR_TABS} onChange={setViewYear} />
+          </div>
 
           {loading ? (
             <div className="space-y-3">

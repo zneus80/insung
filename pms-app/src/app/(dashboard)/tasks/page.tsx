@@ -379,7 +379,7 @@ function WeekNav({ year, week, start, end, isCurrentWeek, saveStatus, onPrev, on
 
 // ── 간단 업무 폼 ──────────────────────────────────────────
 function SimpleItemForm({
-  value, onChange, onSave, onCancel, isNew, coreMode = false,
+  value, onChange, onSave, onCancel, isNew, coreMode = false, participants = [],
 }: {
   value: Omit<SimpleTaskItem, 'id'>;
   onChange: (v: Omit<SimpleTaskItem, 'id'>) => void;
@@ -387,9 +387,16 @@ function SimpleItemForm({
   onCancel: () => void;
   isNew: boolean;
   coreMode?: boolean;   // 핵심업무 — 업무명 생략, 진행사항(content)만 입력
+  /** 핵심업무 실적 참여 후보(수행자+공동수행자). coreMode 일 때만 사용 */
+  participants?: { id: string; name: string }[];
 }) {
   const label = coreMode ? '진행사항' : '업무';
   const canSave = coreMode ? !!value.content.trim() : !!value.title.trim();
+  const selected = value.participantIds ?? [];
+  const toggleParticipant = (id: string) => {
+    const next = selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id];
+    onChange({ ...value, participantIds: next });
+  };
   return (
     <div className="rounded-xl border-2 border-blue-200 bg-blue-50/30 p-4 space-y-3">
       <p className="text-xs font-semibold text-blue-700">{isNew ? `${label} 추가` : `${label} 수정`}</p>
@@ -417,6 +424,23 @@ function SimpleItemForm({
           className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
         />
       </div>
+      {coreMode && participants.length > 0 && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-gray-600">참여 인원 <span className="text-gray-400 font-normal">(이 실적에 참여한 수행자 — AI 성과요약 반영)</span></label>
+          <div className="flex flex-wrap gap-1.5">
+            {participants.map(p => {
+              const on = selected.includes(p.id);
+              return (
+                <button key={p.id} type="button" onClick={() => toggleParticipant(p.id)}
+                  className={cn('rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                    on ? 'border-blue-500 bg-blue-500 text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300')}>
+                  {p.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>취소</Button>
         <Button size="sm" onClick={onSave} disabled={!canSave}>
@@ -601,6 +625,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
   const [goalProgress, setGoalProgress] = useState<Record<string, number>>({});
   const [leadComments, setLeadComments] = useState<LeadCommentEntry[]>([]);
   const [activeGoals, setActiveGoals] = useState<Goal[]>([]);
+  const [userNames, setUserNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -650,6 +675,22 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
       .catch(() => {});
     return () => { alive = false; };
   }, [orgId, year]);
+
+  // 참여인원 표시·선택용 사용자명 맵 (핵심업무 실적 참여자) — 1회 로드
+  useEffect(() => {
+    let alive = true;
+    getAllUsers().then(us => { if (alive) setUserNames(Object.fromEntries(us.map(u => [u.id, u.name]))); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // 특정 목표의 참여 후보(수행자+공동수행자) → [{id,name}]
+  function goalPerformers(goalId?: string): { id: string; name: string }[] {
+    if (!goalId) return [];
+    const g = activeGoals.find(x => x.id === goalId);
+    if (!g) return [];
+    const ids = [g.userId, ...(g.collaboratorIds ?? [])].filter((v, i, a) => v && a.indexOf(v) === i);
+    return ids.map(id => ({ id, name: userNames[id] ?? '?' }));
+  }
 
   // 핵심업무 골 블록 순서 변경 (▲▼) — weeklyOrder 재인덱싱 후 변경된 골만 저장
   const [reordering, setReordering] = useState(false);
@@ -771,7 +812,8 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
 
   function editing(section: 'hd' | 'wd', id: string) { return editingKey === `${section}-${id}`; }
   function openNew(section: 'hd' | 'wd', goalId?: string) {
-    setEditDraft({ ...EMPTY_SIMPLE(), goalId });
+    // 핵심업무 실적은 작성자(본인)를 참여인원에 기본 포함
+    setEditDraft({ ...EMPTY_SIMPLE(), goalId, ...(goalId ? { participantIds: [currentUser.id] } : {}) });
     setEditingKey(`${section}-new`);
   }
   function openEdit(section: 'hd' | 'wd', item: SimpleTaskItem) {
@@ -824,7 +866,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
     if (editing(section, item.id)) {
       return (
         <div key={item.id} className="p-3">
-          <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew={false} coreMode={!!item.goalId} />
+          <SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew={false} coreMode={!!item.goalId} participants={goalPerformers(item.goalId)} />
         </div>
       );
     }
@@ -850,8 +892,17 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
           ) : (
             <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{item.content}</p>
           )}
+          {item.goalId && (item.participantIds?.length ?? 0) > 0 && (
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              <span className="text-[11px] text-gray-400">참여</span>
+              {item.participantIds!.map(pid => (
+                <span key={pid} className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-600">{userNames[pid] ?? '?'}</span>
+              ))}
+            </div>
+          )}
         </div>
-        <AuthorBadge name={item.authorName} />
+        {/* 핵심업무 실적은 참여인원 칩이 작성자를 포함하므로 별도 작성자 배지 생략(레거시·일반업무는 유지) */}
+        {(!item.goalId || !(item.participantIds?.length)) && <AuthorBadge name={item.authorName} />}
         {!isBodyLocked && canWriteGoalItem(item.goalId) && (
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
             <button onClick={() => openEdit(section, item)} className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
@@ -866,7 +917,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
     const isAddingHere = editingKey === `${section}-new` && (editDraft.goalId ?? undefined) === goalId;
     const isCore = !!goalId;
     if (isAddingHere) {
-      return <div className="p-3"><SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew coreMode={isCore} /></div>;
+      return <div className="p-3"><SimpleItemForm value={editDraft} onChange={setEditDraft} onSave={saveItem} onCancel={() => setEditingKey(null)} isNew coreMode={isCore} participants={goalPerformers(goalId)} /></div>;
     }
     if (isBodyLocked) return null;
     // 핵심업무는 해당 목표의 수행자/공동수행자만 추가 가능

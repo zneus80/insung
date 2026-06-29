@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Plus, Target, Trash2, Users, ChevronDown, ChevronRight, Calendar, Building2, Scale } from 'lucide-react';
+import { Plus, Target, Trash2, Users, ChevronDown, ChevronRight, Calendar, Building2, Scale, Lock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import Header from '@/components/layout/Header';
+import YearTabBar from '@/components/layout/YearTabBar';
 import YearLockBanner from '@/components/layout/YearLockBanner';
 import GoalCard from '@/components/goals/GoalCard';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
@@ -48,8 +49,14 @@ export default function GoalsPage() {
 
 function MyGoalsView() {
   const { userProfile } = useAuth();
-  const { activeYear: year, isYearLocked } = useActiveYear();
-  const locked = isYearLocked(year);
+  const { activeYear, isYearLocked } = useActiveYear();
+  // 조회 연도 — 당해 포함 직전 3개년. 과거 연도는 조회 전용(읽기).
+  const YEAR_TABS = [activeYear, activeYear - 1, activeYear - 2] as const;
+  const [viewYear, setViewYear] = useState(activeYear);
+  useEffect(() => { setViewYear(activeYear); }, [activeYear]);
+  const year = viewYear;
+  const isPastYear = year !== activeYear;
+  const locked = isYearLocked(year) || isPastYear; // 과거 연도는 쓰기 잠금(조회 전용)
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -405,7 +412,17 @@ function MyGoalsView() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
 
-          <YearLockBanner />
+          {/* 연도 선택 — 당해 포함 직전 3개년 조회 */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <YearTabBar selectedYear={year} yearTabs={YEAR_TABS} onChange={setViewYear} />
+            {isPastYear && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500">
+                <Lock className="h-3 w-3" /> 과거 연도 — 조회 전용
+              </span>
+            )}
+          </div>
+
+          {!isPastYear && <YearLockBanner />}
 
           {/* 액션 버튼 (내목표/팀목표 통합 — 팀명 탭으로 구분) */}
           <div className="flex items-center justify-end gap-2">
@@ -539,17 +556,24 @@ function MyGoalsView() {
                       />
                     );
                   };
-                  // 분류: ①단독 업무 ②공동 업무(본인 참여) ③팀 업무(본인 미참여)
+                  // 분류: 진행 중 목표는 ①단독 ②공동(본인 참여) ③팀(본인 미참여) — 완료·포기는 하단 별도 섹션
                   const uid = userProfile?.id ?? '';
                   const isCollab = (g: Goal) => (g.collaboratorIds ?? []).length > 0;
                   const inGoal = (g: Goal) => g.userId === uid || (g.collaboratorIds ?? []).includes(uid);
-                  const solo = filteredTeamGoals.filter(g => g.userId === uid && !isCollab(g));
-                  const joint = filteredTeamGoals.filter(g => isCollab(g) && inGoal(g));
-                  const teamOnly = filteredTeamGoals.filter(g => !inGoal(g));
+                  const isDone = (g: Goal) => g.status === 'COMPLETED';
+                  const isGiveUp = (g: Goal) => g.status === 'ABANDONED';
+                  const activeGoals = filteredTeamGoals.filter(g => !isDone(g) && !isGiveUp(g));
+                  const solo = activeGoals.filter(g => g.userId === uid && !isCollab(g));
+                  const joint = activeGoals.filter(g => isCollab(g) && inGoal(g));
+                  const teamOnly = activeGoals.filter(g => !inGoal(g));
+                  const done = filteredTeamGoals.filter(isDone);
+                  const giveUp = filteredTeamGoals.filter(isGiveUp);
                   const sections = [
                     { key: 'solo', label: '단독 업무', desc: '내가 단독으로 수행하는 핵심목표', goals: solo },
                     { key: 'joint', label: '공동 업무 (참여)', desc: '여러 명이 함께 수행 — 내가 참여', goals: joint },
                     { key: 'team', label: '팀 업무 (미참여)', desc: '팀 내 다른 구성원의 핵심목표', goals: teamOnly },
+                    { key: 'done', label: '완료', desc: '완료된 핵심목표', goals: done },
+                    { key: 'giveup', label: '포기', desc: '포기된 핵심목표', goals: giveUp },
                   ].filter(s => s.goals.length > 0);
                   // 분류가 1개뿐이면 헤더 없이 평면 표시(불필요한 구분 방지)
                   if (sections.length <= 1) {
@@ -732,7 +756,12 @@ function MyGoalsView() {
 // ── 임원 / CEO 전용 전체 목표 뷰 ─────────────────────────────
 function OrgGoalsView() {
   const { userProfile } = useAuth();
-  const { activeYear: year } = useActiveYear();
+  const { activeYear } = useActiveYear();
+  // 조회 연도 — 당해 포함 직전 3개년
+  const YEAR_TABS = [activeYear, activeYear - 1, activeYear - 2] as const;
+  const [viewYear, setViewYear] = useState(activeYear);
+  useEffect(() => { setViewYear(activeYear); }, [activeYear]);
+  const year = viewYear;
   const [goals, setGoals] = useState<Goal[]>([]);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [userMap, setUserMap] = useState<Record<string, User>>({});
@@ -819,6 +848,9 @@ function OrgGoalsView() {
     <div className="flex flex-col h-full">
       <Header title="핵심목표관리" showBack />
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
+
+        {/* 연도 선택 — 당해 포함 직전 3개년 조회 */}
+        <YearTabBar selectedYear={year} yearTabs={YEAR_TABS} onChange={setViewYear} />
 
         {/* 전체 진행률 */}
         {!loading && progressGoals.length > 0 && (
