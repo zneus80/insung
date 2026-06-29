@@ -6,6 +6,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { createGoal, updateGoal, getOrganizations, getAllUsers, createNotification, addGoalHistory } from '@/lib/firestore';
 import { notifyNextApprover, notifyAllChainParties } from '@/lib/goal-notifications';
 import { computeSubmitterAutoApproval, stageLabel } from '@/lib/approval-filters';
+import { recommendKpis } from '@/lib/ai-assistant';
 import type { Organization, GoalFieldChanges } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { X } from 'lucide-react';
+import { X, Plus, Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Goal, User } from '@/types';
 
@@ -42,6 +43,9 @@ export default function TaskGoalForm({
   const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
   const [isConfidential, setIsConfidential] = useState(false);
   const [weight, setWeight] = useState<string>('');   // 가중치(원시값) — 정규화 모델
+  const [kpis, setKpis] = useState<string[]>([]);     // 성과지표(KPI) — 선택, 여러 항목
+  const [kpiSuggestions, setKpiSuggestions] = useState<string[]>([]); // AI 추천 결과(클릭 시 추가)
+  const [kpiLoading, setKpiLoading] = useState(false);
   const [ownerId, setOwnerId] = useState<string>('');   // 수행자 (Goal.userId) — 기본 본인
   const [ownerSearch, setOwnerSearch] = useState('');
   const [users, setUsers] = useState<User[]>([]);
@@ -75,6 +79,7 @@ export default function TaskGoalForm({
       setOwnerId(editGoal.userId);
       setIsConfidential(!!editGoal.isConfidential);
       setWeight(editGoal.weight != null ? String(editGoal.weight) : '');
+      setKpis(editGoal.kpis ?? []);
     } else {
       openedStatusRef.current = null;
       setTitle('');
@@ -84,7 +89,10 @@ export default function TaskGoalForm({
       setOwnerId(userProfile?.id ?? '');  // 본인이 기본 수행자
       setIsConfidential(false);
       setWeight('');
+      setKpis([]);
     }
+    setKpiSuggestions([]);
+    setKpiLoading(false);
     setError('');
     setUserSearch('');
     setOwnerSearch('');
@@ -94,6 +102,32 @@ export default function TaskGoalForm({
   }, [open, editGoal]);
 
   // (sendApprovalNotification 제거됨 — handleSubmit 내 postSubmitNotifications 가 통합 처리)
+
+  // ── KPI(성과지표) 편집 ──
+  function addKpi() { setKpis(prev => [...prev, '']); }
+  function updateKpi(i: number, v: string) { setKpis(prev => prev.map((k, idx) => idx === i ? v : k)); }
+  function removeKpi(i: number) { setKpis(prev => prev.filter((_, idx) => idx !== i)); }
+  async function fetchKpiSuggestions() {
+    if (!title.trim()) { toast.error('먼저 목표명을 입력하세요.'); return; }
+    setKpiLoading(true);
+    setKpiSuggestions([]);
+    try {
+      const recs = await recommendKpis(title, description);
+      // 이미 추가된 것과 중복 제거
+      const existing = new Set(kpis.map(k => k.trim()));
+      const fresh = recs.filter(r => !existing.has(r.trim()));
+      setKpiSuggestions(fresh);
+      if (fresh.length === 0) toast.info('추천할 새로운 KPI가 없습니다.');
+    } catch {
+      toast.error('AI KPI 추천에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setKpiLoading(false);
+    }
+  }
+  function adoptSuggestion(s: string) {
+    setKpis(prev => [...prev, s]);
+    setKpiSuggestions(prev => prev.filter(x => x !== s));
+  }
 
   async function handleSubmit(isDraft: boolean) {
     if (!userProfile) return;
@@ -122,6 +156,7 @@ export default function TaskGoalForm({
       const relatedOrgIds = Array.from(new Set([ownerOrgId, ...collaboratorOrgIds].filter(Boolean)));
 
       const weightNum = weight.trim() === '' ? undefined : Math.max(0, Number(weight) || 0);
+      const cleanKpis = kpis.map(k => k.trim()).filter(Boolean);
       const payload = {
         title: title.trim(),
         description: description.trim(),
@@ -130,6 +165,7 @@ export default function TaskGoalForm({
         collaboratorIds: cleanedCollaborators,
         relatedOrgIds,
         isConfidential,
+        kpis: cleanKpis,   // 선택 — 비어 있으면 [] 로 저장(편집 시 제거 반영)
         ...(weightNum !== undefined ? { weight: weightNum } : {}),
       };
 
@@ -333,6 +369,7 @@ export default function TaskGoalForm({
           dueDate: FsTimestamp.fromDate(editGoal.dueDate),
           isConfidential: !!editGoal.isConfidential,
           weight: editGoal.weight ?? null,
+          kpis: editGoal.kpis ?? [],
         };
 
         // 콘텐츠 필드만 즉시 반영. collaboratorIds/relatedOrgIds 는 isOwnerChanged 일 때 pending 으로 분기.
@@ -341,6 +378,7 @@ export default function TaskGoalForm({
           description: payload.description,
           dueDate: FsTimestamp.fromDate(dueDate ? new Date(dueDate) : new Date()),
           isConfidential: payload.isConfidential,
+          kpis: cleanKpis,
           ...(weightNum !== undefined ? { weight: weightNum } : {}),
           modifyRequestedBy: userProfile.id,
           modifySnapshot,
@@ -588,6 +626,52 @@ export default function TaskGoalForm({
               입력한 가중치는 본인 핵심목표 전체 <b>합계 100% 기준</b>으로 자동 환산되어 표시됩니다.
               (자기평가 시 핵심목표는 80% 비율로 반영) · 미입력 시 동일 비중으로 배분됩니다.
             </p>
+          </div>
+
+          {/* 성과지표(KPI) — 선택, 여러 항목 + AI 추천 */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <Label className="whitespace-nowrap">성과지표(KPI) <span className="text-gray-400 font-normal text-xs">(선택)</span></Label>
+              <Button type="button" variant="outline" size="sm" onClick={fetchKpiSuggestions} disabled={kpiLoading} className="gap-1.5 h-8">
+                {kpiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-indigo-500" />}
+                {kpiLoading ? 'AI 추천 중…' : 'AI 추천'}
+              </Button>
+            </div>
+            {kpis.length > 0 && (
+              <div className="space-y-2">
+                {kpis.map((k, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 w-4 text-right shrink-0">{i + 1}</span>
+                    <Input value={k} onChange={e => updateKpi(i, e.target.value)} onKeyDown={e => e.stopPropagation()}
+                      placeholder="예) 불량률 2% 이하 달성" className="flex-1" />
+                    <button type="button" onClick={() => removeKpi(i)}
+                      className="shrink-0 rounded p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={addKpi}
+              className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors">
+              <Plus className="h-3.5 w-3.5" /> 지표 추가
+            </button>
+            {kpiSuggestions.length > 0 && (
+              <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-2.5 space-y-1.5">
+                <p className="text-[11px] font-medium text-indigo-600 flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" /> AI 추천 (클릭하면 추가)
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {kpiSuggestions.map((s, i) => (
+                    <button key={i} type="button" onClick={() => adoptSuggestion(s)}
+                      className="rounded-full border border-indigo-200 bg-white px-2.5 py-1 text-xs text-gray-700 hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-left">
+                      + {s}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-gray-400">AI가 KPI 이론으로 생성한 예시입니다 — 필요에 맞게 수정해 사용하세요.</p>
+              </div>
+            )}
           </div>
 
           {/* 수행자 (owner) — 본인 자동 기본값, 다른 사용자 지정 가능

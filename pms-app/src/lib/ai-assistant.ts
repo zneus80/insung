@@ -137,3 +137,42 @@ export async function askAssistant(opts: {
     throw e;
   }
 }
+
+/**
+ * 목표명(+세부내용) 기반 KPI(성과지표) 추천 — 목표 작성 화면에서 호출.
+ * KPI 이론(측정 가능·정량·기한)을 적용해 짧은 지표 문장 3~5개를 제안한다.
+ * 전 직원이 쓰는 작성 화면이라 민감 데이터를 보내지 않음(목표 텍스트만). 결과는 예시·참고용.
+ */
+export async function recommendKpis(goalTitle: string, goalDescription?: string): Promise<string[]> {
+  const title = (goalTitle || '').trim();
+  if (!title) return [];
+  const m = model(FLASH, 1024, 0); // 빠른 단순 생성
+  const prompt = [
+    '당신은 KPI(핵심성과지표) 설계 전문가입니다. 아래 업무 목표에 대해 달성도를 측정할 수 있는 KPI를 제안하세요.',
+    '규칙:',
+    '- KPI 이론(SMART: 구체적·측정가능·정량적·기한)을 적용합니다.',
+    '- 가능한 한 측정 단위(%, 건, 원, 일 등)나 목표 수준을 포함한 짧은 한 줄로 작성합니다.',
+    '- 3~5개를 제안합니다. 군더더기 설명 없이 지표 문장만.',
+    '- 반드시 JSON 배열(문자열들)로만 응답합니다. 예: ["불량률 2% 이하 달성","월 신규 거래처 3개 확보"]',
+    '',
+    `[목표명] ${title}`,
+    goalDescription?.trim() ? `[세부내용] ${goalDescription.trim().slice(0, 500)}` : '',
+  ].filter(Boolean).join('\n');
+  try {
+    const { response } = await m.generateContentStream(prompt);
+    const final = await response;
+    let text = '';
+    try { text = final.candidates?.[0]?.content?.parts?.map(p => (p as { text?: string }).text ?? '').join('') ?? ''; } catch { /* noop */ }
+    if (!text) { try { text = final.text(); } catch { /* noop */ } }
+    // ```json 코드펜스 제거 후 배열 파싱
+    const cleaned = text.replace(/```json|```/g, '').trim();
+    const start = cleaned.indexOf('['); const end = cleaned.lastIndexOf(']');
+    if (start < 0 || end < 0) return [];
+    const arr = JSON.parse(cleaned.slice(start, end + 1));
+    if (!Array.isArray(arr)) return [];
+    return arr.map(x => String(x).trim()).filter(Boolean).slice(0, 6);
+  } catch (e) {
+    console.error('[KPI 추천] 실패:', e);
+    throw e;
+  }
+}

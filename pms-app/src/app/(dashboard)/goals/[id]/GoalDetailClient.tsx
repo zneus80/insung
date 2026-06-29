@@ -1171,6 +1171,20 @@ export default function GoalDetailPage() {
 
             <p className="text-gray-600 whitespace-pre-wrap">{goal.description}</p>
 
+            {(goal.kpis?.length ?? 0) > 0 && (
+              <div className="rounded-lg border border-indigo-100 bg-indigo-50/30 px-4 py-3">
+                <p className="text-xs font-semibold text-indigo-600 mb-1.5">성과지표 (KPI)</p>
+                <ul className="space-y-1">
+                  {goal.kpis!.map((k, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-gray-700">
+                      <span className="text-indigo-400 shrink-0">{i + 1}.</span>
+                      <span>{k}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center gap-5 text-sm text-gray-500 border-t pt-4">
               {goal.approvedAt && (
                 <span className="flex items-center gap-1.5">
