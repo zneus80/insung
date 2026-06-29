@@ -22,7 +22,7 @@ import {
   COLLECTIONS,
 } from '@/lib/firestore';
 import { notifyNextApprover, notifyAllChainParties, type GoalBroadcastEvent } from '@/lib/goal-notifications';
-import { approverTitle } from '@/lib/approval-filters';
+import { approverTitle, topExecOrgOf } from '@/lib/approval-filters';
 import TaskGoalForm from '@/components/goals/TaskGoalForm';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import GeneralGoalForm from '@/components/goals/GeneralGoalForm';
@@ -384,6 +384,8 @@ export default function GoalDetailPage() {
         hqApprovedAt: deleteField(),
         approvedBy: deleteField(),
         approvedAt: deleteField(),
+        topApprovedBy: deleteField(),
+        topApprovedAt: deleteField(),
         updatedAt: sts(),
       });
       await addGoalHistory({
@@ -605,25 +607,59 @@ export default function GoalDetailPage() {
           successMsg = `팀장 부재로 ${hqTitle}이 포기 1차 승인을 대행했습니다. ${execTitle}의 최종 승인을 기다립니다.`;
         }
       } else if (iAmExec) {
+        // 상위조직(상위임원)이 있으면 임원(부문)은 '중간' 단계 — 상태는 유지하고 승인 플래그만 기록, 최종은 상위임원.
+        const topTitle = approverTitle(topOrg?.leaderId, usersArr, '상위임원');
         if (goal.status === 'LEAD_APPROVED') {
-          newStatus = 'APPROVED';
-          updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '최종 승인 완료.';
+          if (hasTopExec) {
+            updateData = { approvedBy: userProfile.id, approvedAt: new Date() }; // 상태 LEAD_APPROVED 유지
+            successMsg = `부문 승인 완료. ${topTitle}의 최종 승인을 기다립니다.`;
+          } else {
+            newStatus = 'APPROVED';
+            updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
+            successMsg = '최종 승인 완료.';
+          }
         } else if (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD') {
-          newStatus = 'APPROVED';
-          updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
-          successMsg = '승인 완료.';
+          if (hasTopExec) {
+            newStatus = 'LEAD_APPROVED';
+            updateData = { status: 'LEAD_APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
+            successMsg = `부문 승인 완료. ${topTitle}의 최종 승인을 기다립니다.`;
+          } else {
+            newStatus = 'APPROVED';
+            updateData = { status: 'APPROVED', approvedBy: userProfile.id, approvedAt: new Date() };
+            successMsg = '승인 완료.';
+          }
         } else if (goal.status === 'COMPLETED') {
           updateData = { completionExecApprovedBy: userProfile.id, completionExecApprovedAt: new Date() };
-          successMsg = '완료 최종 확인.';
+          successMsg = hasTopExec ? `완료 부문 확인. ${topTitle} 최종 확인 대기 중.` : '완료 최종 확인.';
         } else if (goal.status === 'PENDING_ABANDON') {
-          // 팀원 목표: 팀장 포기 1차 승인 후에만 임원 최종 가능 / 팀장 목표: 바로 최종
+          // 팀원 목표: 팀장 포기 1차 승인 후에만 임원 가능 / 팀장 목표: 바로
           const abandonReady = ownerRole === 'TEAM_LEAD' || (ownerIsMemberLike && !!goal.abandonLeadApprovedBy);
           if (abandonReady) {
-            newStatus = 'ABANDONED';
-            updateData = { status: 'ABANDONED', approvedBy: userProfile.id, approvedAt: new Date() };
-            successMsg = '포기 최종 승인.';
+            if (hasTopExec) {
+              // 부문 임원 포기 승인 — 중간 단계. 상태 PENDING_ABANDON 유지, 상위임원이 최종 확정.
+              updateData = { abandonExecApprovedBy: userProfile.id, abandonExecApprovedAt: new Date() };
+              successMsg = `포기 부문 승인. ${topTitle}의 최종 승인을 기다립니다.`;
+            } else {
+              newStatus = 'ABANDONED';
+              updateData = { status: 'ABANDONED', approvedBy: userProfile.id, approvedAt: new Date() };
+              successMsg = '포기 최종 승인.';
+            }
           }
+        }
+      } else if (iAmTopExec) {
+        // 상위임원 — 부문 임원 승인 후 최종 확정
+        if (goal.status === 'LEAD_APPROVED' && goal.approvedBy) {
+          newStatus = 'APPROVED';
+          updateData = { status: 'APPROVED', topApprovedBy: userProfile.id, topApprovedAt: new Date() };
+          successMsg = '상위임원 최종 승인 완료.';
+        } else if (goal.status === 'COMPLETED' && goal.completionExecApprovedBy && !goal.completionTopApprovedBy) {
+          updateData = { completionTopApprovedBy: userProfile.id, completionTopApprovedAt: new Date() };
+          successMsg = '완료 최종 확인.';
+        } else if (goal.status === 'PENDING_ABANDON' && goal.abandonExecApprovedBy && !goal.abandonTopApprovedBy) {
+          newStatus = 'ABANDONED';
+          // approvedBy 도 함께 기록 — 다운스트림이 '포기 확정'을 (status===ABANDONED && approvedBy) 로 판별하므로 필수.
+          updateData = { status: 'ABANDONED', approvedBy: userProfile.id, approvedAt: new Date(), topApprovedBy: userProfile.id, topApprovedAt: new Date(), abandonTopApprovedBy: userProfile.id, abandonTopApprovedAt: new Date() };
+          successMsg = '포기 최종 승인.';
         }
       }
 
@@ -747,8 +783,10 @@ export default function GoalDetailPage() {
       const isCompletionApproval =
         'completionLeadApprovedBy' in updateData ||
         'completionHqApprovedBy' in updateData ||
-        'completionExecApprovedBy' in updateData;
-      const isAbandonApproval = 'abandonLeadApprovedBy' in updateData;
+        'completionExecApprovedBy' in updateData ||
+        'completionTopApprovedBy' in updateData;
+      const isAbandonApproval = 'abandonLeadApprovedBy' in updateData
+        || 'abandonExecApprovedBy' in updateData || 'abandonTopApprovedBy' in updateData;
       const chainAction = isCompletionApproval ? 'APPROVE_COMPLETION'
         : isAbandonApproval ? 'APPROVE_ABANDON'
         : 'APPROVE';
@@ -767,7 +805,8 @@ export default function GoalDetailPage() {
       // broadcast 는 "어떤 결정이 일어났는지" 를 모두에게 알리는 용도.
       const broadcastEvent: GoalBroadcastEvent | null =
         isCompletionApproval
-          ? ('completionExecApprovedBy' in updateData ? 'COMPLETION_APPROVED' : null)
+          // 완료 최종 확정 시에만 broadcast — 상위조직 있으면 top 확인, 없으면 부문(exec) 확인
+          ? (('completionTopApprovedBy' in updateData || ('completionExecApprovedBy' in updateData && !hasTopExec)) ? 'COMPLETION_APPROVED' : null)
           : isAbandonApproval || newStatus === 'ABANDONED'
             ? (newStatus === 'ABANDONED' ? 'ABANDON_APPROVED' : null)
             : newStatus === 'APPROVED'
@@ -786,15 +825,16 @@ export default function GoalDetailPage() {
         });
       }
 
-      // ── 목표 소유자 알림: 임원 최종 결정(승인·포기·완료확인) 시 ──
-      if (iAmExec && goal.userId !== userProfile.id) {
+      // ── 목표 소유자 알림: 임원/상위임원 최종 결정(승인·포기·완료확인) 시 ──
+      // 상위조직이 있으면 부문 임원 승인은 '중간'이므로 최종 메시지를 보내지 않는다(최종은 상위임원 단계에서).
+      if ((iAmExec || iAmTopExec) && goal.userId !== userProfile.id) {
         try {
           let ownerMsg = '';
           if (newStatus === 'APPROVED') {
             ownerMsg = `${userProfile.name}님이 '${goal.title}' 핵심목표를 최종 승인했습니다.`;
           } else if (newStatus === 'ABANDONED') {
             ownerMsg = `${userProfile.name}님이 '${goal.title}' 핵심목표 포기를 최종 승인했습니다.`;
-          } else if ('completionExecApprovedBy' in updateData) {
+          } else if ('completionTopApprovedBy' in updateData || ('completionExecApprovedBy' in updateData && !hasTopExec)) {
             ownerMsg = `${userProfile.name}님이 '${goal.title}' 핵심목표 완료를 최종 확인했습니다.`;
           }
           if (ownerMsg) {
@@ -889,6 +929,10 @@ export default function GoalDetailPage() {
           leadApprovedAt: deleteField(),
           hqApprovedBy: deleteField(),
           hqApprovedAt: deleteField(),
+          approvedBy: deleteField(),
+          approvedAt: deleteField(),
+          topApprovedBy: deleteField(),
+          topApprovedAt: deleteField(),
           updatedAt: sts(),
         });
       } else {
@@ -963,6 +1007,8 @@ export default function GoalDetailPage() {
   const teamOrg = goalOrgChain.find(o => o.type === 'TEAM');
   const hqOrg   = goalOrgChain.find(o => o.type === 'HEADQUARTERS');
   const divOrg  = goalOrgChain.find(o => o.type === 'DIVISION');
+  // 상위임원 단계 조직 — 부문(DIVISION) 위 상위조직(DIVISION). 현 조직엔 없음(재배치 후만).
+  const topOrg  = topExecOrgOf(goalOrgChain);
 
   // ── 조직 체인 기반 역할 판단 (우선순위: 팀장 > 본부장 > 임원) ──
   // 팀장: teamOrg leaderId 일치 또는 leaderId 미설정 시 role+조직 fallback
@@ -986,7 +1032,11 @@ export default function GoalDetailPage() {
   //   1) DIVISION leaderId 일치
   //   2) HQ leaderId 일치 + DIVISION 없음 (HQ가 최종 레벨인 구조)
   //   3) role 기반 fallback (EXECUTIVE만) — leaderId 미설정 환경
-  const iAmExec = !iAmTeamLead && !iAmHQHead && userProfile.role !== 'CEO' && (
+  // 상위임원(TOP_EXEC) — 부문 위 상위조직 리더 (부문 임원 본인과 다를 때만). 부문임원/EXEC 판정보다 우선.
+  const iAmTopExec = !iAmTeamLead && !iAmHQHead && !!topOrg
+    && topOrg.leaderId === userProfile.id && divOrg?.leaderId !== userProfile.id;
+
+  const iAmExec = !iAmTeamLead && !iAmHQHead && !iAmTopExec && userProfile.role !== 'CEO' && (
     divOrg?.leaderId === userProfile.id ||
     (!divOrg && hqOrg?.leaderId === userProfile.id) ||
     userProfile.role === 'EXECUTIVE'
@@ -994,6 +1044,8 @@ export default function GoalDetailPage() {
 
   // 실질적 HQ 중간 승인 단계: HQ와 DIVISION 모두 존재할 때만
   const hasHQInChain = !!hqOrg && !!divOrg;
+  // 상위임원 단계 존재 — 임원 승인이 최종이 아니라 중간이 됨
+  const hasTopExec = !!topOrg;
 
   const canEdit = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
   const canDelete = isOwner && ['DRAFT', 'REJECTED'].includes(goal.status);
@@ -1057,16 +1109,24 @@ export default function GoalDetailPage() {
     (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD' && (!hasHQInChain || !!goal.hqApprovedBy || ownerOrgIsHQ)) ||
     // EXECUTIVE owner (본부장이 임원 role): 부문장이 직접 최종
     (goal.status === 'PENDING_APPROVAL' && ownerRole === 'EXECUTIVE') ||
-    (goal.status === 'LEAD_APPROVED' && (!hasHQInChain || !!goal.hqApprovedBy)) ||
+    // 임원(부문) 단계 — 아직 부문 승인 전(approvedBy 없음)일 때만. 상위조직 있으면 이후 상위임원이 최종.
+    (goal.status === 'LEAD_APPROVED' && !goal.approvedBy && (!hasHQInChain || !!goal.hqApprovedBy)) ||
     (goal.status === 'COMPLETED' && ownerRole === 'TEAM_LEAD' && !goal.completionExecApprovedBy && (!hasHQInChain || !!goal.completionHqApprovedBy || ownerOrgIsHQ)) ||
     (goal.status === 'COMPLETED' && ownerRole === 'EXECUTIVE' && !goal.completionExecApprovedBy) ||
     (goal.status === 'COMPLETED' && ownerIsMemberLike && !!goal.completionLeadApprovedBy && !goal.completionExecApprovedBy && (!hasHQInChain || !!goal.completionHqApprovedBy)) ||
-    (goal.status === 'PENDING_ABANDON' && ownerRole === 'TEAM_LEAD') ||
-    (goal.status === 'PENDING_ABANDON' && ownerRole === 'EXECUTIVE') ||
-    (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike && !!goal.abandonLeadApprovedBy)
+    (goal.status === 'PENDING_ABANDON' && ownerRole === 'TEAM_LEAD' && !goal.abandonExecApprovedBy) ||
+    (goal.status === 'PENDING_ABANDON' && ownerRole === 'EXECUTIVE' && !goal.abandonExecApprovedBy) ||
+    (goal.status === 'PENDING_ABANDON' && ownerIsMemberLike && !!goal.abandonLeadApprovedBy && !goal.abandonExecApprovedBy)
   );
 
-  const canApprove = !goalLocked && (canLeadApprove || canHQApprove || canExecApprove);
+  // 상위임원 — 부문 임원 승인 후 최종 단계 (재배치 후만 활성)
+  const canTopApprove = iAmTopExec && !isOwner && (
+    (goal.status === 'LEAD_APPROVED' && !!goal.approvedBy && !goal.topApprovedBy) ||
+    (goal.status === 'COMPLETED' && !!goal.completionExecApprovedBy && !goal.completionTopApprovedBy) ||
+    (goal.status === 'PENDING_ABANDON' && !!goal.abandonExecApprovedBy && !goal.abandonTopApprovedBy)
+  );
+
+  const canApprove = !goalLocked && (canLeadApprove || canHQApprove || canExecApprove || canTopApprove);
 
   const canReject = !goalLocked && ((iAmTeamLead && ['PENDING_APPROVAL', 'COMPLETED'].includes(goal.status) && ownerIsMemberLike) ||
     (iAmHQHead && (
@@ -1074,9 +1134,15 @@ export default function GoalDetailPage() {
       // 팀장 신규 목표(PENDING_APPROVAL) 도 본부장이 반려 가능
       (goal.status === 'PENDING_APPROVAL' && ownerRole === 'TEAM_LEAD')
     )) ||
-    (iAmExec && ['LEAD_APPROVED', 'PENDING_APPROVAL', 'COMPLETED'].includes(goal.status)));
+    (iAmExec && ['LEAD_APPROVED', 'PENDING_APPROVAL', 'COMPLETED'].includes(goal.status)) ||
+    (iAmTopExec && ['LEAD_APPROVED', 'COMPLETED', 'PENDING_ABANDON'].includes(goal.status)));
 
   function getApproveLabel() {
+    if (iAmTopExec) {
+      if (goal!.status === 'COMPLETED') return '완료 최종 확인';
+      if (goal!.status === 'PENDING_ABANDON') return '포기 최종 승인';
+      return '최종 승인';
+    }
     if (iAmTeamLead) {
       if (goal!.status === 'PENDING_APPROVAL') return '1차 승인';
       if (goal!.status === 'COMPLETED') return '완료 1차 확인';

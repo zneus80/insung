@@ -84,7 +84,7 @@ export function teamHasNoLead(goal: Goal, allOrgs: Organization[]): boolean {
   return !!teamOrg && !teamOrg.leaderId;
 }
 
-export type ApprovalRole = 'TEAM_LEAD' | 'HQ_HEAD' | 'EXEC';
+export type ApprovalRole = 'TEAM_LEAD' | 'HQ_HEAD' | 'EXEC' | 'TOP_EXEC';
 
 /** 결재 체인 단계 정보 */
 export interface ApprovalStage {
@@ -130,6 +130,11 @@ export function buildApprovalChain(
   } else if (hqOrg && !ownerIsHQDirect) {
     stages.push({ role: 'EXEC', orgId: hqOrg.id, orgName: hqOrg.name, userId: hqOrg.leaderId ?? undefined });
   }
+  // ④ 상위임원 단계 — 부문(DIVISION) 위에 상위조직(DIVISION)이 있을 때만. 오너가 상위임원 본인이면 제외.
+  const topOrg = topExecOrgOf(chain);
+  if (topOrg && ownerOrg?.id !== topOrg.id) {
+    stages.push({ role: 'TOP_EXEC', orgId: topOrg.id, orgName: topOrg.name, userId: topOrg.leaderId ?? undefined });
+  }
   return stages;
 }
 
@@ -144,7 +149,10 @@ export function currentPendingStageIdx(goal: Goal, chain: ApprovalStage[]): numb
     const hqIdx = chain.findIndex(s => s.role === 'HQ_HEAD');
     if (hqIdx >= 0 && !goal.hqApprovedBy) return hqIdx;
     const execIdx = chain.findIndex(s => s.role === 'EXEC');
-    if (execIdx >= 0) return execIdx;
+    if (execIdx >= 0 && !goal.approvedBy) return execIdx;
+    // 상위임원 단계 — 부문 임원 승인(approvedBy) 후
+    const topIdx = chain.findIndex(s => s.role === 'TOP_EXEC');
+    if (topIdx >= 0 && !goal.topApprovedBy) return topIdx;
     return -1;
   }
   if (goal.status === 'COMPLETED') {
@@ -154,15 +162,20 @@ export function currentPendingStageIdx(goal: Goal, chain: ApprovalStage[]): numb
     if (hqIdx >= 0 && !goal.completionHqApprovedBy) return hqIdx;
     const execIdx = chain.findIndex(s => s.role === 'EXEC');
     if (execIdx >= 0 && !goal.completionExecApprovedBy) return execIdx;
+    const topIdx = chain.findIndex(s => s.role === 'TOP_EXEC');
+    if (topIdx >= 0 && !goal.completionTopApprovedBy) return topIdx;
     return -1;
   }
   if (goal.status === 'PENDING_ABANDON') {
+    // 포기는 본부장(HQ) 공식 승인 단계가 없음 — 팀장 1차 → 임원 → (상위임원) 순.
     const tlIdx = chain.findIndex(s => s.role === 'TEAM_LEAD');
     if (tlIdx >= 0 && !goal.abandonLeadApprovedBy) return tlIdx;
-    const hqIdx = chain.findIndex(s => s.role === 'HQ_HEAD');
-    if (hqIdx >= 0) return hqIdx;
     const execIdx = chain.findIndex(s => s.role === 'EXEC');
-    if (execIdx >= 0) return execIdx;
+    if (execIdx >= 0 && !goal.abandonExecApprovedBy) return execIdx;
+    // 상위임원 포기 최종 — 부문 임원 포기 승인(abandonExecApprovedBy) 후
+    const topIdx = chain.findIndex(s => s.role === 'TOP_EXEC');
+    if (topIdx >= 0 && goal.abandonExecApprovedBy && !goal.abandonTopApprovedBy) return topIdx;
+    return -1;
   }
   return -1;
 }
@@ -307,7 +320,19 @@ export function approverTitle(
 
 /** stage role 의 기본 라벨 — 직책 모르는 경우 fallback. */
 export function stageLabel(role: ApprovalRole): string {
-  return role === 'TEAM_LEAD' ? '팀장' : role === 'HQ_HEAD' ? '본부장' : '임원';
+  return role === 'TEAM_LEAD' ? '팀장' : role === 'HQ_HEAD' ? '본부장' : role === 'TOP_EXEC' ? '상위임원' : '임원';
+}
+
+/**
+ * 상위임원(TOP_EXEC) 결재 단계 조직 — 임원 단계 DIVISION의 부모가 또 DIVISION(상위조직)일 때 그 상위 DIVISION.
+ * 현재 조직에는 DIVISION-밑-DIVISION 이 없어 항상 undefined → 기존 동작 무변경.
+ * 영업부문 재배치(상위조직 DIVISION → 부문 DIVISION → …) 후에만 활성. leaderId 없는 상위조직은 결재단계로 보지 않음.
+ */
+export function topExecOrgOf(chain: Organization[]): Organization | undefined {
+  const divIdx = chain.findIndex(o => o.type === 'DIVISION');
+  if (divIdx < 0) return undefined;
+  const upper = chain.slice(divIdx + 1).find(o => o.type === 'DIVISION');
+  return upper && upper.leaderId ? upper : undefined;
 }
 
 /**
@@ -339,6 +364,8 @@ export function computeSubmitterAutoApproval(params: {
     hqApprovedAt?: Date;
     approvedBy?: string;
     approvedAt?: Date;
+    topApprovedBy?: string;
+    topApprovedAt?: Date;
   };
   stageRole: ApprovalRole | null;
 } {
@@ -368,7 +395,23 @@ export function computeSubmitterAutoApproval(params: {
       stageRole: 'HQ_HEAD',
     };
   }
-  // EXEC
+  if (st.role === 'TOP_EXEC') {
+    // 상위임원이 직접 상신/대리작성 — 하위 임원 단계까지 포함해 최종 승인
+    return {
+      status: 'APPROVED',
+      fields: { approvedBy: params.submitterId, approvedAt: now, topApprovedBy: params.submitterId, topApprovedAt: now },
+      stageRole: 'TOP_EXEC',
+    };
+  }
+  // EXEC — 위에 상위임원 단계가 있으면 부문 임원 승인까지만(상위임원 대기), 없으면 최종
+  const hasTop = chain.some(s => s.role === 'TOP_EXEC');
+  if (hasTop) {
+    return {
+      status: 'LEAD_APPROVED',
+      fields: { approvedBy: params.submitterId, approvedAt: now },
+      stageRole: 'EXEC',
+    };
+  }
   return {
     status: 'APPROVED',
     fields: { approvedBy: params.submitterId, approvedAt: now },
@@ -389,7 +432,10 @@ export function getMyApprovalRole(
   const teamOrg = chain.find(o => o.type === 'TEAM');
   const hqOrg   = chain.find(o => o.type === 'HEADQUARTERS');
   const divOrg  = chain.find(o => o.type === 'DIVISION');
+  const topOrg  = topExecOrgOf(chain);
 
+  // 상위임원 — 부문 위 상위조직 리더 (부문 임원 본인과 다를 때만)
+  if (topOrg?.leaderId === userId && divOrg?.leaderId !== userId) return 'TOP_EXEC';
   if (teamOrg?.leaderId === userId) return 'TEAM_LEAD';
   if (divOrg?.leaderId === userId) return 'EXEC';
   if (hqOrg?.leaderId === userId) return divOrg ? 'HQ_HEAD' : 'EXEC';

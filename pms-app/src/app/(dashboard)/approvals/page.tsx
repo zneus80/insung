@@ -22,6 +22,7 @@ import {
   getApprovalRowState,
   stageLabel,
   approverTitle,
+  type ApprovalRole,
 } from '@/lib/approval-filters';
 
 export default function ApprovalsPage() {
@@ -425,7 +426,7 @@ interface ApprovalRowProps {
   goal: Goal;
   requester?: AppUser;
   requesterOrgName?: string;
-  approvalRole: 'TEAM_LEAD' | 'HQ_HEAD' | 'EXEC';
+  approvalRole: ApprovalRole;
   actionLoading: boolean;
   onPromotionApprove: (goal: Goal, promoteToTask: boolean) => void;
   isUpstream?: boolean;          // 차하위 승인권자가 처리하기 전 단계 — 비활성 표시

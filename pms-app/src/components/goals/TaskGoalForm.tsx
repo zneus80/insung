@@ -391,6 +391,8 @@ export default function TaskGoalForm({
           hqApprovedAt: deleteField(),
           approvedBy: deleteField(),
           approvedAt: deleteField(),
+          topApprovedBy: deleteField(),
+          topApprovedAt: deleteField(),
           ...autoApproval.fields,
           updatedAt: sts(),
         };
