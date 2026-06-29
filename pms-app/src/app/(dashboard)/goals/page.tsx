@@ -133,20 +133,16 @@ function MyGoalsView() {
         .filter(o => !orgs.some(c => c.parentId === o.id && scopeOrgSet.has(c.id))) // leaf
         .slice()
         .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999) || a.name.localeCompare(b.name, 'ko'));
-      // 본인 home 조직이 leaf 탭에 없으면(본부장 등) 맨 앞에 추가 — 본인 목표 표시 누락 방지(조회용).
-      // 단, 팀장 역할 본부 책임자의 목표는 산하 팀에 등록하는 정책이므로 본부 탭은 '추가 기본'이 아님.
+      // 팀장 역할 본부 책임자의 목표는 산하 팀에 등록하는 정책 → 본부(비-TEAM) 홈 탭은 만들지 않는다.
+      // 홈이 TEAM 인데 leaf 탭에 없는 예외적 경우만 보강(본인 목표 누락 방지).
+      // (산하 팀이 없는 본부는 leaf 필터에서 그대로 탭에 들어오므로 별도 처리 불필요 — 그런 본부는 팀으로 전환 대상)
       const homeOrg = orgs.find(o => o.id === userProfile!.organizationId);
-      const homeIsNonTeam = !!homeOrg && homeOrg.type !== 'TEAM';
-      if (!teamTabs.some(o => o.id === userProfile!.organizationId) && homeOrg) {
+      if (homeOrg && homeOrg.type === 'TEAM' && !teamTabs.some(o => o.id === homeOrg.id)) {
         teamTabs = [homeOrg, ...teamTabs];
       }
       setTeamScopeOrgs(teamTabs);
       if (teamTabs.length > 0 && !teamTabs.some(o => o.id === activeTeamOrgId)) {
-        // 홈이 본부(비-TEAM)인 본부장이면 기본 활성 탭을 산하 팀으로 — 목표 추가가 팀 목표로 잡히게.
-        const firstTeam = homeIsNonTeam
-          ? (teamTabs.find(o => o.type === 'TEAM' && o.id !== userProfile!.organizationId) ?? teamTabs[0])
-          : teamTabs[0];
-        setActiveTeamOrgId(firstTeam.id);
+        setActiveTeamOrgId(teamTabs[0].id);
       }
 
       // 스코프 내 모든 조직의 목표 — 조직 체인(organizationId / relatedOrgIds) 기준으로만 조회·판정.
@@ -614,7 +610,7 @@ function MyGoalsView() {
         onClose={() => setFormOpen(false)}
         onSave={handleSave}
         editGoal={editGoal}
-        {...(teamScopeOrgs.length >= 2 && activeTeamOrgId && activeTeamOrgId !== userProfile?.organizationId
+        {...(activeTeamOrgId && activeTeamOrgId !== userProfile?.organizationId
           ? { targetOrgId: activeTeamOrgId, targetOrgName: orgsMap[activeTeamOrgId] }
           : {})}
       />

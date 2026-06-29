@@ -38,6 +38,16 @@ service cloud.firestore {
     function isOrgLeader(orgId) {
       return get(/databases/$(database)/documents/organizations/$(orgId)).data.leaderId == request.auth.uid;
     }
+    function orgParentId(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)).data.parentId;
+    }
+    // 팀장 역할 본부 책임자 — 해당 팀의 부모(본부)의 리더이고 본인이 팀장(role) 인 경우.
+    //   본부장은 본부 주간보고를 따로 두지 않고 산하 팀 주간보고에 직접 작성하므로 산하 팀 문서 편집을 허용.
+    function isParentHqTeamLead(orgId) {
+      return isLead()
+        && orgParentId(orgId) != null
+        && get(/databases/$(database)/documents/organizations/$(orgParentId(orgId))).data.leaderId == request.auth.uid;
+    }
 
     // 사용자
     match /users/{uid} {
@@ -213,6 +223,9 @@ service cloud.firestore {
         // 해당 팀의 리더(산하 팀을 거느린 팀장)
         isOrgLeader(request.resource.data.organizationId)
         ||
+        // 팀장 역할 본부 책임자 — 산하 팀 주간보고 작성
+        isParentHqTeamLead(request.resource.data.organizationId)
+        ||
         // 레거시 개인 문서
         request.resource.data.userId == request.auth.uid
       );
@@ -222,6 +235,9 @@ service cloud.firestore {
         ||
         // 해당 팀의 리더(산하 팀을 거느린 팀장) — 산하 팀 주간보고 편집
         isOrgLeader(resource.data.organizationId)
+        ||
+        // 팀장 역할 본부 책임자 — 산하 팀 주간보고 편집
+        isParentHqTeamLead(resource.data.organizationId)
         ||
         // 레거시 본인 문서
         resource.data.userId == request.auth.uid
