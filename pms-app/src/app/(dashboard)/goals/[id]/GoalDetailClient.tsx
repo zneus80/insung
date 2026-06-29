@@ -1172,6 +1172,12 @@ export default function GoalDetailPage() {
             <p className="text-gray-600 whitespace-pre-wrap">{goal.description}</p>
 
             <div className="flex flex-wrap items-center gap-5 text-sm text-gray-500 border-t pt-4">
+              {goal.approvedAt && (
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4" />
+                  업무 시작일: {format(goal.approvedAt, 'yyyy년 MM월 dd일', { locale: ko })}
+                </span>
+              )}
               <span className="flex items-center gap-1.5">
                 <Calendar className="h-4 w-4" />
                 추진기한: {format(goal.dueDate, 'yyyy년 MM월 dd일', { locale: ko })}

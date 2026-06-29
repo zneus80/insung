@@ -1,11 +1,13 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/lib/auth';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
+import { getUnreadNotificationCount } from '@/lib/firestore';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User, ArrowLeft, KeyRound } from 'lucide-react';
+import { LogOut, User, ArrowLeft, KeyRound, Bell } from 'lucide-react';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import PasswordChangeModal from '@/components/auth/PasswordChangeModal';
 
@@ -17,7 +19,16 @@ interface HeaderProps {
 export default function Header({ title, showBack }: HeaderProps) {
   const { userProfile, firebaseUser } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // 알림 미읽음 카운트 — 페이지 이동마다 갱신(가벼운 query)
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    if (!firebaseUser) return;
+    let alive = true;
+    getUnreadNotificationCount(firebaseUser.uid).then(n => { if (alive) setUnread(n); }).catch(() => {});
+    return () => { alive = false; };
+  }, [firebaseUser, pathname]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [pwdOpen, setPwdOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -59,6 +70,22 @@ export default function Header({ title, showBack }: HeaderProps) {
           </button>
         )}
       </div>
+
+      <div className="flex items-center gap-1">
+      {/* 알림 종 — 미읽음 배지 */}
+      <Link
+        href="/notifications"
+        className="relative rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+        title="알림"
+        aria-label="알림"
+      >
+        <Bell className="h-5 w-5" />
+        {unread > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold min-w-[16px] h-[16px] inline-flex items-center justify-center px-1">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </Link>
 
       {/* 사용자 드롭다운 */}
       <div className="relative" ref={ref}>
@@ -127,6 +154,7 @@ export default function Header({ title, showBack }: HeaderProps) {
             </button>
           </div>
         )}
+      </div>
       </div>
 
       {/* 비밀번호 변경 모달 */}

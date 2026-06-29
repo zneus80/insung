@@ -19,7 +19,8 @@ export default function DashboardLayout({
             <Sidebar />
             <div className="flex flex-1 flex-col overflow-hidden">
               <PasswordAgeBanner />
-              <main className="flex-1 overflow-y-auto">{children}</main>
+              {/* 모바일 하단 네비게이션 바에 가려지지 않도록 하단 패딩(데스크톱은 0) */}
+              <main className="flex-1 overflow-y-auto pb-16 md:pb-0">{children}</main>
               <ScrollRestoration />
             </div>
           </div>

@@ -29,6 +29,8 @@ import {
   Sparkles,
   ChevronDown,
   ChevronRight,
+  LayoutGrid,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -405,6 +407,9 @@ export default function Sidebar() {
   const [approvalsCount, setApprovalsCount] = useState(0);
   const [announcementsNew, setAnnouncementsNew] = useState(false);
   const [weeklyNew, setWeeklyNew] = useState(false);
+  // 모바일 전체메뉴 드로어 — 경로가 바뀌면 자동으로 닫는다.
+  const [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   // 메뉴 그룹 접기/펼치기 — 길어지는 관리자 그룹은 기본 접힘. localStorage 저장.
   const DEFAULT_CLOSED_GROUPS = ['기본정보입력', '인사평가 설정', '시스템 설정'];
@@ -523,8 +528,9 @@ export default function Sidebar() {
     return true;
   });
 
-  return (
-    <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-white">
+  // 데스크톱 사이드바 + 모바일 드로어가 공유하는 내부 패널(로고·네비·하단)
+  const panel = (
+    <>
       {/* 로고 — 클릭 시 대시보드 이동 */}
       <Link
         href="/dashboard"
@@ -645,7 +651,59 @@ export default function Sidebar() {
           </div>
         </div>
       )}
-    </aside>
+    </>
+  );
+
+  // 모바일 하단바에 노출할 핵심 항목 — 알림·공지 제외, 보이는 메뉴 상위 4개
+  const bottomItems = visibleItems
+    .filter(i => i.href !== '/notifications' && i.href !== '/announcements')
+    .slice(0, 4);
+  const isItemActive = (href: string) => {
+    const p = href.split('?')[0];
+    const np = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+    return np === p || np.startsWith(p + '/');
+  };
+
+  return (
+    <>
+      {/* 데스크톱 — 좌측 사이드바 */}
+      <aside className="hidden md:flex h-full w-60 flex-col border-r border-gray-200 bg-white">{panel}</aside>
+
+      {/* 모바일 — 전체메뉴 드로어 */}
+      {mobileOpen && (
+        <div className="md:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
+          <aside className="absolute left-0 top-0 h-full w-72 max-w-[85vw] flex flex-col border-r border-gray-200 bg-white shadow-xl">
+            <button onClick={() => setMobileOpen(false)} className="absolute right-2 top-4 z-10 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100" aria-label="닫기">
+              <X className="h-5 w-5" />
+            </button>
+            {panel}
+          </aside>
+        </div>
+      )}
+
+      {/* 모바일 — 하단 네비게이션 바(아이콘만) */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 flex items-stretch border-t border-gray-200 bg-white/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+        {bottomItems.map(item => {
+          const active = isItemActive(item.href);
+          const badge = (item.href === '/approvals' && approvalsCount > 0) || (item.href === '/tasks' && weeklyNew);
+          return (
+            <Link key={item.href} href={item.href} title={item.label} aria-label={item.label}
+              className={cn('relative flex flex-1 items-center justify-center py-3',
+                active ? 'text-blue-600' : 'text-gray-400')}>
+              <span className="relative">
+                {item.icon}
+                {badge && <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-red-500" />}
+              </span>
+            </Link>
+          );
+        })}
+        <button type="button" onClick={() => setMobileOpen(true)} title="전체메뉴" aria-label="전체메뉴"
+          className="flex flex-1 items-center justify-center py-3 text-gray-400">
+          <LayoutGrid className="h-5 w-5" />
+        </button>
+      </nav>
+    </>
   );
 }
 

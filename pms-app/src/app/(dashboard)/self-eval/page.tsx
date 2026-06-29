@@ -20,10 +20,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Target, Star, Lightbulb, CheckCircle2, Lock, Pencil, XCircle, AlertCircle } from 'lucide-react';
-import type { Goal } from '@/types';
+import type { Goal, InnovationActivityType } from '@/types';
 
 type Starred = { id: string; title: string };
-type Innov = { id: string; name: string; instructed?: boolean };
+type Innov = { id: string; name: string; type: InnovationActivityType; instructed?: boolean };
 
 export default function SelfEvalPage() {
   const { userProfile } = useAuth();
@@ -75,6 +75,7 @@ export default function SelfEvalPage() {
       setInnov(innovAll.filter(a => a.year === year).map(a => ({
         id: a.id,
         name: a.name,
+        type: a.type,
         instructed: a.type === 'TDS' && a.instructorId === userProfile.id && !getPerformerIds(a).includes(userProfile.id),
       })));
 
@@ -126,7 +127,7 @@ export default function SelfEvalPage() {
         goalEvals: goals.map(g => ({ goalId: g.id, goalTitle: g.title, comment: goalMap[g.id]?.comment ?? '', score: num(goalMap[g.id]?.score ?? ''), weight: coreEff(g.id) })),
         generalEvals: starred.map(s => ({ id: s.id, title: s.title, comment: genMap[s.id]?.comment ?? '', score: num(genMap[s.id]?.score ?? ''), weight: genEff })),
         innovationEvals: innov.map(a => ({
-          activityId: a.id, name: a.name,
+          activityId: a.id, name: a.name, type: a.type,
           comment: a.instructed ? '' : (innovMap[a.id] ?? ''),
           ...(a.instructed ? { instructed: true } : {}),
         })),
@@ -305,6 +306,9 @@ export default function SelfEvalPage() {
               {innov.length === 0 ? <p className="text-xs text-gray-400">참여한 혁신활동이 없습니다.</p> : innov.map(a => (
                 <div key={a.id} className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
                   <p className="text-sm font-medium text-gray-800 flex items-center gap-1.5">
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${a.type === 'SMART_PROJECT' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>
+                      {a.type === 'SMART_PROJECT' ? '스마트프로젝트' : 'TDS'}
+                    </span>
                     {a.name}
                     {a.instructed && <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[11px] font-medium">지시</span>}
                   </p>

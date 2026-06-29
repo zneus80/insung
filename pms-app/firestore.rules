@@ -62,10 +62,12 @@ service cloud.firestore {
         resource.data.organizationId == userOrg() ||
         isLead() || isExec() || isCeo() || isHrAdmin()
       );
-      // 영구 삭제: 본인 목표 중 휴지통(trashedAt) 또는 포기 확정(구버전 휴지통)만. HR관리자는 정리 목적 허용.
+      // 영구 삭제: 본인 목표 중 휴지통(trashedAt)에 있고 '포기(ABANDONED)가 아닌' 것만.
+      //   포기 목표는 인사평가 기록 보존을 위해 영구 삭제 금지(본인 화면 제거는 softDeletedAt 로 처리).
+      //   HR관리자는 정리 목적 허용.
       allow delete: if isAuthenticated() && (
         (resource.data.userId == request.auth.uid &&
-          (resource.data.trashedAt != null || resource.data.status == 'ABANDONED')) ||
+          resource.data.trashedAt != null && resource.data.status != 'ABANDONED') ||
         isHrAdmin()
       );
     }

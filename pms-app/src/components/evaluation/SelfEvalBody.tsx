@@ -115,6 +115,11 @@ export default function SelfEvalBody({ form, abandonedGoals, goalSummary }: {
           : innov.map(e => (
             <div key={e.activityId} className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
               <p className="text-sm font-medium text-gray-800 flex items-center gap-1.5">
+                {e.type && (
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${e.type === 'SMART_PROJECT' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>
+                    {e.type === 'SMART_PROJECT' ? '스마트프로젝트' : 'TDS'}
+                  </span>
+                )}
                 {e.name}
                 {e.instructed && <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[11px] font-medium">지시</span>}
               </p>
