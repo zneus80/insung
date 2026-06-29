@@ -108,6 +108,7 @@ function ProgressContent() {
         setNameById(Object.fromEntries(allUsers.map(u => [u.id, u.name])));
 
         // 산하 TEAM 조직만 추출 (팀장/팀원 그룹핑 기준)
+        // ※ 팀장 역할 본부 책임자는 산하 팀에 목표를 등록하므로, 본부를 별도 단위로 띄울 필요 없음.
         const teams = allOrgs
           .filter(o => o.type === 'TEAM' && descIds.includes(o.id))
           .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
@@ -121,12 +122,10 @@ function ProgressContent() {
         }
 
         // 조직 체인 기준 — 목표의 소속 조직(organizationId) 또는 연관 조직(relatedOrgIds)이 스코프와 교차하는 확정 목표만.
-        // ※ 사람(owner) 기준이 아니라 조직 기준 — 겸직자(예: 인사팀 소속·전략기획팀 팀장)의 전략기획팀 목표가
-        //   인사팀에 끌려오는 누수를 차단.
-        const scoped = allGoals.filter(g =>
+        const scoped = filterConfirmed(allGoals.filter(g =>
           (descIds.includes(g.organizationId) || (g.relatedOrgIds ?? []).some(o => descIds.includes(o)))
-        );
-        setScopedGoals(filterConfirmed(scoped));
+        ));
+        setScopedGoals(scoped);
       } finally {
         setLoading(false);
       }
