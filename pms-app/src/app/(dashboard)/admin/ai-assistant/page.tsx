@@ -25,7 +25,7 @@ import { EVAL_CRITERIA_BODY, buildAnnualGoalContext } from '@/lib/ai-eval';
 import { computeLeaderTeamAchievement } from '@/lib/team-achievement';
 import { cn } from '@/lib/utils';
 import MarkdownLite from '@/components/ui/MarkdownLite';
-import type { Goal, IndividualEvaluation, SelfEvaluation, MentoringForm, WeeklyTask, InnovationActivity, Award, Attendance, OrganizationEvaluation } from '@/types';
+import type { Goal, IndividualEvaluation, SelfEvaluation, MentoringForm, WeeklyTask, SimpleTaskItem, InnovationActivity, Award, Attendance, OrganizationEvaluation } from '@/types';
 
 const NOW_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS: (number | 'all')[] = [NOW_YEAR, NOW_YEAR - 1, NOW_YEAR - 2, 'all'];
@@ -194,9 +194,11 @@ function AssistantContent() {
           const ie = d.ie.find(e => e.userId === u.id);
           const se = d.se.find(e => e.userId === u.id);
           const mf = d.mf.find(e => e.userId === u.id);
+          // 본인 작성분 + 참여분(핵심업무 실적의 참여인원으로 지정된 항목) — 참여 실적 누락 방지
+          const isMine = (i: SimpleTaskItem, w: WeeklyTask) => (i.authorId ?? w.userId) === u.id || (i.participantIds ?? []).includes(u.id);
           const weeklyHi = d.wt
             .slice().sort((a, b) => b.weekNumber - a.weekNumber) // 최신 주차 우선 — 컷오프 시 옛 데이터가 최신을 밀어내지 않도록
-            .flatMap(w => (w.hasDoneItems ?? []).filter(i => (i.authorId ?? w.userId) === u.id).map(i => (i.title || i.content || '').trim()))
+            .flatMap(w => (w.hasDoneItems ?? []).filter(i => isMine(i, w)).map(i => (i.title || i.content || '').trim()))
             .filter(Boolean).slice(0, 15);
           const innovNames = d.innov
             .filter(a => a.status !== 'DROPPED')  // Drop(실패·중단)은 성과 집계 제외 — 기록용
@@ -213,7 +215,7 @@ function AssistantContent() {
           // 목표별 주간 추진내용(본인 작성, goalId 연계) — 임팩트·진척 추정 근거
           const goalNotes = (gid: string) => d.wt
             .slice().sort((a, b) => b.weekNumber - a.weekNumber)
-            .flatMap(w => (w.hasDoneItems ?? []).filter(i => (i.authorId ?? w.userId) === u.id && i.goalId === gid).map(i => (i.title || i.content || '').trim()))
+            .flatMap(w => (w.hasDoneItems ?? []).filter(i => isMine(i, w) && i.goalId === gid).map(i => (i.title || i.content || '').trim()))
             .filter(Boolean).slice(0, 8);
           yrs[y] = {
             grade: ie && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') ? ie.execGrade : undefined,

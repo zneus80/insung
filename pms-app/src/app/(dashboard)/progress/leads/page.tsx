@@ -21,6 +21,7 @@ import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { getAllUsers, getOrganizationsForYear, getAllGoalsByYear } from '@/lib/firestore';
 import { compareByHireThenName } from '@/lib/user-sort';
 import Header from '@/components/layout/Header';
+import YearTabBar from '@/components/layout/YearTabBar';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Progress } from '@/components/ui/progress';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
@@ -68,7 +69,12 @@ export default function ProgressLeadsPage() {
 
 function ProgressContent() {
   const { userProfile } = useAuth();
-  const { activeYear: year } = useActiveYear();
+  const { activeYear } = useActiveYear();
+  // 조회 연도 — 당해 포함 직전 3개년
+  const YEAR_TABS = [activeYear, activeYear - 1, activeYear - 2] as const;
+  const [viewYear, setViewYear] = useState(activeYear);
+  useEffect(() => { setViewYear(activeYear); }, [activeYear]);
+  const year = viewYear;
   const [loading, setLoading] = useState(true);
   const [scopedUsers, setScopedUsers] = useState<User[]>([]);
   const [scopedGoals, setScopedGoals] = useState<Goal[]>([]); // 스코프 내 확정 목표 (조직 체인 기준)
@@ -164,7 +170,10 @@ function ProgressContent() {
       <Header title="핵심목표 진행현황" />
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-5xl mx-auto space-y-4">
-          <p className="text-sm text-gray-500">{year}년 소관 조직 팀별 업무 진행현황 (임원 확정 목표만)</p>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-gray-500">{year}년 소관 조직 팀별 업무 진행현황 (임원 확정 목표만)</p>
+            <YearTabBar selectedYear={year} yearTabs={YEAR_TABS} onChange={setViewYear} />
+          </div>
 
           {loading ? (
             <div className="space-y-3">
@@ -248,11 +257,11 @@ function ProgressContent() {
                     /* 팀 목표별 나열 — 완료/추진중(+포기 토글), 각 목표에 진행률·수행자 표시 */
                     teamGoals.length > 0 ? (
                       <div className="p-4 space-y-4">
-                        {teamCounts.completed.length > 0 && (
-                          <GoalGroup label="완료" color="green" goals={teamCounts.completed} partsOf={participantsDetailOf} />
-                        )}
                         {teamCounts.inProgress.length > 0 && (
                           <GoalGroup label="추진중" color="blue" goals={teamCounts.inProgress} partsOf={participantsDetailOf} />
+                        )}
+                        {teamCounts.completed.length > 0 && (
+                          <GoalGroup label="완료" color="green" goals={teamCounts.completed} partsOf={participantsDetailOf} />
                         )}
                         {teamCounts.abandoned.length > 0 && (
                           <AbandonedGroup goals={teamCounts.abandoned} partsOf={participantsDetailOf} />
@@ -297,8 +306,8 @@ function UserCard({ user, goals, isLead }: { user: User; goals: Goal[]; isLead?:
         <p className="text-xs text-gray-400">등록된 목표가 없습니다.</p>
       ) : (
         <div className="space-y-2 flex-1">
-          {completed.length > 0 && <GoalGroup label="완료" color="green" goals={completed} />}
           {inProgress.length > 0 && <GoalGroup label="추진중" color="blue" goals={inProgress} />}
+          {completed.length > 0 && <GoalGroup label="완료" color="green" goals={completed} />}
           {abandoned.length > 0 && (
             <div>
               <button type="button" onClick={() => setShowAbandoned(v => !v)}

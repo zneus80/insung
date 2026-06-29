@@ -821,6 +821,9 @@ export interface SimpleTaskItem {
   authorId?: string;
   /** 입력자 표시명 (denormalized) — 없으면 WeeklyTask.userId 를 작성자로 간주(레거시) */
   authorName?: string;
+  /** 실적 참여 인원 — 핵심업무(목표연동) 실적 항목에서 이 업무에 참여한 수행자 userId 목록.
+   *  AI 성과요약 시 작성자뿐 아니라 참여자의 실적으로도 집계하기 위함. (v0.9.2) */
+  participantIds?: string[];
 }
 
 export interface WeeklyTask {

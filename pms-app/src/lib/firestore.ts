@@ -2806,14 +2806,28 @@ function explodeTeamDocsToMembers(
   const out: WeeklyTask[] = [];
   const seen = new Set<string>(); // `${memberId}_${week}`
   for (const m of members) {
+    // 한 멤버의 같은 주차 실적은 단일 문서로 누적 — 본인 작성분(같은 팀) + 참여분(타 팀 핵심업무 실적 포함)
+    const byWeek = new Map<number, WeeklyTask>();
     for (const td of teamDocs) {
-      if (td.organizationId !== m.organizationId) continue;
-      const owns = (i: SimpleTaskItem) => (i.authorId ?? td.userId) === m.id;
-      const hd = (td.hasDoneItems ?? []).filter(owns);
-      const wd = (td.willDoItems ?? []).filter(owns);
+      const sameOrg = td.organizationId === m.organizationId;
+      // 작성자 귀속(레거시 폴백 포함)은 같은 조직 문서에서만
+      const authored = (i: SimpleTaskItem) => sameOrg && (i.authorId ?? td.userId) === m.id;
+      // 참여 귀속 — 핵심업무 실적(Has Done)에 참여인원으로 지정된 경우(작성자 본인 항목과 중복 제외)
+      const participated = (i: SimpleTaskItem) => (i.participantIds ?? []).includes(m.id) && (i.authorId ?? td.userId) !== m.id;
+      const hd = (td.hasDoneItems ?? []).filter(i => authored(i) || participated(i));
+      const wd = (td.willDoItems ?? []).filter(authored); // 계획(Will Do)은 작성자 본인만
       if (hd.length === 0 && wd.length === 0) continue;
-      out.push({ ...td, id: weeklyTaskDocId(m.id, td.year, td.weekNumber), userId: m.id, hasDoneItems: hd, willDoItems: wd, summary: '' });
-      seen.add(`${m.id}_${td.weekNumber}`);
+      const existing = byWeek.get(td.weekNumber);
+      if (existing) {
+        existing.hasDoneItems = [...(existing.hasDoneItems ?? []), ...hd];
+        existing.willDoItems = [...(existing.willDoItems ?? []), ...wd];
+      } else {
+        byWeek.set(td.weekNumber, { ...td, id: weeklyTaskDocId(m.id, td.year, td.weekNumber), userId: m.id, hasDoneItems: hd, willDoItems: wd, summary: '' });
+      }
+    }
+    for (const [week, d] of byWeek) {
+      out.push(d);
+      seen.add(`${m.id}_${week}`);
     }
   }
   // 레거시 개인 문서 — 팀 문서로 커버되지 않은 (member,week) 만 보강
