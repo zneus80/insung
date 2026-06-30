@@ -98,6 +98,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ sent: true });
     }
 
+    // 3-1) 수신자 개인 설정 — 이메일 알림을 켠 사용자에게만 발송(기본 비활성). 초대 메일은 위에서 처리되어 영향 없음.
+    if (userSnap.data()?.emailNotificationsEnabled !== true) {
+      return NextResponse.json({ sent: false, reason: 'disabled-by-recipient' });
+    }
+
     // 4) 발송
     const url = link ? `${APP_URL}${link.startsWith('/') ? link : `/${link}`}` : APP_URL;
     await transporter().sendMail({
