@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, getApp, cert, ServiceAccount } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleGenAI } from '@google/genai';
 
 /**
  * 임원 위클리 리포트 — 월요일 Cloud Scheduler 자동 생성 + 알림.
@@ -112,14 +112,14 @@ export async function POST(req: NextRequest) {
     const nameById = new Map(users.map(u => [u.id, u.name]));
     const posById = new Map(users.map(u => [u.id, u.position]));
 
-    // ── Vertex AI (firebase-adminsdk SA 자격증명 명시 주입 — aiplatform.user 부여된 계정) ──
+    // ── Gemini (Vertex AI) — firebase-adminsdk SA 자격증명 명시 주입(aiplatform.user 부여된 계정) ──
     const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY!);
-    const vertex = new VertexAI({
+    const genai = new GoogleGenAI({
+      vertexai: true,
       project: sa.project_id,
       location: 'us-central1',
       googleAuthOptions: { credentials: { client_email: sa.client_email, private_key: sa.private_key } },
     });
-    const model = vertex.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
     const execs = users.filter(u => u.role === 'EXECUTIVE' && u.isActive !== false);
     const counts = { generated: 0, skipped: 0, empty: 0, failed: 0 };
@@ -157,9 +157,11 @@ export async function POST(req: NextRequest) {
         if (teams.length === 0) { counts.empty++; return; }
 
         const divisionName = orgById.get(exec.organizationId)?.name ?? '담당 조직';
-        const resp = await model.generateContent(buildPrompt(divisionName, t.year, t.week, teams));
-        const text = (resp.response?.candidates?.[0]?.content?.parts ?? [])
-          .map((p: any) => p.text ?? '').join('').trim();
+        const resp = await genai.models.generateContent({
+          model: 'gemini-2.5-pro',
+          contents: buildPrompt(divisionName, t.year, t.week, teams),
+        });
+        const text = (resp.text ?? '').trim();
         if (!text) { counts.failed++; return; }
 
         await cacheRef.set({
