@@ -53,6 +53,7 @@ export const COLLECTIONS = {
   BACKUPS: 'backups',
   NOTIFICATIONS: 'notifications',
   WEEKLY_TASKS: 'weeklyTasks',
+  WEEKLY_REPORTS: 'weeklyReports',   // 임원 위클리 리포트 캐시 (docId = execId_year_W주차)
   INNOVATION_ACTIVITIES: 'innovationActivities',
   ATTENDANCES: 'attendances',
 } as const;
@@ -2853,6 +2854,39 @@ export async function getAllWeeklyTasksByYear(year: number): Promise<WeeklyTask[
   const covered = new Set(teamDocs.map(t => `${t.organizationId}__${t.weekNumber}`));
   const keptLegacy = all.filter(t => !t.teamOrgId && !covered.has(`${t.organizationId}__${t.weekNumber}`));
   return [...teamDocs, ...keptLegacy];
+}
+
+// ─── 임원 위클리 리포트 캐시 (주차별 영구 저장) ──────────────
+export interface WeeklyReportCache {
+  id: string;
+  execId: string;
+  year: number;
+  week: number;
+  content: string;           // AI 생성 마크다운(요약/분석/금주방향)
+  generatedAt: Date;
+  generatedByName?: string;  // 생성 트리거(임원 본인 / 시스템)
+}
+function weeklyReportDocId(execId: string, year: number, week: number): string {
+  return `${execId}_${year}_W${week}`;
+}
+export async function getWeeklyReportCache(execId: string, year: number, week: number): Promise<WeeklyReportCache | null> {
+  const snap = await getDoc(doc(db, COLLECTIONS.WEEKLY_REPORTS, weeklyReportDocId(execId, year, week)));
+  if (!snap.exists()) return null;
+  const d = snap.data();
+  return {
+    id: snap.id, execId: d.execId, year: d.year, week: d.week,
+    content: d.content ?? '', generatedAt: fromTimestamp(d.generatedAt) ?? new Date(),
+    generatedByName: d.generatedByName,
+  };
+}
+export async function saveWeeklyReportCache(
+  execId: string, year: number, week: number, content: string, generatedByName?: string,
+): Promise<void> {
+  await setDoc(doc(db, COLLECTIONS.WEEKLY_REPORTS, weeklyReportDocId(execId, year, week)), {
+    execId, year, week, content,
+    generatedAt: serverTimestamp(),
+    ...(generatedByName ? { generatedByName } : {}),
+  }, { merge: true });
 }
 
 export async function getWeeklyTasksByMembersAndYear(

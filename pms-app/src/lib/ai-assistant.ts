@@ -139,6 +139,46 @@ export async function askAssistant(opts: {
 }
 
 /**
+ * 임원 위클리 리포트 — 산하 조직의 지난주 주간업무보고를 요약·분석·금주 방향으로 정리.
+ * 입력은 팀별 주간 실적/계획 텍스트(+연동 목표명). 결과는 사람이 읽을 마크다운 섹션.
+ * 호출 화면은 임원(본인 산하만) — §6-1 가시성 범위 내(주간 업무 내용, 개인평가등급 아님).
+ */
+export interface WeeklyReportInput {
+  divisionName: string;
+  year: number;
+  week: number;
+  teams: Array<{
+    teamName: string;
+    members: Array<{ name: string; position?: string; hasDone: string[]; willDo: string[] }>;
+  }>;
+}
+export async function summarizeWeeklyReport(input: WeeklyReportInput): Promise<string> {
+  const m = model(PRO, 8192, 2048); // 분석 품질 — Pro, 사고 예산 제한으로 지연 완화
+  const prompt = [
+    '당신은 임원을 보좌하는 업무 분석가입니다. 아래 "주간업무보고 데이터(JSON)"는 임원 산하 조직의 지난주 실적/금주 계획입니다.',
+    '이를 바탕으로 임원이 한눈에 파악할 수 있는 한국어 위클리 리포트를 작성하세요.',
+    '반드시 아래 세 섹션을 마크다운 제목(##)으로 구성합니다:',
+    '## 1. 요약 — 팀/부문별 지난주 주요 성과·진척을 핵심 위주로 압축(팀별 한두 줄).',
+    '## 2. 분석 — 진행 양상, 눈에 띄는 성과, 지연·이슈·리스크, 팀 간 편차 등을 통찰 위주로.',
+    '## 3. 금주 방향 — 다음 주 계획(willDo)과 위 분석을 토대로 임원이 챙겨야 할 우선순위·점검 포인트 제안.',
+    '원칙:',
+    '- 입력 JSON을 그대로 나열·복사하지 말고 통찰 있는 문장/목록으로 재구성하세요.',
+    '- 데이터가 없는 팀은 "보고 없음"으로만 간단히 표기하고 추측으로 성과를 지어내지 마세요.',
+    '- 간결하게. 표·불릿을 적절히 활용하고 장황한 서론은 생략하세요.',
+    '- 이것은 사람의 판단을 돕는 참고 자료입니다. 단정적 지시보다 점검·제안 톤으로.',
+    '',
+    '주간업무보고 데이터(JSON):',
+    JSON.stringify(input),
+  ].join('\n');
+  const { response } = await m.generateContentStream(prompt);
+  const final = await response;
+  let text = '';
+  try { text = final.candidates?.[0]?.content?.parts?.map(p => (p as { text?: string }).text ?? '').join('') ?? ''; } catch { /* noop */ }
+  if (!text) { try { text = final.text(); } catch { /* noop */ } }
+  return text.trim();
+}
+
+/**
  * 목표명(+세부내용) 기반 KPI(성과지표) 추천 — 목표 작성 화면에서 호출.
  * KPI 이론(측정 가능·정량·기한)을 적용해 짧은 지표 문장 3~5개를 제안한다.
  * 전 직원이 쓰는 작성 화면이라 민감 데이터를 보내지 않음(목표 텍스트만). 결과는 예시·참고용.
