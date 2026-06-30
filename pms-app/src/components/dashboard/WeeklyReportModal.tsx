@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { FileText, Sparkles, Loader2, RefreshCw, ChevronDown } from 'lucide-react';
+import { FileText, Sparkles, Loader2, RefreshCw, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import MarkdownLite from '@/components/ui/MarkdownLite';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
@@ -29,6 +29,12 @@ function prevWeek(year: number, week: number): { year: number; week: number } {
   if (week === 1) { const l = isoWeek(new Date(year - 1, 11, 28)); return { year: year - 1, week: l.week }; }
   return { year, week: week - 1 };
 }
+function nextWeek(year: number, week: number): { year: number; week: number } {
+  const last = isoWeek(new Date(year, 11, 28)).week;
+  if (week >= last) return { year: year + 1, week: 1 };
+  return { year, week: week + 1 };
+}
+const weekKey = (y: number, w: number) => y * 100 + w;
 
 export default function WeeklyReportModal({ onClose }: { onClose: () => void }) {
   const { userProfile } = useAuth();
@@ -41,9 +47,11 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
   const [showSource, setShowSource] = useState(false);
   const [sourceTeams, setSourceTeams] = useState<WeeklyReportInput['teams']>([]);
 
-  // 지난주(현재 ISO주 직전)
+  // 조회 주차 — 기본 지난주(현재 ISO주 직전). ◀▶ 로 과거 이력 탐색.
   const nowWeek = isoWeek(new Date());
-  const target = prevWeek(nowWeek.year, nowWeek.week);
+  const lastWeek = prevWeek(nowWeek.year, nowWeek.week);
+  const [target, setTarget] = useState(lastWeek);
+  const isLatest = weekKey(target.year, target.week) >= weekKey(lastWeek.year, lastWeek.week);
 
   // 산하 팀별 지난주 주간보고 데이터 수집 → AI 입력 형태로 가공
   const gather = useCallback(async (): Promise<{ input: WeeklyReportInput; teamDocs: WeeklyTask[] } | null> => {
@@ -88,6 +96,8 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
     let alive = true;
     (async () => {
       setLoading(true);
+      // 주차 변경 시 이전 내용 초기화
+      setContent(''); setGeneratedAt(null); setHasData(null); setSourceTeams([]); setShowSource(false);
       try {
         const cached = await getWeeklyReportCache(userProfile.id, target.year, target.week);
         if (!alive) return;
@@ -138,12 +148,31 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
     <Dialog open onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
             <FileText className="h-5 w-5 text-blue-600" />
             위클리 리포트
-            <span className="text-sm font-normal text-gray-400">{target.year}년 {target.week}주차 (지난주)</span>
           </DialogTitle>
         </DialogHeader>
+
+        {/* 주차 네비게이션 — 과거 이력 조회 */}
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={generating}
+            onClick={() => setTarget(t => prevWeek(t.year, t.week))} aria-label="이전 주">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="text-sm font-semibold text-gray-800 min-w-[150px] text-center">
+            {target.year}년 {target.week}주차
+            {isLatest && <span className="ml-1 text-xs font-normal text-gray-400">(지난주)</span>}
+          </span>
+          <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={generating || isLatest}
+            onClick={() => setTarget(t => nextWeek(t.year, t.week))} aria-label="다음 주">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          {!isLatest && (
+            <Button variant="ghost" size="sm" className="h-8 text-xs text-blue-600" disabled={generating}
+              onClick={() => setTarget(lastWeek)}>최근</Button>
+          )}
+        </div>
 
         {loading ? (
           <div className="py-10 flex items-center justify-center text-gray-400 gap-2 text-sm">
@@ -189,11 +218,11 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
           </div>
         ) : hasData === false ? (
           <div className="py-10 text-center text-sm text-gray-400">
-            지난주({target.year}년 {target.week}주차) 등록된 산하 팀 주간업무보고가 없습니다.
+            {target.year}년 {target.week}주차에 등록된 산하 팀 주간업무보고가 없습니다.
           </div>
         ) : (
           <div className="py-8 flex flex-col items-center gap-3">
-            <p className="text-sm text-gray-500">지난주 산하 팀 주간업무보고를 AI가 요약·분석합니다.</p>
+            <p className="text-sm text-gray-500">{target.year}년 {target.week}주차 산하 팀 주간업무보고를 AI가 요약·분석합니다.</p>
             <Button onClick={generate} disabled={generating} className="gap-1.5">
               {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               {generating ? '생성 중…' : '리포트 생성'}
