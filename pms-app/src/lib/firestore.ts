@@ -2703,13 +2703,14 @@ export async function syncWeeklyGoalProgress(params: {
       (Array.isArray(g.collaboratorIds) && g.collaboratorIds.includes(actorId));
     if (!allowed) continue;
 
-    // 진행률 변동 시에만 목표 progress 갱신
-    if (pct !== undefined && (g.progress ?? 0) !== pct) {
-      await updateDoc(goalSnap.ref, {
-        progress: pct,
-        status: g.status === 'APPROVED' ? 'IN_PROGRESS' : g.status,
-        updatedAt: serverTimestamp(),
-      });
+    // 목표 갱신 — 진행률 변동 시 progress, 그리고 진행률 변동 또는 진행사항(코멘트) 입력 시
+    //   APPROVED → IN_PROGRESS 전환(골카드에서 진행사항 입력 시 전환되는 것과 동일 동작).
+    const goalUpdate: Record<string, unknown> = {};
+    if (pct !== undefined && (g.progress ?? 0) !== pct) goalUpdate.progress = pct;
+    if (g.status === 'APPROVED' && (pct !== undefined || comment !== undefined)) goalUpdate.status = 'IN_PROGRESS';
+    if (Object.keys(goalUpdate).length > 0) {
+      goalUpdate.updatedAt = serverTimestamp();
+      await updateDoc(goalSnap.ref, goalUpdate);
     }
 
     // 주간 진행기록(progressUpdate) — 주간보고는 팀 공유 문서이므로 (목표·연·주차)당 1건(팀 기준).
