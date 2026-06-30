@@ -1,0 +1,193 @@
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // 임원 수만큼 AI 호출 — 여유 타임아웃
+
+import { NextRequest, NextResponse } from 'next/server';
+import { initializeApp, getApps, getApp, cert, ServiceAccount } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
+import { VertexAI } from '@google-cloud/vertexai';
+
+/**
+ * 임원 위클리 리포트 — 월요일 Cloud Scheduler 자동 생성 + 알림.
+ * 각 임원의 산하 팀 지난주 주간업무보고를 서버 Gemini 로 요약·분석·금주방향 생성 → weeklyReports 캐시 저장 → 알림.
+ * 인증: Firebase ID 토큰(HR 마스터) 또는 Cloud Scheduler OIDC. (백업 스케줄러와 동일 패턴)
+ * 멱등: 같은 주차 캐시가 이미 있으면 재생성하지 않음(수동 force=true 시 재생성).
+ */
+function getAdminApp() {
+  if (getApps().length > 0) return getApp();
+  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+    ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY) as ServiceAccount
+    : null;
+  if (!serviceAccount) throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY 환경변수가 없습니다.');
+  return initializeApp({ credential: cert(serviceAccount) });
+}
+
+// ── ISO 주차 (클라이언트 모달과 동일 규칙) ──
+function isoWeek(date: Date): { year: number; week: number } {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return { year: d.getUTCFullYear(), week };
+}
+function prevWeek(year: number, week: number): { year: number; week: number } {
+  if (week === 1) { const l = isoWeek(new Date(year - 1, 11, 28)); return { year: year - 1, week: l.week }; }
+  return { year, week: week - 1 };
+}
+const taskDocId = (orgId: string, y: number, w: number) => `${orgId}_${y}_W${String(w).padStart(2, '0')}`;
+const reportDocId = (execId: string, y: number, w: number) => `${execId}_${y}_W${w}`; // 클라이언트 캐시 키와 동일(패딩 없음)
+
+function descendantOrgIds(rootId: string, orgs: any[]): string[] {
+  const out = [rootId];
+  for (const c of orgs.filter(o => o.parentId === rootId)) out.push(...descendantOrgIds(c.id, orgs));
+  return out;
+}
+
+interface ReportTeam { teamName: string; members: Array<{ name: string; position?: string; hasDone: string[]; willDo: string[] }> }
+
+function buildPrompt(divisionName: string, year: number, week: number, teams: ReportTeam[]): string {
+  return [
+    '당신은 임원을 보좌하는 업무 분석가입니다. 아래 "주간업무보고 데이터(JSON)"는 임원 산하 조직의 지난주 실적/금주 계획입니다.',
+    '이를 바탕으로 임원이 한눈에 파악할 수 있는 한국어 위클리 리포트를 작성하세요.',
+    '반드시 아래 세 섹션을 마크다운 제목(##)으로 구성합니다:',
+    '## 1. 요약 — 팀/부문별 지난주 주요 성과·진척을 핵심 위주로 압축(팀별 한두 줄).',
+    '## 2. 분석 — 진행 양상, 눈에 띄는 성과, 지연·이슈·리스크, 팀 간 편차 등을 통찰 위주로.',
+    '## 3. 금주 방향 — 다음 주 계획(willDo)과 위 분석을 토대로 임원이 챙겨야 할 우선순위·점검 포인트 제안.',
+    '원칙: 입력 JSON을 그대로 나열하지 말고 통찰 있는 문장/목록으로 재구성. 데이터 없는 팀은 "보고 없음"으로만. 간결하게. 점검·제안 톤.',
+    '',
+    `대상: ${divisionName} · ${year}년 ${week}주차`,
+    '주간업무보고 데이터(JSON):',
+    JSON.stringify({ divisionName, year, week, teams }),
+  ].join('\n');
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const app = getAdminApp();
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // ── 인증: Firebase ID(HR마스터) 또는 Cloud Scheduler OIDC ──
+    const authHeader = req.headers.get('authorization') ?? '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (!token) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    let authed = false;
+    try {
+      const decoded = await auth.verifyIdToken(token);
+      const userData = (await db.collection('users').doc(decoded.uid).get()).data();
+      if (!userData?.isHrMaster) return NextResponse.json({ error: 'forbidden: HR master required' }, { status: 403 });
+      authed = true;
+    } catch {
+      const expectedAud = process.env.SCHEDULER_OIDC_AUDIENCE;
+      const expectedEmail = process.env.SCHEDULER_SA_EMAIL;
+      if (expectedAud && expectedEmail) {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+          if (payload.iss === 'https://accounts.google.com' && payload.email === expectedEmail
+            && payload.aud === expectedAud && (!payload.exp || payload.exp >= Math.floor(Date.now() / 1000))) {
+            authed = true;
+          }
+        }
+      }
+    }
+    if (!authed) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+    const body = await req.json().catch(() => ({}));
+    const force = body?.force === true;
+
+    // ── 대상 주차(지난주) ──
+    const nowW = isoWeek(new Date());
+    const t = prevWeek(nowW.year, nowW.week);
+
+    // ── 데이터 로드 ──
+    const [orgsSnap, usersSnap] = await Promise.all([
+      db.collection('organizations').get(),
+      db.collection('users').get(),
+    ]);
+    const orgs = orgsSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter(o => !o.archivedAt);
+    const users = usersSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+    const orgById = new Map(orgs.map(o => [o.id, o]));
+    const nameById = new Map(users.map(u => [u.id, u.name]));
+    const posById = new Map(users.map(u => [u.id, u.position]));
+
+    // ── Vertex AI (firebase-adminsdk SA 자격증명 명시 주입 — aiplatform.user 부여된 계정) ──
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY!);
+    const vertex = new VertexAI({
+      project: sa.project_id,
+      location: 'us-central1',
+      googleAuthOptions: { credentials: { client_email: sa.client_email, private_key: sa.private_key } },
+    });
+    const model = vertex.getGenerativeModel({ model: 'gemini-2.5-pro' });
+
+    const execs = users.filter(u => u.role === 'EXECUTIVE' && u.isActive !== false);
+    const counts = { generated: 0, skipped: 0, empty: 0, failed: 0 };
+
+    // 임원별 병렬 처리 — 임원 수가 늘어도 타임아웃 여유 확보(각자 독립 try/catch).
+    await Promise.all(execs.map(async (exec) => {
+      try {
+        // 캐시 멱등 — 이미 있으면 스킵(force 시 재생성)
+        const cacheRef = db.collection('weeklyReports').doc(reportDocId(exec.id, t.year, t.week));
+        if (!force && (await cacheRef.get()).exists) { counts.skipped++; return; }
+
+        // 스코프: 본인이 leader 인 조직들의 descendants 중 TEAM
+        const ledRoots = orgs.filter(o => o.leaderId === exec.id).map(o => o.id);
+        const scopeIds = [...new Set(ledRoots.flatMap(id => descendantOrgIds(id, orgs)))];
+        const teamOrgIds = scopeIds.filter(id => orgById.get(id)?.type === 'TEAM');
+        if (teamOrgIds.length === 0) { counts.empty++; return; }
+
+        const taskSnaps = await Promise.all(teamOrgIds.map(id => db.collection('weeklyTasks').doc(taskDocId(id, t.year, t.week)).get()));
+        const teams: ReportTeam[] = [];
+        taskSnaps.forEach((snap, idx) => {
+          const orgId = teamOrgIds[idx];
+          const d = snap.exists ? (snap.data() as any) : null;
+          const byAuthor = new Map<string, { name: string; position?: string; hasDone: string[]; willDo: string[] }>();
+          const push = (aId: string | undefined, aName: string | undefined, text: string, kind: 'hasDone' | 'willDo') => {
+            const id = aId || 'unknown';
+            const name = aName || nameById.get(id) || '미상';
+            if (!byAuthor.has(id)) byAuthor.set(id, { name, position: posById.get(id), hasDone: [], willDo: [] });
+            const v = (text || '').trim(); if (v) byAuthor.get(id)![kind].push(v);
+          };
+          (d?.hasDoneItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, i.title || i.content, 'hasDone'));
+          (d?.willDoItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, i.title || i.content, 'willDo'));
+          const members = [...byAuthor.values()].filter(m => m.hasDone.length || m.willDo.length);
+          if (members.length) teams.push({ teamName: orgById.get(orgId)?.name ?? '(팀)', members });
+        });
+        if (teams.length === 0) { counts.empty++; return; }
+
+        const divisionName = orgById.get(exec.organizationId)?.name ?? '담당 조직';
+        const resp = await model.generateContent(buildPrompt(divisionName, t.year, t.week, teams));
+        const text = (resp.response?.candidates?.[0]?.content?.parts ?? [])
+          .map((p: any) => p.text ?? '').join('').trim();
+        if (!text) { counts.failed++; return; }
+
+        await cacheRef.set({
+          execId: exec.id, year: t.year, week: t.week, content: text,
+          generatedAt: FieldValue.serverTimestamp(), generatedByName: '시스템(월요일 자동)',
+        }, { merge: true });
+
+        // 알림
+        await db.collection('notifications').add({
+          userId: exec.id,
+          type: 'WEEKLY_REPORT_READY',
+          category: 'WEEKLY_TASK',
+          title: '위클리 리포트',
+          message: `${t.year}년 ${t.week}주차 위클리 리포트가 준비되었습니다. 대시보드에서 확인하세요.`,
+          link: '/dashboard',
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        counts.generated++;
+      } catch (e) {
+        console.error(`[위클리 리포트] ${exec.name} 생성 실패:`, e);
+        counts.failed++;
+      }
+    }));
+
+    return NextResponse.json({ ok: true, year: t.year, week: t.week, execs: execs.length, ...counts });
+  } catch (e: any) {
+    console.error('[위클리 리포트 생성] 실패:', e);
+    return NextResponse.json({ error: e?.message ?? 'internal error' }, { status: 500 });
+  }
+}

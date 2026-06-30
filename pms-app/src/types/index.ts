@@ -762,6 +762,7 @@ export type NotificationType =
   | 'GOAL_COMMENT'        // 핵심목표 진행 코멘트 (v0.75)
   | 'WEEKLY_TASK_COMMENT' // 주간업무 팀 코멘트 (v0.75)
   | 'WEEKLY_TASK_SUBMITTED' // 주간업무보고 저장 → 조직 임원에게 알림
+  | 'WEEKLY_REPORT_READY'   // 월요일 위클리 리포트 생성 완료 → 임원에게 알림
   | 'ONEONONE_MESSAGE'    // 1on1 새 메시지/질문 (v0.75)
   | 'EVALUATION_PUBLISHED' // 평가결과 공개 (v0.75)
   | 'MENTORING_EDIT_REQUESTED'  // 육성면담서 수정 요청 (개인 → HR)
