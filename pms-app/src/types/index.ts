@@ -66,6 +66,8 @@ export interface User {
   passwordChangedAt?: Date;
   /** 중복로그인 방지 — 마지막 로그인 세션 ID. 다른 기기에서 로그인하면 갱신되어 이전 기기는 자동 로그아웃. */
   activeSessionId?: string;
+  /** 알림 이메일 수신 여부 — 본인이 헤더 메뉴에서 on/off. 기본 false(비활성). (v0.9.3) */
+  emailNotificationsEnabled?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -5,9 +5,10 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/lib/auth';
 import { useRouter, usePathname } from 'next/navigation';
-import { getUnreadNotificationCount } from '@/lib/firestore';
+import { getUnreadNotificationCount, updateUser } from '@/lib/firestore';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User, ArrowLeft, KeyRound, Bell } from 'lucide-react';
+import { LogOut, User, ArrowLeft, KeyRound, Bell, Mail } from 'lucide-react';
+import { toast } from 'sonner';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import PasswordChangeModal from '@/components/auth/PasswordChangeModal';
 
@@ -32,6 +33,24 @@ export default function Header({ title, showBack }: HeaderProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [pwdOpen, setPwdOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // 이메일 알림 수신 토글 (본인 설정, 기본 false)
+  const [emailOn, setEmailOn] = useState(false);
+  const [emailSaving, setEmailSaving] = useState(false);
+  useEffect(() => { setEmailOn(userProfile?.emailNotificationsEnabled === true); }, [userProfile?.emailNotificationsEnabled]);
+  async function toggleEmail() {
+    if (!firebaseUser || emailSaving) return;
+    const next = !emailOn;
+    setEmailSaving(true);
+    setEmailOn(next);
+    try {
+      await updateUser(firebaseUser.uid, { emailNotificationsEnabled: next });
+      toast.success(next ? '이메일 알림을 켰습니다.' : '이메일 알림을 껐습니다.');
+    } catch {
+      setEmailOn(!next);
+      toast.error('설정 저장에 실패했습니다.');
+    } finally { setEmailSaving(false); }
+  }
 
   // 외부 클릭 시 닫기
   useEffect(() => {
@@ -132,6 +151,21 @@ export default function Header({ title, showBack }: HeaderProps) {
                 내 프로필
               </button>
             )}
+
+            {/* 이메일 알림 수신 토글 — 본인 설정 (기본 꺼짐) */}
+            <button
+              onClick={toggleEmail}
+              disabled={emailSaving}
+              role="switch"
+              aria-checked={emailOn}
+              className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-60"
+            >
+              <Mail className="h-4 w-4" />
+              <span className="flex-1 text-left">이메일 알림</span>
+              <span className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${emailOn ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${emailOn ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </span>
+            </button>
 
             {/* 비밀번호 변경 — 전 역할 공통 */}
             <button
