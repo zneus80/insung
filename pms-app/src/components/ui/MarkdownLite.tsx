@@ -46,8 +46,29 @@ function splitRow(line: string): string[] {
   return s.split('|').map(c => c.trim());
 }
 
+// 불릿 마커: - * • (AI가 가운뎃점 불릿을 자주 사용)
+const BULLET_RE = /^\s*[-*•]\s+/;
+
 export default function MarkdownLite({ content }: { content: string }) {
-  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  // 전처리: 한 줄에 "•" 항목이 여러 개 이어붙은 경우 개별 불릿 줄로 분리(가독성).
+  const rawLines = content.replace(/\r\n/g, '\n').split('\n');
+  const lines: string[] = [];
+  for (const ln of rawLines) {
+    const t = ln.trim();
+    const bulletCount = (t.match(/•/g) ?? []).length;
+    if (bulletCount >= 2 && !/^[-*]/.test(t)) {
+      const segs = t.split('•').map(s => s.trim()).filter(Boolean);
+      // 첫 조각이 "라벨:" 형태면 문단으로, 나머지는 불릿
+      if (segs.length && /[:：]$/.test(segs[0])) {
+        lines.push(segs[0]);
+        segs.slice(1).forEach(s => lines.push('- ' + s));
+      } else {
+        segs.forEach(s => lines.push('- ' + s));
+      }
+    } else {
+      lines.push(ln);
+    }
+  }
   const blocks: React.ReactNode[] = [];
   let i = 0;
   let key = 0;
@@ -112,22 +133,22 @@ export default function MarkdownLite({ content }: { content: string }) {
         items.push(lines[i].replace(/^\s*\d+\.\s+/, '')); i++;
       }
       blocks.push(
-        <ol key={`ol${key++}`} className="my-1 ml-5 list-decimal space-y-0.5">
-          {items.map((it, ii) => <li key={ii} className="text-gray-700">{renderInline(it, `ol${key}-${ii}`)}</li>)}
+        <ol key={`ol${key++}`} className="my-2 ml-5 list-decimal space-y-1">
+          {items.map((it, ii) => <li key={ii} className="text-gray-700 leading-relaxed pl-0.5">{renderInline(it, `ol${key}-${ii}`)}</li>)}
         </ol>
       );
       continue;
     }
 
-    // 불릿 목록
-    if (/^\s*[-*]\s+/.test(line)) {
+    // 불릿 목록 (- * •)
+    if (BULLET_RE.test(line)) {
       const items: string[] = [];
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*]\s+/, '')); i++;
+      while (i < lines.length && BULLET_RE.test(lines[i])) {
+        items.push(lines[i].replace(BULLET_RE, '')); i++;
       }
       blocks.push(
-        <ul key={`ul${key++}`} className="my-1 ml-5 list-disc space-y-0.5">
-          {items.map((it, ii) => <li key={ii} className="text-gray-700">{renderInline(it, `ul${key}-${ii}`)}</li>)}
+        <ul key={`ul${key++}`} className="my-2 ml-5 list-disc space-y-1">
+          {items.map((it, ii) => <li key={ii} className="text-gray-700 leading-relaxed pl-0.5">{renderInline(it, `ul${key}-${ii}`)}</li>)}
         </ul>
       );
       continue;
@@ -138,7 +159,7 @@ export default function MarkdownLite({ content }: { content: string }) {
     i++;
     while (i < lines.length && lines[i].trim() !== ''
       && !isTableRow(lines[i]) && !/^(#{1,6})\s+/.test(lines[i])
-      && !/^\s*\d+\.\s+/.test(lines[i]) && !/^\s*[-*]\s+/.test(lines[i])) {
+      && !/^\s*\d+\.\s+/.test(lines[i]) && !BULLET_RE.test(lines[i])) {
       para.push(lines[i]); i++;
     }
     blocks.push(
@@ -153,5 +174,5 @@ export default function MarkdownLite({ content }: { content: string }) {
     );
   }
 
-  return <div className="space-y-1.5">{blocks}</div>;
+  return <div className="space-y-2.5">{blocks}</div>;
 }
