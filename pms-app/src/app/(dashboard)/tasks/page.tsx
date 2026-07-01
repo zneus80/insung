@@ -1069,11 +1069,16 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
   function handlePrint() {
     const esc = (s?: string) => (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const titleById = new Map(activeGoals.map(g => [g.id, g.title]));
+    const progressById = new Map(activeGoals.map(g => [g.id, g.progress ?? 0]));
     const itemLi = (i: SimpleTaskItem) => {
       const main = esc(i.title || i.content);
       const sub = i.title && i.content ? `<div class="sub">${esc(i.content)}</div>` : '';
-      const au = i.authorName ? ` <span class="au">작성자 ${esc(i.authorName)}</span>` : '';
-      return `<li>${main}${au}${sub}</li>`;
+      // 참여인원(핵심업무 수행자) 우선 표시 — 없으면 작성자(일반업무 등) 표기
+      const partNames = (i.participantIds ?? []).map(id => userNames[id]).filter(Boolean);
+      const who = partNames.length
+        ? ` <span class="au">참여 ${esc(partNames.join(', '))}</span>`
+        : (i.authorName ? ` <span class="au">작성자 ${esc(i.authorName)}</span>` : '');
+      return `<li>${main}${who}${sub}</li>`;
     };
     // 핵심업무 셀 — 목표별 그룹(진행률은 Has Done 만)
     const goalOrder = new Map(activeGoals.map((g, idx) => [g.id, idx]));
@@ -1084,7 +1089,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
       if (!goalIds.length) return '<span class="empty">—</span>';
       return goalIds.map(gid => {
         const gItems = items.filter(i => i.goalId === gid);
-        const pct = showPct ? ` <span class="pct">진척률 (${goalProgress[gid] ?? 0}) %</span>` : '';
+        const pct = showPct ? ` <span class="pct">진척률 (${goalProgress[gid] ?? progressById.get(gid) ?? 0}) %</span>` : '';
         return `<div class="g"><div class="gt">${esc(titleById.get(gid) ?? '핵심목표')}${pct}</div><ul>${gItems.map(itemLi).join('')}</ul></div>`;
       }).join('');
     };
