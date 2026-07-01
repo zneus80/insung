@@ -949,27 +949,48 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
     );
   }
 
-  function renderSection(section: 'hd' | 'wd', items: SimpleTaskItem[], isGreen: boolean) {
-    const general = items.filter(i => !i.goalId);
-    // 핵심업무에 표시할 목표 — 완료 목표는 완료한 주차까지만(차주부터 미표시). 그 외 종료/이전 목표는 미표시.
+  // 표시할 핵심목표 — 완료 목표는 완료 주차까지만. 읽기전용(임원 등, !editable) 뷰에서는 항목 있는 목표만.
+  function goalsToShowFor(items: SimpleTaskItem[]): Goal[] {
     const viewedKey = year * 100 + week;
-    const goalsToShow = activeGoals.filter(g => {
-      if (g.status !== 'COMPLETED') return true;
-      const at = g.completionExecApprovedAt ?? g.updatedAt;
-      if (!at) return false;
-      const w = getISOWeek(at instanceof Date ? at : new Date(at));
-      return viewedKey <= (w.year * 100 + w.week);
+    return activeGoals.filter(g => {
+      if (g.status === 'COMPLETED') {
+        const at = g.completionExecApprovedAt ?? g.updatedAt;
+        if (!at) return false;
+        const w = getISOWeek(at instanceof Date ? at : new Date(at));
+        if (viewedKey > (w.year * 100 + w.week)) return false;
+      }
+      // 임원 등 읽기전용 뷰: 해당 섹션에 진행사항이 기록된 목표만 노출
+      if (!editable && !items.some(i => i.goalId === g.id)) return false;
+      return true;
     });
-    return (
-      <div className="rounded-xl border bg-white overflow-hidden">
-        <div className={cn('px-4 py-2.5 border-b flex items-center gap-2', isGreen ? 'bg-green-50' : 'bg-gray-50')}>
-          <span className={cn('text-xs font-bold uppercase tracking-wide', isGreen ? 'text-green-700' : 'text-gray-700')}>
-            {isGreen ? 'Has Done — 이번 주 실적' : 'Will Do — 다음 주 계획'}
-          </span>
-          <span className={cn('text-xs', isGreen ? 'text-green-500' : 'text-gray-400')}>{items.length}건</span>
-        </div>
+  }
 
-        {goalsToShow.length > 0 && (
+  function secHeader(items: SimpleTaskItem[], isGreen: boolean) {
+    return (
+      <div className={cn('px-4 py-2.5 border-b flex items-center gap-2', isGreen ? 'bg-green-50' : 'bg-gray-50')}>
+        <span className={cn('text-xs font-bold uppercase tracking-wide', isGreen ? 'text-green-700' : 'text-gray-700')}>
+          {isGreen ? 'Has Done — 이번 주 실적' : 'Will Do — 다음 주 계획'}
+        </span>
+        <span className={cn('text-xs', isGreen ? 'text-green-500' : 'text-gray-400')}>{items.length}건</span>
+      </div>
+    );
+  }
+
+  function generalBlock(section: 'hd' | 'wd', items: SimpleTaskItem[], isGreen: boolean) {
+    const general = items.filter(i => !i.goalId);
+    return (
+      <div>
+        <div className="px-4 py-1.5 bg-gray-100/70 border-b text-[11px] font-bold text-gray-600">일반업무</div>
+        <div className="divide-y">{general.map(it => renderItemRow(section, it, isGreen))}</div>
+        {renderAdd(section, undefined)}
+      </div>
+    );
+  }
+
+  function coreBlock(section: 'hd' | 'wd', items: SimpleTaskItem[], isGreen: boolean) {
+    const goalsToShow = goalsToShowFor(items);
+    if (goalsToShow.length === 0) return null;
+    return (
           <div>
             <div className="px-4 py-1.5 bg-blue-50/70 border-b text-[11px] font-bold text-blue-700">핵심업무</div>
             {goalsToShow.map(g => {
@@ -1025,13 +1046,16 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
               );
             })}
           </div>
-        )}
+    );
+  }
 
-        <div>
-          <div className="px-4 py-1.5 bg-gray-100/70 border-b text-[11px] font-bold text-gray-600">일반업무</div>
-          <div className="divide-y">{general.map(it => renderItemRow(section, it, isGreen))}</div>
-          {renderAdd(section, undefined)}
-        </div>
+  // 컬럼 단일 카드 — 모바일(및 폴백): 헤더 + 핵심업무 + 일반업무
+  function renderColumnCard(section: 'hd' | 'wd', items: SimpleTaskItem[], isGreen: boolean) {
+    return (
+      <div className="rounded-xl border bg-white overflow-hidden">
+        {secHeader(items, isGreen)}
+        {coreBlock(section, items, isGreen)}
+        {generalBlock(section, items, isGreen)}
       </div>
     );
   }
@@ -1068,17 +1092,19 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
   // 인쇄 — A4 세로, 표 형식(가로: Has Done/Will Do, 세로: 핵심업무/일반업무). 코멘트 제외.
   function handlePrint() {
     const esc = (s?: string) => (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // 줄내림 일관 적용 — 제목/내용 모두 \n 을 <br> 로 변환해 항상 반영
+    const escBr = (s?: string) => esc(s).replace(/\n/g, '<br>');
     const titleById = new Map(activeGoals.map(g => [g.id, g.title]));
     const progressById = new Map(activeGoals.map(g => [g.id, g.progress ?? 0]));
     const itemLi = (i: SimpleTaskItem) => {
-      const main = esc(i.title || i.content);
-      const sub = i.title && i.content ? `<div class="sub">${esc(i.content)}</div>` : '';
-      // 참여인원(핵심업무 수행자) 우선 표시 — 없으면 작성자(일반업무 등) 표기
+      const main = escBr(i.title || i.content);
+      const sub = i.title && i.content ? `<div class="sub">${escBr(i.content)}</div>` : '';
+      // 참여인원(핵심업무 수행자) 우선 — 없으면 작성자. 항상 별도 줄(블록)로 최하단 배치.
       const partNames = (i.participantIds ?? []).map(id => userNames[id]).filter(Boolean);
       const who = partNames.length
-        ? ` <span class="au">참여 ${esc(partNames.join(', '))}</span>`
-        : (i.authorName ? ` <span class="au">작성자 ${esc(i.authorName)}</span>` : '');
-      return `<li>${main}${who}${sub}</li>`;
+        ? `<div class="au">참여 ${esc(partNames.join(', '))}</div>`
+        : (i.authorName ? `<div class="au">작성자 ${esc(i.authorName)}</div>` : '');
+      return `<li>${main}${sub}${who}</li>`;
     };
     // 핵심업무 셀 — 목표별 그룹(진행률은 Has Done 만)
     const goalOrder = new Map(activeGoals.map((g, idx) => [g.id, idx]));
@@ -1118,7 +1144,7 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
   li{ margin:1.5px 0; line-height:1.38; word-break:break-word; overflow-wrap:anywhere; }
   ul.gen li{ margin:6px 0; line-height:1.5; }
   ul.gen .sub{ margin-top:3px; }
-  .au{ color:#6b7280; font-size:11px; }
+  .au{ display:block; margin-top:2px; color:#6b7280; font-size:11px; }
   .sub{ color:#555; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; }
   .empty{ color:#bbb; }
 </style></head><body>
@@ -1171,9 +1197,17 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        {renderSection('hd', hasDoneItems, true)}
-        {renderSection('wd', willDoItems, false)}
+      {/* 모바일: 컬럼별 단일 카드 스택 */}
+      <div className="md:hidden space-y-4">
+        {renderColumnCard('hd', hasDoneItems, true)}
+        {renderColumnCard('wd', willDoItems, false)}
+      </div>
+      {/* 데스크톱: 핵심업무 행 / 일반업무 행을 좌우 컬럼 정렬 (일반업무 시작 라인 일치) */}
+      <div className="hidden md:grid grid-cols-2 gap-4 items-stretch">
+        <div className="rounded-xl border bg-white overflow-hidden">{secHeader(hasDoneItems, true)}{coreBlock('hd', hasDoneItems, true)}</div>
+        <div className="rounded-xl border bg-white overflow-hidden">{secHeader(willDoItems, false)}{coreBlock('wd', willDoItems, false)}</div>
+        <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('hd', hasDoneItems, true)}</div>
+        <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('wd', willDoItems, false)}</div>
       </div>
 
       {/* 참여 공동업무(TF) — 다른 팀이 소유한 공동목표에 내가 참여한 경우. 본인에게만 표시. */}
