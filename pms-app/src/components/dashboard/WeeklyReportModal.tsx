@@ -77,8 +77,10 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
           if (!byAuthor.has(id)) byAuthor.set(id, { name, position: posById.get(id), hasDone: [], willDo: [] });
           const t = text.trim(); if (t) byAuthor.get(id)![kind].push(t);
         };
-        (doc?.hasDoneItems ?? []).forEach(i => push(i.authorId, i.authorName, i.title || i.content, 'hasDone'));
-        (doc?.willDoItems ?? []).forEach(i => push(i.authorId, i.authorName, i.title || i.content, 'willDo'));
+        // 일반업무(goalId 없음)는 [일반] 태그로 구분 — AI가 핵심업무와 별도로 요약에 포함하도록.
+        const tag = (i: { goalId?: string }, text: string) => (i.goalId ? text : `[일반] ${text}`);
+        (doc?.hasDoneItems ?? []).forEach(i => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'hasDone'));
+        (doc?.willDoItems ?? []).forEach(i => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'willDo'));
         return {
           teamName: org?.name ?? '(팀)',
           members: [...byAuthor.values()].filter(m => m.hasDone.length || m.willDo.length),
