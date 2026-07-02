@@ -61,6 +61,8 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   const [innovations, setInnovations] = useState<InnovationActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // 부문 카드에서 열린 카테고리 — 'done'(완료) | 'ongoing'(추진중) | undefined(닫힘)
+  const [openCat, setOpenCat] = useState<Record<string, 'done' | 'ongoing' | undefined>>({});
 
   useEffect(() => {
     setLoading(true);
@@ -230,69 +232,67 @@ function Content({ embedded = false }: { embedded?: boolean }) {
               {shownDivisions.map(div => {
                 const subjects = subjectsForOrg(div.id);
                 const divGoals = goalsForDivision(div.id);
-                const doneN = divGoals.filter(g => g.status === 'COMPLETED').length;
-                const ongoingN = divGoals.length - doneN;
-                // #2: 핵심목표 리스트는 기본 접힘 — 페이지가 길어지지 않도록. 조직목표·카운트는 항상 표시.
-                const isOpen = expanded[div.id] ?? false;
-                return (
-                  <div key={div.id} className="rounded-xl border bg-white overflow-hidden h-full">
-                    <button
-                      onClick={() => setExpanded(p => ({ ...p, [div.id]: !isOpen }))}
-                      className="w-full flex items-start gap-2 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-                    >
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{div.name}</p>
-                        {/* 조직목표(연간목표) 주제 — 항상 표시 */}
-                        {subjects.map((s, idx) => (
-                          <p key={idx} className="text-xs font-medium text-blue-800 leading-snug break-words">· {s}</p>
-                        ))}
-                        {/* 핵심목표 요약 카운트 */}
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          <span className="text-[10px] rounded-full bg-green-100 text-green-700 px-1.5 py-0.5 font-medium">완료 {doneN}</span>
-                          <span className="text-[10px] rounded-full bg-blue-100 text-blue-700 px-1.5 py-0.5 font-medium">추진중 {ongoingN}</span>
-                        </div>
+                const doneGoals = divGoals.filter(g => g.status === 'COMPLETED');
+                const ongoingGoals = divGoals.filter(g => g.status !== 'COMPLETED');
+                const cat = openCat[div.id];
+                const shownGoals = cat === 'done' ? doneGoals : cat === 'ongoing' ? ongoingGoals : [];
+                const toggle = (c: 'done' | 'ongoing') => setOpenCat(p => ({ ...p, [div.id]: p[div.id] === c ? undefined : c }));
+                const goalRow = (g: Goal) => {
+                  const ownerOrg = orgsById.get(g.organizationId);
+                  const masked = g.isConfidential && !revealConfidential;
+                  const titleText = masked ? 'CONFIDENTIAL (대내외비)' : g.title;
+                  return (
+                    <div key={g.id} className="px-3 py-2 flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className={cn('text-xs font-medium leading-snug break-words flex items-center gap-1.5', masked ? 'text-red-600' : 'text-gray-900')}>
+                          {g.isConfidential && <Lock className="h-3 w-3 shrink-0" />}
+                          {titleText}
+                        </p>
+                        <p className="text-[10px] text-gray-400 mt-0.5 truncate">{ownerOrg?.name ?? '—'}</p>
                       </div>
-                      <ChevronDown className={cn('h-4 w-4 text-gray-400 shrink-0 mt-0.5 transition-transform', !isOpen && '-rotate-90')} />
-                    </button>
-                    {isOpen && (
+                      <span className="text-[10px] text-gray-500 shrink-0">{g.progress ?? 0}%</span>
+                    </div>
+                  );
+                };
+                return (
+                  <div key={div.id} className="rounded-xl border bg-white overflow-hidden h-full flex flex-col">
+                    {/* 상단: 부문명 + 조직목표 주제 */}
+                    <div className="px-4 py-3 space-y-1">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{div.name}</p>
+                      {subjects.map((s, idx) => (
+                        <p key={idx} className="text-xs font-medium text-blue-800 leading-snug break-words">· {s}</p>
+                      ))}
+                    </div>
+
+                    {/* 하단 고정 블록: (선택된 목표 목록) + 완료/추진중 2구역 버튼 */}
+                    <div className="mt-auto">
+                    {cat && (
                       <div className="border-t">
-                        {/* 핵심목표 리스트 */}
-                        {divGoals.length === 0 ? (
-                          <p className="px-3 py-3 text-xs text-gray-400">추진 중/완료 목표 없음</p>
-                        ) : (
-                          <div className="divide-y">
-                            {divGoals.map(g => {
-                              const ownerOrg = orgsById.get(g.organizationId);
-                              const masked = g.isConfidential && !revealConfidential;
-                              const titleText = masked ? 'CONFIDENTIAL (대내외비)' : g.title;
-                              return (
-                                <div key={g.id} className="px-3 py-2 flex items-start gap-2">
-                                  <span className={cn(
-                                    'text-[10px] font-bold rounded-full px-1.5 py-0.5 shrink-0',
-                                    g.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700',
-                                  )}>
-                                    {g.status === 'COMPLETED' ? '완료' : '추진중'}
-                                  </span>
-                                  <div className="flex-1 min-w-0">
-                                    <p className={cn(
-                                      'text-xs font-medium leading-snug break-words flex items-center gap-1.5',
-                                      masked ? 'text-red-600' : 'text-gray-900',
-                                    )}>
-                                      {g.isConfidential && <Lock className="h-3 w-3 shrink-0" />}
-                                      {titleText}
-                                    </p>
-                                    <p className="text-[10px] text-gray-400 mt-0.5 truncate">
-                                      {ownerOrg?.name ?? '—'}
-                                    </p>
-                                  </div>
-                                  <span className="text-[10px] text-gray-500 shrink-0">{g.progress ?? 0}%</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                        {shownGoals.length === 0
+                          ? <p className="px-3 py-3 text-xs text-gray-400">{cat === 'done' ? '완료된 목표가 없습니다.' : '추진 중인 목표가 없습니다.'}</p>
+                          : <div className="divide-y">{shownGoals.map(goalRow)}</div>}
                       </div>
                     )}
+                    {/* 완료 / 추진중 2구역 (클릭 시 해당 목표 노출) */}
+                    <div className="grid grid-cols-2 border-t divide-x">
+                      <button
+                        onClick={() => toggle('done')}
+                        className={cn('flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors',
+                          cat === 'done' ? 'bg-green-100 text-green-800' : 'text-green-700 hover:bg-green-50')}
+                      >
+                        완료 <span className="tabular-nums">{doneGoals.length}</span>
+                        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', cat !== 'done' && '-rotate-90')} />
+                      </button>
+                      <button
+                        onClick={() => toggle('ongoing')}
+                        className={cn('flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors',
+                          cat === 'ongoing' ? 'bg-blue-100 text-blue-800' : 'text-blue-700 hover:bg-blue-50')}
+                      >
+                        추진중 <span className="tabular-nums">{ongoingGoals.length}</span>
+                        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', cat !== 'ongoing' && '-rotate-90')} />
+                      </button>
+                    </div>
+                    </div>
                   </div>
                 );
               })}
