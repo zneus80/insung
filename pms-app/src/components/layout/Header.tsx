@@ -9,6 +9,7 @@ import { getUnreadNotificationCount, updateUser } from '@/lib/firestore';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { LogOut, User, ArrowLeft, KeyRound, Bell, Mail } from 'lucide-react';
 import { toast } from 'sonner';
+import FontScaleControl from '@/components/layout/FontScaleControl';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import PasswordChangeModal from '@/components/auth/PasswordChangeModal';
 
@@ -90,7 +91,9 @@ export default function Header({ title, showBack }: HeaderProps) {
         )}
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
+      {/* 글자 크기 조절 — 모든 화면 공통(최상단 바) */}
+      <FontScaleControl />
       {/* 알림 종 — 미읽음 배지 */}
       <Link
         href="/notifications"

@@ -23,14 +23,14 @@ import {
 } from '@/lib/firestore';
 import Header from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Target, TrendingUp, CheckCircle, Clock, Users, ArrowRight, Building2, LayoutList, Bell, ChevronRight, Trash2 } from 'lucide-react';
+import { Target, TrendingUp, CheckCircle, Clock, Users, ArrowRight, Building2, LayoutList, Bell, ChevronRight, Trash2, FileText } from 'lucide-react';
 import GoalCard from '@/components/goals/GoalCard';
 import MileageCard from '@/components/mileage/MileageCard';
 import { OrgTreeNode, buildTree, findDescendantIds, avgProgress } from '@/components/goals/OrgGoalTree'; // findDescendantIds: ExecDashboard에서 사용
 import { CompanyProgressBody } from '@/app/(dashboard)/progress/company/page';
 import PolicyGuideButton from '@/components/dashboard/PolicyGuideButton';
-import FontScaleControl from '@/components/layout/FontScaleControl';
 import OrgStatusModal from '@/components/dashboard/OrgStatusModal';
+import WeeklyReportModal from '@/components/dashboard/WeeklyReportModal';
 import { cn } from '@/lib/utils';
 import { filterMyActionableGoals } from '@/lib/approval-filters';
 import type { Goal, OneOnOne, Mileage, User, AnnualGoal, Organization, Announcement } from '@/types';
@@ -197,7 +197,6 @@ function MemberDashboard() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <FontScaleControl />
             <PolicyGuideButton />
           </div>
         </div>
@@ -356,6 +355,7 @@ function ExecDashboard() {
   const [execPendingCount, setExecPendingCount] = useState(0);
   const [upcomingMeetings, setUpcomingMeetings] = useState<OneOnOne[]>([]);
   const [orgStatusOpen, setOrgStatusOpen] = useState(false);
+  const [weeklyReportOpen, setWeeklyReportOpen] = useState(false);
 
   // 조직트리 드릴다운 → 목표 상세 → 뒤로가기 시 스크롤 위치 복원 (펼침 상태는 OrgGoalTree가 sessionStorage로 보존)
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -490,7 +490,6 @@ function ExecDashboard() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <FontScaleControl />
             <PolicyGuideButton />
           </div>
         </div>
@@ -567,9 +566,9 @@ function ExecDashboard() {
           )}
         </div>
 
-        {/* 요약 카드: 승인대기 + 조직현황 (2개 — 폭 꽉 채움) — CEO 는 전체 숨김 */}
+        {/* 요약 카드: 승인대기 + 소속인원보기 + 위클리 리포트 (3개) — CEO 는 전체 숨김 */}
         {userProfile?.role !== 'CEO' && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               <Link href="/approvals">
                 <div className={`rounded-xl border px-5 py-4 hover:shadow-sm transition-shadow cursor-pointer ${execPendingCount > 0 ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-white'}`}>
                   <div className="flex items-center gap-2 mb-1">
@@ -592,6 +591,17 @@ function ExecDashboard() {
             </div>
             <p className="text-base font-bold text-gray-900">소속 인원 보기</p>
             <p className="text-xs text-gray-400 mt-1">마일리지·스마트프로젝트·포상</p>
+          </button>
+          <button
+            onClick={() => setWeeklyReportOpen(true)}
+            className="text-left rounded-xl border border-gray-200 bg-white px-5 py-4 hover:shadow-sm transition-shadow"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <FileText className="h-4 w-4 text-blue-500" />
+              <span className="text-sm font-semibold text-gray-600">위클리 리포트</span>
+            </div>
+            <p className="text-base font-bold text-gray-900">지난주 요약 보기</p>
+            <p className="text-xs text-gray-400 mt-1">산하 주간보고 AI 요약·분석·금주 방향</p>
           </button>
         </div>
         )}
@@ -620,6 +630,7 @@ function ExecDashboard() {
         )}
       </div>
       {orgStatusOpen && <OrgStatusModal onClose={() => setOrgStatusOpen(false)} />}
+      {weeklyReportOpen && <WeeklyReportModal onClose={() => setWeeklyReportOpen(false)} />}
     </div>
   );
 }
