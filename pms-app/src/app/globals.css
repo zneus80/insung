@@ -126,10 +126,23 @@
   }
   html {
     @apply font-sans;
-    /* 개인 글자 크기 조절 — rem 기준점을 배율(--font-scale)로 조정.
-       Tailwind 텍스트는 대부분 rem 기반이라 전 역할에 적용된다(임원·CEO 큰글씨 pt 값도 위에서 동일 배율 사용). */
-    font-size: calc(100% * var(--font-scale, 1));
+    /* 루트 폰트 크기는 고정(100%). 개인 글자 크기 조절(--font-scale)은 아래 텍스트 클래스에만 적용해
+       여백·카드·테이블(rem 기반)은 그대로 두고 '글자만' 커지거나 작아지게 한다. */
   }
+
+  /* 개인 글자 크기 조절 — 텍스트 유틸리티만 배율 적용(여백/블록 크기 불변).
+     'html .text-*' 로 Tailwind 단일 클래스 유틸리티보다 우선순위를 높여 덮어쓴다.
+     (임원·CEO .exec-larger-text 오버라이드는 특이도가 더 높아 그대로 우선 적용됨) */
+  html .text-\[10px\] { font-size: calc(10px * var(--font-scale, 1)) !important; }
+  html .text-\[11px\] { font-size: calc(11px * var(--font-scale, 1)) !important; }
+  html .text-\[13px\] { font-size: calc(13px * var(--font-scale, 1)) !important; }
+  html .text-xs   { font-size: calc(0.75rem  * var(--font-scale, 1)) !important; }
+  html .text-sm   { font-size: calc(0.875rem * var(--font-scale, 1)) !important; }
+  html .text-base { font-size: calc(1rem     * var(--font-scale, 1)) !important; }
+  html .text-lg   { font-size: calc(1.125rem * var(--font-scale, 1)) !important; }
+  html .text-xl   { font-size: calc(1.25rem  * var(--font-scale, 1)) !important; }
+  html .text-2xl  { font-size: calc(1.5rem   * var(--font-scale, 1)) !important; }
+  html .text-3xl  { font-size: calc(1.875rem * var(--font-scale, 1)) !important; }
 
   /* 임원·CEO 페이지 폰트 사이즈 — 최소 12pt 이상 (v0.75 B6) */
   .exec-larger-text { font-size: calc(13pt * var(--font-scale, 1)); line-height: 1.55; }
