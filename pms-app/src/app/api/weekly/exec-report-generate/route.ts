@@ -58,6 +58,7 @@ function buildPrompt(divisionName: string, year: number, week: number, teams: Re
     '【답변 구조 — 반드시 준수】',
     '- 서술 단위는 팀 → 업무(공동업무 단위) → 참여 개인 순으로 판단합니다. 여러 사람이 같은 업무를 수행한 경우 사람별로 반복 서술하지 말고, 업무를 기준으로 한 번만 설명하면서 "A(주도)·B·C 참여, A는 ~, B는 ~ 담당" 식으로 참여자와 역할을 묶습니다.',
     '- 개인별 나열은 그 사람 고유의 단독 업무·특이 기여가 있을 때만 사용합니다.',
+    '- "[일반]" 태그 항목은 핵심목표에 속하지 않는 일반업무입니다. 누락하지 말고 팀별로 "일반업무: ~ 등"처럼 한두 줄로 요약해 포함하세요(항목 전체 나열은 불필요). 특이사항이 있으면 분석에도 반영합니다.',
     '【출력 형식 — 반드시 준수】',
     '- 문단은 2~4문장 단위로 나누고, 문단 사이에는 반드시 빈 줄을 넣습니다.',
     '- 목록은 각 항목을 반드시 별도의 줄에서 하이픈(-)으로 시작합니다. 한 줄에 여러 항목을 "•"나 쉼표로 이어 붙이지 마세요.',
@@ -159,8 +160,10 @@ export async function POST(req: NextRequest) {
             if (!byAuthor.has(id)) byAuthor.set(id, { name, position: posById.get(id), hasDone: [], willDo: [] });
             const v = (text || '').trim(); if (v) byAuthor.get(id)![kind].push(v);
           };
-          (d?.hasDoneItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, i.title || i.content, 'hasDone'));
-          (d?.willDoItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, i.title || i.content, 'willDo'));
+          // 일반업무(goalId 없음)는 [일반] 태그로 구분 — AI가 핵심업무와 별도로 요약에 포함하도록.
+          const tag = (i: any, text: string) => (i.goalId ? text : `[일반] ${text}`);
+          (d?.hasDoneItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'hasDone'));
+          (d?.willDoItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'willDo'));
           const members = [...byAuthor.values()].filter(m => m.hasDone.length || m.willDo.length);
           if (members.length) teams.push({ teamName: orgById.get(orgId)?.name ?? '(팀)', members });
         });
