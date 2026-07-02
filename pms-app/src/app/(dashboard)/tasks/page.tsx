@@ -1355,7 +1355,13 @@ function OrgTasksView({ allOrgs: isAllOrgs }: { allOrgs: boolean }) {
   const teams = (() => {
     const filtered = orgs.filter(o => {
       if (o.type === 'TEAM') return true;
-      if (o.type === 'HEADQUARTERS') return users.some(u => u.organizationId === o.id && (u.role === 'MEMBER' || u.role === 'TEAM_LEAD'));
+      if (o.type === 'HEADQUARTERS') {
+        // 본부 주간보고 탭은 '본부 소속으로 실제 작성하는 인원'이 있을 때만.
+        // 팀장 역할 본부장(리더)은 산하 팀에 작성하므로 제외 → 그 본부장만 있는 본부는 탭 미노출.
+        return users.some(u => u.organizationId === o.id
+          && (u.role === 'MEMBER' || u.role === 'TEAM_LEAD')
+          && !(u.role === 'TEAM_LEAD' && o.leaderId === u.id));
+      }
       return false;
     });
     const typeRank: Record<string, number> = { COMPANY: 0, DIVISION: 1, HEADQUARTERS: 2, TEAM: 3 };
