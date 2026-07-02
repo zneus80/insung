@@ -140,15 +140,31 @@ export default function MarkdownLite({ content }: { content: string }) {
       continue;
     }
 
-    // 불릿 목록 (- * •)
+    // 불릿 목록 (- * •) — 들여쓴 항목(공백 2칸 이상)은 직전 최상위 항목의 하위 목록으로 중첩 렌더링
     if (BULLET_RE.test(line)) {
-      const items: string[] = [];
+      const items: { text: string; subs: string[] }[] = [];
       while (i < lines.length && BULLET_RE.test(lines[i])) {
-        items.push(lines[i].replace(BULLET_RE, '')); i++;
+        const raw = lines[i];
+        const indent = (raw.match(/^\s*/)?.[0].length) ?? 0;
+        const text = raw.replace(BULLET_RE, '');
+        if (indent >= 2 && items.length > 0) items[items.length - 1].subs.push(text);
+        else items.push({ text, subs: [] });
+        i++;
       }
       blocks.push(
         <ul key={`ul${key++}`} className="my-2 ml-5 list-disc space-y-1">
-          {items.map((it, ii) => <li key={ii} className="text-gray-700 leading-relaxed pl-0.5">{renderInline(it, `ul${key}-${ii}`)}</li>)}
+          {items.map((it, ii) => (
+            <li key={ii} className="text-gray-700 leading-relaxed pl-0.5">
+              {renderInline(it.text, `ul${key}-${ii}`)}
+              {it.subs.length > 0 && (
+                <ul className="mt-1 ml-4 list-[circle] space-y-1">
+                  {it.subs.map((s, si) => (
+                    <li key={si} className="text-gray-600 leading-relaxed pl-0.5">{renderInline(s, `ul${key}-${ii}-${si}`)}</li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          ))}
         </ul>
       );
       continue;
