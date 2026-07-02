@@ -226,7 +226,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
           ) : shownDivisions.length === 0 ? (
             <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">조직목표가 등록된 부문/공장이 없습니다.</p>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
               {shownDivisions.map(div => {
                 const subjects = subjectsForOrg(div.id);
                 const divGoals = goalsForDivision(div.id);
@@ -235,7 +235,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                 // #2: 핵심목표 리스트는 기본 접힘 — 페이지가 길어지지 않도록. 조직목표·카운트는 항상 표시.
                 const isOpen = expanded[div.id] ?? false;
                 return (
-                  <div key={div.id} className="rounded-xl border bg-white overflow-hidden">
+                  <div key={div.id} className="rounded-xl border bg-white overflow-hidden h-full">
                     <button
                       onClick={() => setExpanded(p => ({ ...p, [div.id]: !isOpen }))}
                       className="w-full flex items-start gap-2 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
