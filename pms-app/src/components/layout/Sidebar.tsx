@@ -540,10 +540,11 @@ export default function Sidebar() {
           P
         </div>
         <div className="flex flex-col leading-tight">
-          <span className="flex items-start gap-0.5">
-            <span className="text-sm font-semibold text-gray-900 leading-none">INSUNG</span>
-            {/* mt-[1px]: 폰트 크기 차이로 인한 글리프 상단 오프셋 보정 — INSUNG 윗단과 PMS 윗단 일치 */}
-            <span className="text-[10.5px] font-semibold text-blue-600 leading-none mt-[1px]">PMS</span>
+          {/* PMS 는 INSUNG 대비 상대 크기(0.75em) — 임원 큰글씨(exec-larger-text)·글자배율에서도 항상 비례.
+              mt-[0.07em]: 폰트 크기 차이로 인한 글리프 상단 오프셋 보정(비례) — 두 글자 윗단 일치 */}
+          <span className="flex items-start gap-0.5 text-sm font-semibold text-gray-900 leading-none">
+            <span>INSUNG</span>
+            <span className="text-[0.75em] text-blue-600 leading-none mt-[0.07em]">PMS</span>
           </span>
           <span className={cn(
             'text-[10px] font-medium',
