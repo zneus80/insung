@@ -12,6 +12,8 @@ import Header from '@/components/layout/Header';
 import GoalStatusBadge from '@/components/goals/GoalStatusBadge';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { Goal, User as AppUser, Organization, WeightChangeRequest } from '@/types';
@@ -113,14 +115,19 @@ function ApprovalsContent() {
     } catch (e: any) { toast.error(e?.message ?? '승인 실패'); }
     finally { setActionLoading(null); }
   }
-  async function handleWeightReject(req: WeightChangeRequest) {
-    if (!userProfile) return;
-    const comment = prompt('반려 사유를 입력하세요 (선택):') ?? undefined;
+  // 가중치 반려 — 인앱 다이얼로그로 사유 입력(브라우저 prompt 사용 금지)
+  const [weightRejectTarget, setWeightRejectTarget] = useState<WeightChangeRequest | null>(null);
+  const [weightRejectComment, setWeightRejectComment] = useState('');
+  async function handleWeightReject() {
+    const req = weightRejectTarget;
+    if (!userProfile || !req) return;
     setActionLoading(`w_${req.id}`);
     try {
-      await rejectWeightChangeRequest(req.userId, req.cycleYear, userProfile.id, comment);
+      await rejectWeightChangeRequest(req.userId, req.cycleYear, userProfile.id, weightRejectComment.trim() || undefined);
       toast.success(`${req.userName ?? ''}님 가중치 배분을 반려했습니다.`);
       setWeightReqs(prev => prev.filter(r => r.id !== req.id));
+      setWeightRejectTarget(null);
+      setWeightRejectComment('');
     } catch (e: any) { toast.error(e?.message ?? '반려 실패'); }
     finally { setActionLoading(null); }
   }
@@ -303,7 +310,7 @@ function ApprovalsContent() {
                     </table>
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" disabled={busy} onClick={() => handleWeightReject(req)}>반려</Button>
+                    <Button variant="outline" size="sm" disabled={busy} onClick={() => { setWeightRejectComment(''); setWeightRejectTarget(req); }}>반려</Button>
                     <Button size="sm" disabled={busy} onClick={() => handleWeightApprove(req)}>{busy ? '처리 중…' : '승인'}</Button>
                   </div>
                 </div>
@@ -416,6 +423,30 @@ function ApprovalsContent() {
           </section>
         )}
       </div>
+
+      {/* 가중치 배분 반려 — 사유 입력 다이얼로그 */}
+      <Dialog open={!!weightRejectTarget} onOpenChange={v => { if (!v) setWeightRejectTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>가중치 배분 반려</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            <b>{weightRejectTarget?.userName ?? ''}</b>님의 {weightRejectTarget?.cycleYear}년 가중치 배분 요청을 반려합니다.
+          </p>
+          <Textarea
+            rows={3}
+            value={weightRejectComment}
+            onChange={e => setWeightRejectComment(e.target.value)}
+            placeholder="반려 사유 (선택)"
+          />
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setWeightRejectTarget(null)}>취소</Button>
+            <Button variant="destructive" disabled={actionLoading === `w_${weightRejectTarget?.id}`} onClick={handleWeightReject}>
+              {actionLoading === `w_${weightRejectTarget?.id}` ? '처리 중…' : '반려'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

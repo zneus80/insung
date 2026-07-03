@@ -2364,7 +2364,7 @@ export async function submitWeightChangeRequest(req: {
     requestedAt: serverTimestamp(),
     decidedBy: null, decidedAt: null, comment: null,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-  }, { merge: true });
+  }); // 전체 교체(merge 금지) — merge 시 map 필드(before/after/titles)에 삭제된 옛 목표 키가 잔존해 합계가 100%를 초과하는 버그
   if (req.approverId) {
     await createNotification({
       userId: req.approverId,

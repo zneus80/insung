@@ -627,12 +627,13 @@ function MyGoalsView() {
               <p className="text-sm text-gray-400 py-4 text-center">배분할 핵심목표가 없습니다.</p>
             ) : weightTargets.map(g => (
               <div key={g.id} className="flex items-center gap-2">
-                <span className="text-sm text-gray-700 flex-1 min-w-0 truncate">{g.title}</span>
+                {/* 긴 목표명은 최대 2줄로 줄바꿈 — 글자 확대 시에도 입력칸을 밀지 않도록 */}
+                <span className="text-sm text-gray-700 flex-1 min-w-0 leading-snug line-clamp-2 break-words" title={g.title}>{g.title}</span>
                 <Input type="number" min="0" max="100" value={weightDraft[g.id] ?? ''}
                   onChange={e => setWeightDraft(m => ({ ...m, [g.id]: e.target.value }))}
                   onKeyDown={e => e.stopPropagation()}
-                  className="w-20 h-8 text-right" />
-                <span className="text-xs text-gray-400 w-3">%</span>
+                  className="w-20 shrink-0 text-right" />
+                <span className="text-xs text-gray-400 w-3 shrink-0">%</span>
               </div>
             ))}
           </div>
