@@ -431,9 +431,17 @@ function ExecDashboard() {
           const scopeUsers = allUsers.filter(u => scopeOrgIds.includes(u.organizationId));
           const scopeUserIds = new Set(scopeUsers.map(u => u.id));
           // 목표 = owner 또는 공동수행자가 스코프 인원에 포함되면 포함(공동수행자 업무 누락 방지)
-          const scopeGoals = allGoals.filter(g =>
-            scopeUserIds.has(g.userId) || (g.collaboratorIds ?? []).some(c => scopeUserIds.has(c))
-          );
+          // 표시 대상: 임원 확정 이후(APPROVED/IN_PROGRESS/COMPLETED) + '포기 확정'(포기요청이 승인된 ABANDONED)만.
+          // 임시저장·회수(DRAFT)·반려·휴지통·미승인 ABANDONED(구버전 휴지통)는 제외 — 테스트/폐기 목표 누수 방지.
+          const isConfirmedAbandon = (g: Goal) =>
+            g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange;
+          const VISIBLE_STATUSES = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
+          const scopeGoals = allGoals.filter(g => {
+            if (g.trashedAt) return false;
+            if (!(VISIBLE_STATUSES.has(g.status) || isConfirmedAbandon(g))) return false;
+            if (g.softDeletedAt && !isConfirmedAbandon(g)) return false;
+            return scopeUserIds.has(g.userId) || (g.collaboratorIds ?? []).some(c => scopeUserIds.has(c));
+          });
 
           const usersByOrg: Record<string, User[]> = {};
           for (const u of scopeUsers) {

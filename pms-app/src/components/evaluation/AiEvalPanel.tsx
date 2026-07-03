@@ -118,6 +118,9 @@ export default function AiEvalPanel({
             title: g.title, statusLabel: statusLabelOf(g), progress: g.progress,
             weight: g.weights?.[m.id] ?? g.weight,
             description: g.description?.slice(0, 200),
+            // KPI·추진기한 — 임팩트/실효성/기한 대비 진척 판단 근거
+            kpis: (g.kpis ?? []).slice(0, 6),
+            dueDate: g.dueDate ? new Date(g.dueDate).toISOString().slice(0, 10) : undefined,
             // 이 목표의 주간 진행사항(주간업무보고에서 goalId 연계된 항목) — 난도 추정 보조
             weeklyNotes: (weeklyTasksByMember[m.id] ?? [])
               .flatMap(wt => (wt.hasDoneItems ?? []).filter(i => i.goalId === g.id).map(i => (i.title || i.content || '').trim()))

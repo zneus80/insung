@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getOrganizationsForYear, getAllUsers, getTeamWeeklyTasksByOrgsAndWeek,
-  getWeeklyReportCache, saveWeeklyReportCache,
+  getWeeklyReportCache, saveWeeklyReportCache, getAllGoalsByYear,
 } from '@/lib/firestore';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import { summarizeWeeklyReport, type WeeklyReportInput } from '@/lib/ai-assistant';
@@ -62,8 +62,25 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
     const posById = new Map(users.map(u => [u.id, u.position]));
     const scopeIds = getMyScopeOrgIds(userProfile.id, userProfile.role, userProfile.organizationId, orgs);
     const teamOrgIds = scopeIds.filter(id => orgById.get(id)?.type === 'TEAM');
-    const teamDocs = await getTeamWeeklyTasksByOrgsAndWeek(teamOrgIds, target.year, target.week);
+    const [teamDocs, allGoals] = await Promise.all([
+      getTeamWeeklyTasksByOrgsAndWeek(teamOrgIds, target.year, target.week),
+      getAllGoalsByYear(target.year).catch(() => []),
+    ]);
     const docByOrg = new Map(teamDocs.map(d => [d.organizationId, d]));
+    // 팀별 핵심목표 컨텍스트 — 실효성·KPI 달성·기한 대비 진척 판단 근거 (승인 이후 상태만)
+    const GOAL_VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
+    const goalsByOrg = new Map<string, { title: string; status: string; progress: number; dueDate?: string; kpis?: string[] }[]>();
+    for (const g of allGoals) {
+      if (!GOAL_VISIBLE.has(g.status) || g.trashedAt || g.softDeletedAt) continue;
+      if (!goalsByOrg.has(g.organizationId)) goalsByOrg.set(g.organizationId, []);
+      goalsByOrg.get(g.organizationId)!.push({
+        title: g.title,
+        status: g.status === 'COMPLETED' ? '완료' : '추진중',
+        progress: g.progress ?? 0,
+        dueDate: g.dueDate ? new Date(g.dueDate).toISOString().slice(0, 10) : undefined,
+        kpis: (g.kpis ?? []).slice(0, 5),
+      });
+    }
 
     const teams: WeeklyReportInput['teams'] = teamOrgIds
       .map(orgId => {
@@ -84,6 +101,7 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
         return {
           teamName: org?.name ?? '(팀)',
           members: [...byAuthor.values()].filter(m => m.hasDone.length || m.willDo.length),
+          goals: (goalsByOrg.get(orgId) ?? []).slice(0, 15),
         };
       })
       .filter(t => t.members.length > 0);

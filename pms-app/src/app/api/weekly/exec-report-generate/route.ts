@@ -44,7 +44,12 @@ function descendantOrgIds(rootId: string, orgs: any[]): string[] {
   return out;
 }
 
-interface ReportTeam { teamName: string; members: Array<{ name: string; position?: string; hasDone: string[]; willDo: string[] }> }
+interface ReportTeam {
+  teamName: string;
+  members: Array<{ name: string; position?: string; hasDone: string[]; willDo: string[] }>;
+  /** 팀 핵심목표 컨텍스트 — 실효성·KPI 달성·기한 대비 진척 판단 근거 */
+  goals?: Array<{ title: string; status: string; progress: number; dueDate?: string; kpis?: string[] }>;
+}
 
 function buildPrompt(divisionName: string, year: number, week: number, teams: ReportTeam[]): string {
   return [
@@ -59,6 +64,8 @@ function buildPrompt(divisionName: string, year: number, week: number, teams: Re
     '- 서술 단위는 팀 → 업무(공동업무 단위) → 참여 개인 순으로 판단합니다. 여러 사람이 같은 업무를 수행한 경우 사람별로 반복 서술하지 말고, 업무를 기준으로 한 번만 설명하면서 "A(주도)·B·C 참여, A는 ~, B는 ~ 담당" 식으로 참여자와 역할을 묶습니다.',
     '- 개인별 나열은 그 사람 고유의 단독 업무·특이 기여가 있을 때만 사용합니다.',
     '- "[일반]" 태그 항목은 핵심목표에 속하지 않는 일반업무입니다. 누락하지 말고 팀별로 "일반업무: ~ 등"처럼 한두 줄로 요약해 포함하세요(항목 전체 나열은 불필요). 특이사항이 있으면 분석에도 반영합니다.',
+    '- teams[].goals 는 팀 핵심목표 컨텍스트(상태·진행률·추진기한·KPI)입니다. 주간 실적을 평가할 때 이 컨텍스트와 대조해 ①실적의 실효성(계획 나열이 아닌 실제 진척) ②KPI 달성 방향성 ③기한 대비 진척(기한이 많이 남은 목표의 낮은 진행률을 부진으로 단정하지 않기)을 판단하세요.',
+    '- 추론 표현: 누적 데이터가 제한적이므로 직접 확인되지 않는 판단은 "현재 데이터 기준으로는 ~로 추론됩니다"처럼 추론임을 명시하고 한계를 밝히세요.',
     '【출력 형식 — 반드시 준수】',
     '- 문단은 2~4문장 단위로 나누고, 문단 사이에는 반드시 빈 줄을 넣습니다.',
     '- 목록은 각 항목을 반드시 별도의 줄에서 하이픈(-)으로 시작합니다. 한 줄에 여러 항목을 "•"나 쉼표로 이어 붙이지 마세요.',
@@ -113,15 +120,31 @@ export async function POST(req: NextRequest) {
     const t = prevWeek(nowW.year, nowW.week);
 
     // ── 데이터 로드 ──
-    const [orgsSnap, usersSnap] = await Promise.all([
+    const [orgsSnap, usersSnap, goalsSnap] = await Promise.all([
       db.collection('organizations').get(),
       db.collection('users').get(),
+      db.collection('goals').where('cycleYear', '==', t.year).get(),
     ]);
     const orgs = orgsSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter(o => !o.archivedAt);
     const users = usersSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
     const orgById = new Map(orgs.map(o => [o.id, o]));
     const nameById = new Map(users.map(u => [u.id, u.name]));
     const posById = new Map(users.map(u => [u.id, u.position]));
+    // 팀별 핵심목표 컨텍스트 — 실효성·KPI 달성·기한 대비 진척 판단 근거 (승인 이후 상태만)
+    const GOAL_VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
+    const goalsByOrg = new Map<string, Array<{ title: string; status: string; progress: number; dueDate?: string; kpis?: string[] }>>();
+    for (const doc of goalsSnap.docs) {
+      const g = doc.data() as any;
+      if (!GOAL_VISIBLE.has(g.status) || g.trashedAt || g.softDeletedAt) continue;
+      if (!goalsByOrg.has(g.organizationId)) goalsByOrg.set(g.organizationId, []);
+      goalsByOrg.get(g.organizationId)!.push({
+        title: g.title,
+        status: g.status === 'COMPLETED' ? '완료' : '추진중',
+        progress: g.progress ?? 0,
+        dueDate: g.dueDate?.toDate?.() ? g.dueDate.toDate().toISOString().slice(0, 10) : undefined,
+        kpis: Array.isArray(g.kpis) ? g.kpis.slice(0, 5) : undefined,
+      });
+    }
 
     // ── Gemini (Vertex AI) — firebase-adminsdk SA 자격증명 명시 주입(aiplatform.user 부여된 계정) ──
     const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY!);
@@ -165,7 +188,11 @@ export async function POST(req: NextRequest) {
           (d?.hasDoneItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'hasDone'));
           (d?.willDoItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'willDo'));
           const members = [...byAuthor.values()].filter(m => m.hasDone.length || m.willDo.length);
-          if (members.length) teams.push({ teamName: orgById.get(orgId)?.name ?? '(팀)', members });
+          if (members.length) teams.push({
+            teamName: orgById.get(orgId)?.name ?? '(팀)',
+            members,
+            goals: (goalsByOrg.get(orgId) ?? []).slice(0, 15),
+          });
         });
         if (teams.length === 0) { counts.empty++; return; }
 

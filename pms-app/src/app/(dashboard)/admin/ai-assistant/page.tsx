@@ -225,6 +225,9 @@ function AssistantContent() {
               s: g.status === 'COMPLETED' ? '완료' : (g.status === 'ABANDONED' || g.status === 'PENDING_ABANDON') ? '포기' : '추진중',
               p: g.progress, w: g.weights?.[u.id] ?? g.weight,
               desc: g.description?.slice(0, 200) || undefined,
+              // KPI·추진기한 — 임팩트/실효성/기한 대비 진척 판단 근거
+              kpi: (g.kpis ?? []).slice(0, 6),
+              기한: g.dueDate ? new Date(g.dueDate).toISOString().slice(0, 10) : undefined,
               notes: goalNotes(g.id),
             })).slice(0, 15),
             goalStat: { total: completed + (evalGoals.length - completed - abandoned), 완료: completed, 포기: abandoned },
