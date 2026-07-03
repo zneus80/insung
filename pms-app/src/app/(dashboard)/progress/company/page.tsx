@@ -61,8 +61,18 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   const [innovations, setInnovations] = useState<InnovationActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  // 부문 카드에서 열린 카테고리 — 'done'(완료) | 'ongoing'(추진중) | undefined(닫힘)
-  const [openCat, setOpenCat] = useState<Record<string, 'done' | 'ongoing' | undefined>>({});
+  // 부문 카드에서 열린 카테고리 — 행(row) 단위로 관리해 같은 행 카드가 동시에 열림. key=행 인덱스.
+  const [openCat, setOpenCat] = useState<Record<number, 'done' | 'ongoing' | undefined>>({});
+  // 반응형 그리드 열 수 (기본 1 / md≥768 2 / lg≥1024 3) — 행 계산용
+  const [cols, setCols] = useState(3);
+  useEffect(() => {
+    const calc = () => setCols(window.innerWidth >= 1024 ? 3 : window.innerWidth >= 768 ? 2 : 1);
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
+  // 열 수가 바뀌면 행 구성이 달라지므로 열림 상태 초기화
+  useEffect(() => { setOpenCat({}); }, [cols]);
 
   useEffect(() => {
     setLoading(true);
@@ -229,14 +239,15 @@ function Content({ embedded = false }: { embedded?: boolean }) {
             <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">조직목표가 등록된 부문/공장이 없습니다.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
-              {shownDivisions.map(div => {
+              {shownDivisions.map((div, idx) => {
+                const rowIndex = Math.floor(idx / cols);   // 같은 행 카드는 동일 rowIndex → 동시 열림
                 const subjects = subjectsForOrg(div.id);
                 const divGoals = goalsForDivision(div.id);
                 const doneGoals = divGoals.filter(g => g.status === 'COMPLETED');
                 const ongoingGoals = divGoals.filter(g => g.status !== 'COMPLETED');
-                const cat = openCat[div.id];
+                const cat = openCat[rowIndex];
                 const shownGoals = cat === 'done' ? doneGoals : cat === 'ongoing' ? ongoingGoals : [];
-                const toggle = (c: 'done' | 'ongoing') => setOpenCat(p => ({ ...p, [div.id]: p[div.id] === c ? undefined : c }));
+                const toggle = (c: 'done' | 'ongoing') => setOpenCat(p => ({ ...p, [rowIndex]: p[rowIndex] === c ? undefined : c }));
                 const goalRow = (g: Goal) => {
                   const ownerOrg = orgsById.get(g.organizationId);
                   const masked = g.isConfidential && !revealConfidential;
@@ -264,16 +275,9 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                       ))}
                     </div>
 
-                    {/* 하단 고정 블록: (선택된 목표 목록) + 완료/추진중 2구역 버튼 */}
+                    {/* 하단 고정 블록: 완료/추진중 2구역 버튼 + (그 아래로 열리는 선택 목표 목록) */}
                     <div className="mt-auto">
-                    {cat && (
-                      <div className="border-t">
-                        {shownGoals.length === 0
-                          ? <p className="px-3 py-3 text-xs text-gray-400">{cat === 'done' ? '완료된 목표가 없습니다.' : '추진 중인 목표가 없습니다.'}</p>
-                          : <div className="divide-y">{shownGoals.map(goalRow)}</div>}
-                      </div>
-                    )}
-                    {/* 완료 / 추진중 2구역 (클릭 시 해당 목표 노출) */}
+                    {/* 완료 / 추진중 2구역 (클릭 시 아래로 해당 목표 노출) */}
                     <div className="grid grid-cols-2 border-t divide-x">
                       <button
                         onClick={() => toggle('done')}
@@ -292,6 +296,14 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                         <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', cat !== 'ongoing' && '-rotate-90')} />
                       </button>
                     </div>
+                    {/* 선택된 카테고리 목표 목록 — 버튼 아래로 열림 */}
+                    {cat && (
+                      <div className="border-t">
+                        {shownGoals.length === 0
+                          ? <p className="px-3 py-3 text-xs text-gray-400">{cat === 'done' ? '완료된 목표가 없습니다.' : '추진 중인 목표가 없습니다.'}</p>
+                          : <div className="divide-y">{shownGoals.map(goalRow)}</div>}
+                      </div>
+                    )}
                     </div>
                   </div>
                 );

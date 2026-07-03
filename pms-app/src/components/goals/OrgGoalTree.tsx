@@ -41,6 +41,11 @@ export function avgProgress(goals: Goal[]): number {
   return Math.round(active.reduce((s, g) => s + g.progress, 0) / active.length);
 }
 
+/** '포기 확정' = 포기요청이 임원 승인된 ABANDONED 만. 회수→휴지통(미승인 ABANDONED)·조직변경 자동이관은 포기로 표시하지 않음. */
+function isConfirmedAbandon(g: Goal): boolean {
+  return g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange;
+}
+
 // ── 트리 타입 ─────────────────────────────────────
 export interface OrgNode {
   org: Organization;
@@ -93,10 +98,10 @@ function MemberGoalRow({ user, goals, persistKey, defaultMemberOpen = false, cur
   const [showAbandoned, setShowAbandoned] = useState(false);
   const avg = avgProgress(goals);
   const hasGoals = goals.length > 0;
-  // 정렬: 1) 진행중 2) 완료 3) 포기(기본 접힘)
+  // 정렬: 1) 진행중 2) 완료 3) 포기 확정(기본 접힘). 미승인 ABANDONED(회수→휴지통 등)는 미표시.
   const inProgressGoals = goals.filter(g => g.status !== 'COMPLETED' && g.status !== 'ABANDONED');
   const completedGoals = goals.filter(g => g.status === 'COMPLETED');
-  const abandonedGoals = goals.filter(g => g.status === 'ABANDONED');
+  const abandonedGoals = goals.filter(isConfirmedAbandon);
   // 임원/최고관리자는 개인 목표가 없으므로 목표 없으면 행 미표시 ('목표 없음' 표기 대상 아님)
   if (!hasGoals && (user.role === 'EXECUTIVE' || user.role === 'CEO')) return null;
 
@@ -213,7 +218,7 @@ function TeamGoalRows({ goals, usersById }: { goals: Goal[]; usersById?: Record<
   if (goals.length === 0) return null;
   const inProgressGoals = goals.filter(g => g.status !== 'COMPLETED' && g.status !== 'ABANDONED');
   const completedGoals = goals.filter(g => g.status === 'COMPLETED');
-  const abandonedGoals = goals.filter(g => g.status === 'ABANDONED');
+  const abandonedGoals = goals.filter(isConfirmedAbandon);   // 포기 확정만 — 미승인 ABANDONED 미표시
 
   const renderGoal = (goal: Goal) => {
     const badge = goal.status === 'COMPLETED'

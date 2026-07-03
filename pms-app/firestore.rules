@@ -257,6 +257,14 @@ service cloud.firestore {
       );
     }
 
+    // 임원 위클리 리포트 캐시 (docId = execId_year_W주차) — 본인(임원) + HR마스터/CEO.
+    //   생성은 임원 본인이 트리거(클라이언트 AI). 서버(스케줄러)는 admin SDK 로 규칙 우회.
+    match /weeklyReports/{docId} {
+      allow read, write: if isAuthenticated() && (
+        docId.matches('^' + request.auth.uid + '_.*') || isHrMaster() || isCeo()
+      );
+    }
+
     // 연말 평가 (docId = userId_year) — read 잠금 (옵션 E Phase 3): 본인 + HR/CEO 만 직접.
     match /yearEndEvals/{docId} {
       allow read: if isAuthenticated() && (

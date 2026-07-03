@@ -540,7 +540,10 @@ export default function Sidebar() {
           P
         </div>
         <div className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold text-gray-900">INSUNG</span>
+          <span className="flex items-start gap-0.5">
+            <span className="text-sm font-semibold text-gray-900 leading-none">INSUNG</span>
+            <span className="text-[7px] font-semibold text-blue-600 leading-none">PMS</span>
+          </span>
           <span className={cn(
             'text-[10px] font-medium',
             activeYear === calendarYear ? 'text-gray-400' : 'text-orange-600',

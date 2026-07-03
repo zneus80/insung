@@ -31,12 +31,18 @@ import MemberInfoModal from '@/components/members/MemberInfoModal';
 import type { Goal, User, Organization } from '@/types';
 
 /** 임원 확정된 목표만 — 임시저장·반려·승인대기·승인진행중 등 미확정 상태 제외 */
-const CONFIRMED_STATUSES = new Set<Goal['status']>(['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'ABANDONED']);
+const CONFIRMED_STATUSES = new Set<Goal['status']>(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
+
+/** '포기 확정' = 포기요청이 임원 승인된 ABANDONED 만. (회수→휴지통 등 미승인 ABANDONED·조직변경 자동이관은 포기 아님) */
+function isConfirmedAbandon(g: Goal): boolean {
+  return g.status === 'ABANDONED' && !!g.approvedBy && !g.autoAbandonedByOrgChange;
+}
 
 function filterConfirmed(goals: Goal[]): Goal[] {
-  // 포기 확정(승인된 ABANDONED)은 본인이 화면에서 제거(softDeletedAt)해도 평가 기록으로 계속 표시
-  return goals.filter(g => CONFIRMED_STATUSES.has(g.status) && !g.trashedAt
-    && (!g.softDeletedAt || (g.status === 'ABANDONED' && !!g.approvedBy)));
+  // 포기 확정은 본인이 화면에서 제거(softDeletedAt)해도 평가 기록으로 계속 표시
+  return goals.filter(g => !g.trashedAt
+    && (CONFIRMED_STATUSES.has(g.status) || isConfirmedAbandon(g))
+    && (!g.softDeletedAt || isConfirmedAbandon(g)));
 }
 
 /** 포기 제외 + 평균 진척도 */
