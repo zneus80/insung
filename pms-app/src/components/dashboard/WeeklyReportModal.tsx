@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
   getOrganizationsForYear, getAllUsers, getTeamWeeklyTasksByOrgsAndWeek,
-  getWeeklyReportCache, saveWeeklyReportCache, getAllGoalsByYear,
+  getWeeklyReportCache, saveWeeklyReportCache, getAllGoalsByYear, markWeeklyReportViewed,
 } from '@/lib/firestore';
 import { getMyScopeOrgIds } from '@/lib/approval-filters';
 import { summarizeWeeklyReport, type WeeklyReportInput } from '@/lib/ai-assistant';
@@ -125,6 +125,8 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
           setContent(cached.content);
           setGeneratedAt(cached.generatedAt);
           setHasData(true);
+          // 열람 표시 — 대시보드 카드의 신규(NEW) 배지 해제
+          if (!cached.viewedAt) markWeeklyReportViewed(userProfile.id, target.year, target.week).catch(() => {});
         } else {
           // 캐시 없음 — 데이터 존재 여부만 미리 확인(생성 버튼 노출 판단)
           const g = await gather();

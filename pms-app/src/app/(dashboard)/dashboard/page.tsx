@@ -18,6 +18,7 @@ import {
   getOrganizationsForYear,
   getAllGoalsByYear,
   getAnnualGoal,
+  getWeeklyReportCache,
   getAllOrgAnnualGoals,
   getAnnouncements,
 } from '@/lib/firestore';
@@ -356,6 +357,25 @@ function ExecDashboard() {
   const [upcomingMeetings, setUpcomingMeetings] = useState<OneOnOne[]>([]);
   const [orgStatusOpen, setOrgStatusOpen] = useState(false);
   const [weeklyReportOpen, setWeeklyReportOpen] = useState(false);
+  // 신규 위클리 리포트(지난주분 생성됨 + 미열람) — 카드 강조·배지. 클릭 시 열람 처리로 해제.
+  const [hasNewWeeklyReport, setHasNewWeeklyReport] = useState(false);
+  useEffect(() => {
+    if (!userProfile) return;
+    // 지난주(ISO 직전 주) 계산 — WeeklyReportModal 과 동일 규칙
+    const d = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
+    const day = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    let wy = d.getUTCFullYear();
+    let wk = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    if (wk === 1) { const dec28 = new Date(Date.UTC(wy - 1, 11, 28)); const dd = dec28.getUTCDay() || 7; dec28.setUTCDate(dec28.getUTCDate() + 4 - dd); const ys = new Date(Date.UTC(dec28.getUTCFullYear(), 0, 1)); wy -= 1; wk = Math.ceil((((dec28.getTime() - ys.getTime()) / 86400000) + 1) / 7); }
+    else { wk -= 1; }
+    let alive = true;
+    getWeeklyReportCache(userProfile.id, wy, wk)
+      .then(c => { if (alive) setHasNewWeeklyReport(!!c?.content && !c.viewedAt); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [userProfile?.id]);
 
   // 조직트리 드릴다운 → 목표 상세 → 뒤로가기 시 스크롤 위치 복원 (펼침 상태는 OrgGoalTree가 sessionStorage로 보존)
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -601,15 +621,28 @@ function ExecDashboard() {
             <p className="text-xs text-gray-400 mt-1">마일리지·스마트프로젝트·포상</p>
           </button>
           <button
-            onClick={() => setWeeklyReportOpen(true)}
-            className="text-left rounded-xl border border-gray-200 bg-white px-5 py-4 hover:shadow-sm transition-shadow"
+            onClick={() => { setWeeklyReportOpen(true); setHasNewWeeklyReport(false); }}
+            className={`relative text-left rounded-xl border px-5 py-4 hover:shadow-sm transition-shadow ${
+              hasNewWeeklyReport ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white'
+            }`}
           >
+            {hasNewWeeklyReport && (
+              <span className="absolute right-3 top-3 flex items-center gap-1">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500" />
+                </span>
+                <span className="text-[10px] font-bold text-blue-600">NEW</span>
+              </span>
+            )}
             <div className="flex items-center gap-2 mb-1">
-              <FileText className="h-4 w-4 text-blue-500" />
-              <span className="text-sm font-semibold text-gray-600">위클리 리포트</span>
+              <FileText className={`h-4 w-4 ${hasNewWeeklyReport ? 'text-blue-600' : 'text-blue-500'}`} />
+              <span className={`text-sm font-semibold ${hasNewWeeklyReport ? 'text-blue-700' : 'text-gray-600'}`}>위클리 리포트</span>
             </div>
             <p className="text-base font-bold text-gray-900">지난주 요약 보기</p>
-            <p className="text-xs text-gray-400 mt-1">산하 주간보고 AI 요약·분석·금주 방향</p>
+            <p className={`text-xs mt-1 ${hasNewWeeklyReport ? 'text-blue-500' : 'text-gray-400'}`}>
+              {hasNewWeeklyReport ? '새 리포트가 도착했습니다' : '산하 주간보고 AI 요약·분석·금주 방향'}
+            </p>
           </button>
         </div>
         )}

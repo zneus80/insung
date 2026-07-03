@@ -2866,6 +2866,8 @@ export interface WeeklyReportCache {
   content: string;           // AI 생성 마크다운(요약/분석/금주방향)
   generatedAt: Date;
   generatedByName?: string;  // 생성 트리거(임원 본인 / 시스템)
+  /** 임원 본인이 열람한 시각 — 미열람(월요일 자동생성 후)이면 대시보드 카드에 신규 배지 표시 */
+  viewedAt?: Date;
 }
 function weeklyReportDocId(execId: string, year: number, week: number): string {
   return `${execId}_${year}_W${week}`;
@@ -2878,7 +2880,13 @@ export async function getWeeklyReportCache(execId: string, year: number, week: n
     id: snap.id, execId: d.execId, year: d.year, week: d.week,
     content: d.content ?? '', generatedAt: fromTimestamp(d.generatedAt) ?? new Date(),
     generatedByName: d.generatedByName,
+    viewedAt: fromTimestamp(d.viewedAt),
   };
+}
+/** 위클리 리포트 열람 표시 — 대시보드 카드 신규 배지 해제용 (본인 문서만) */
+export async function markWeeklyReportViewed(execId: string, year: number, week: number): Promise<void> {
+  await setDoc(doc(db, COLLECTIONS.WEEKLY_REPORTS, weeklyReportDocId(execId, year, week)),
+    { viewedAt: serverTimestamp() }, { merge: true });
 }
 export async function saveWeeklyReportCache(
   execId: string, year: number, week: number, content: string, generatedByName?: string,
