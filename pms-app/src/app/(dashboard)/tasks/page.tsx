@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, Fragment } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import {
@@ -987,64 +987,67 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
     );
   }
 
+  // 단일 목표 블록 — 목표 헤더(제목·진행률·순서) + 항목 + 추가 버튼
+  function goalBlockFor(section: 'hd' | 'wd', g: Goal, items: SimpleTaskItem[], isGreen: boolean) {
+    const gItems = items.filter(i => i.goalId === g.id);
+    const pct = goalProgress[g.id] ?? g.progress ?? 0;
+    return (
+      <div key={g.id} className="border-b last:border-b-0">
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-50/60">
+          {/* 골 블록 순서 변경 — Has Done 섹션에서만 노출(순서는 양쪽 공통 반영) */}
+          {isGreen && !isBodyLocked && (() => {
+            const gi = activeGoals.findIndex(x => x.id === g.id);
+            return (
+              <div className="flex flex-col -my-1 shrink-0">
+                <button type="button" disabled={reordering || gi <= 0}
+                  onClick={() => moveGoalBlock(g.id, 'up')}
+                  className="rounded p-0.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="위로">
+                  <ChevronUp className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" disabled={reordering || gi < 0 || gi >= activeGoals.length - 1}
+                  onClick={() => moveGoalBlock(g.id, 'down')}
+                  className="rounded p-0.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="아래로">
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          })()}
+          <span className="flex-1 text-sm font-semibold text-gray-800 truncate" title={g.title}>{g.title}</span>
+          {isGreen && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] text-gray-400">진행률</span>
+              {/* 진행률 수정은 목표 소유자/공동수행자만 — 그 외(같은 팀이라도)는 읽기 전용 */}
+              {(isBodyLocked || !canWriteGoalItem(g.id)) ? (
+                <span className="text-sm font-medium text-blue-600">{pct}%</span>
+              ) : (
+                <>
+                  <input type="number" min={0} max={100} value={pct}
+                    onChange={e => {
+                      const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                      const next = { ...goalProgress, [g.id]: v };
+                      setGoalProgress(next);
+                      saveBody(hasDoneItems, willDoItems, next);
+                    }}
+                    className="w-14 rounded border border-gray-200 px-1.5 py-0.5 text-sm text-right" />
+                  <span className="text-[11px] text-gray-400">%</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="divide-y">{gItems.map(it => renderItemRow(section, it, isGreen))}</div>
+        {renderAdd(section, g.id)}
+      </div>
+    );
+  }
+
   function coreBlock(section: 'hd' | 'wd', items: SimpleTaskItem[], isGreen: boolean) {
     const goalsToShow = goalsToShowFor(items);
     if (goalsToShow.length === 0) return null;
     return (
           <div>
             <div className="px-4 py-1.5 bg-blue-50/70 border-b text-[11px] font-bold text-blue-700">핵심업무</div>
-            {goalsToShow.map(g => {
-              const gItems = items.filter(i => i.goalId === g.id);
-              const pct = goalProgress[g.id] ?? g.progress ?? 0;
-              return (
-                <div key={g.id} className="border-b last:border-b-0">
-                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-50/60">
-                    {/* 골 블록 순서 변경 — Has Done 섹션에서만 노출(순서는 양쪽 공통 반영) */}
-                    {isGreen && !isBodyLocked && (() => {
-                      const gi = activeGoals.findIndex(x => x.id === g.id);
-                      return (
-                        <div className="flex flex-col -my-1 shrink-0">
-                          <button type="button" disabled={reordering || gi <= 0}
-                            onClick={() => moveGoalBlock(g.id, 'up')}
-                            className="rounded p-0.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="위로">
-                            <ChevronUp className="h-3.5 w-3.5" />
-                          </button>
-                          <button type="button" disabled={reordering || gi < 0 || gi >= activeGoals.length - 1}
-                            onClick={() => moveGoalBlock(g.id, 'down')}
-                            className="rounded p-0.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="아래로">
-                            <ChevronDown className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      );
-                    })()}
-                    <span className="flex-1 text-sm font-semibold text-gray-800 truncate" title={g.title}>{g.title}</span>
-                    {isGreen && (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[11px] text-gray-400">진행률</span>
-                        {/* 진행률 수정은 목표 소유자/공동수행자만 — 그 외(같은 팀이라도)는 읽기 전용 */}
-                        {(isBodyLocked || !canWriteGoalItem(g.id)) ? (
-                          <span className="text-sm font-medium text-blue-600">{pct}%</span>
-                        ) : (
-                          <>
-                            <input type="number" min={0} max={100} value={pct}
-                              onChange={e => {
-                                const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
-                                const next = { ...goalProgress, [g.id]: v };
-                                setGoalProgress(next);
-                                saveBody(hasDoneItems, willDoItems, next);
-                              }}
-                              className="w-14 rounded border border-gray-200 px-1.5 py-0.5 text-sm text-right" />
-                            <span className="text-[11px] text-gray-400">%</span>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="divide-y">{gItems.map(it => renderItemRow(section, it, isGreen))}</div>
-                  {renderAdd(section, g.id)}
-                </div>
-              );
-            })}
+            {goalsToShow.map(g => goalBlockFor(section, g, items, isGreen))}
           </div>
     );
   }
@@ -1202,13 +1205,39 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
         {renderColumnCard('hd', hasDoneItems, true)}
         {renderColumnCard('wd', willDoItems, false)}
       </div>
-      {/* 데스크톱: 핵심업무 행 / 일반업무 행을 좌우 컬럼 정렬 (일반업무 시작 라인 일치) */}
-      <div className="hidden md:grid grid-cols-2 gap-4 items-stretch">
-        <div className="rounded-xl border bg-white overflow-hidden">{secHeader(hasDoneItems, true)}{coreBlock('hd', hasDoneItems, true)}</div>
-        <div className="rounded-xl border bg-white overflow-hidden">{secHeader(willDoItems, false)}{coreBlock('wd', willDoItems, false)}</div>
-        <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('hd', hasDoneItems, true)}</div>
-        <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('wd', willDoItems, false)}</div>
-      </div>
+      {/* 데스크톱: 동일 핵심목표의 Has Done/Will Do 블록을 목표별 행으로 좌우 정렬.
+          한쪽에 진행사항이 없는 목표(읽기전용 뷰에서 생략되는 쪽)는 그 칸을 공백으로 두어 라인을 유지한다. */}
+      {(() => {
+        const goalsHd = goalsToShowFor(hasDoneItems);
+        const goalsWd = goalsToShowFor(willDoItems);
+        const hdSet = new Set(goalsHd.map(g => g.id));
+        const wdSet = new Set(goalsWd.map(g => g.id));
+        const unionGoals = activeGoals.filter(g => hdSet.has(g.id) || wdSet.has(g.id));
+        return (
+          <div className="hidden md:grid grid-cols-2 gap-x-4 gap-y-3 items-stretch">
+            <div className="rounded-xl border bg-white overflow-hidden">{secHeader(hasDoneItems, true)}</div>
+            <div className="rounded-xl border bg-white overflow-hidden">{secHeader(willDoItems, false)}</div>
+            {unionGoals.length > 0 && (
+              <>
+                <div className="rounded-lg bg-blue-50/70 px-4 py-1.5 text-[11px] font-bold text-blue-700">핵심업무</div>
+                <div className="rounded-lg bg-blue-50/70 px-4 py-1.5 text-[11px] font-bold text-blue-700">핵심업무</div>
+                {unionGoals.map(g => (
+                  <Fragment key={g.id}>
+                    {hdSet.has(g.id)
+                      ? <div className="rounded-xl border bg-white overflow-hidden h-full">{goalBlockFor('hd', g, hasDoneItems, true)}</div>
+                      : <div aria-hidden className="h-full" />}
+                    {wdSet.has(g.id)
+                      ? <div className="rounded-xl border bg-white overflow-hidden h-full">{goalBlockFor('wd', g, willDoItems, false)}</div>
+                      : <div aria-hidden className="h-full" />}
+                  </Fragment>
+                ))}
+              </>
+            )}
+            <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('hd', hasDoneItems, true)}</div>
+            <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('wd', willDoItems, false)}</div>
+          </div>
+        );
+      })()}
 
       {/* 참여 공동업무(TF) — 다른 팀이 소유한 공동목표에 내가 참여한 경우. 본인에게만 표시. */}
       {showCollabTF && (
