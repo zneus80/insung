@@ -86,18 +86,27 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
       .map(orgId => {
         const org = orgById.get(orgId);
         const doc = docByOrg.get(orgId);
-        // 항목을 작성자(authorId)별로 묶어 멤버 단위 구성
-        const byAuthor = new Map<string, { name: string; position?: string; hasDone: string[]; willDo: string[] }>();
-        const push = (authorId: string | undefined, authorName: string | undefined, text: string, kind: 'hasDone' | 'willDo') => {
-          const id = authorId || 'unknown';
-          const name = authorName || nameById.get(id) || '미상';
-          if (!byAuthor.has(id)) byAuthor.set(id, { name, position: posById.get(id), hasDone: [], willDo: [] });
-          const t = text.trim(); if (t) byAuthor.get(id)![kind].push(t);
+        const goalTitleById = new Map(allGoals.map(g => [g.id, g.title]));
+        // 항목을 '업무 수행자' 기준으로 귀속 — 참여인원(participantIds)이 있으면 그들에게(대표 작성 시 참여자 전원 실적),
+        // 없으면 작성자(authorId)에게. 각 항목엔 소속 목표명을 태그해 AI가 실적/계획을 정확한 목표에 연결하게 한다.
+        const byPerson = new Map<string, { name: string; position?: string; hasDone: string[]; willDo: string[] }>();
+        const pushTo = (uid: string, fallbackName: string | undefined, text: string, kind: 'hasDone' | 'willDo') => {
+          const name = nameById.get(uid) || fallbackName || '미상';
+          if (!byPerson.has(uid)) byPerson.set(uid, { name, position: posById.get(uid), hasDone: [], willDo: [] });
+          const t = text.trim(); if (t) byPerson.get(uid)![kind].push(t);
         };
-        // 일반업무(goalId 없음)는 [일반] 태그로 구분 — AI가 핵심업무와 별도로 요약에 포함하도록.
-        const tag = (i: { goalId?: string }, text: string) => (i.goalId ? text : `[일반] ${text}`);
-        (doc?.hasDoneItems ?? []).forEach(i => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'hasDone'));
-        (doc?.willDoItems ?? []).forEach(i => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'willDo'));
+        const tag = (i: { goalId?: string }, text: string) => {
+          if (!i.goalId) return `[일반] ${text}`;
+          const gt = goalTitleById.get(i.goalId);
+          return gt ? `[${gt}] ${text}` : text;
+        };
+        const distribute = (i: { goalId?: string; authorId?: string; authorName?: string; participantIds?: string[] }, text: string, kind: 'hasDone' | 'willDo') => {
+          const targets = (i.participantIds && i.participantIds.length > 0) ? i.participantIds : [i.authorId || 'unknown'];
+          targets.forEach(uid => pushTo(uid, i.authorName, tag(i, text), kind));
+        };
+        (doc?.hasDoneItems ?? []).forEach(i => distribute(i, i.title || i.content, 'hasDone'));
+        (doc?.willDoItems ?? []).forEach(i => distribute(i, i.title || i.content, 'willDo'));
+        const byAuthor = byPerson;
         return {
           teamName: org?.name ?? '(팀)',
           members: [...byAuthor.values()].filter(m => m.hasDone.length || m.willDo.length),
