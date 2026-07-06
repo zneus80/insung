@@ -67,11 +67,23 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
       getAllGoalsByYear(target.year).catch(() => []),
     ]);
     const docByOrg = new Map(teamDocs.map(d => [d.organizationId, d]));
+    // 목표 가시성 — 주간보고 화면과 동일 규칙: 완료 목표는 '완료한 주차'까지만 리포트 대상.
+    // (완료 주차가 지난 목표의 잔여 항목이 지난주 실적으로 잘못 잡히는 것 방지)
+    const targetKey = target.year * 100 + target.week;
+    const goalVisibleInWeek = (g: { status: string; completionExecApprovedAt?: Date; updatedAt?: Date }) => {
+      if (g.status !== 'COMPLETED') return true;
+      const at = g.completionExecApprovedAt ?? g.updatedAt;
+      if (!at) return false;
+      const w = isoWeek(at instanceof Date ? at : new Date(at));
+      return targetKey <= (w.year * 100 + w.week);
+    };
+    const goalById = new Map(allGoals.map(g => [g.id, g]));
     // 팀별 핵심목표 컨텍스트 — 실효성·KPI 달성·기한 대비 진척 판단 근거 (승인 이후 상태만)
     const GOAL_VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
     const goalsByOrg = new Map<string, { title: string; status: string; progress: number; dueDate?: string; kpis?: string[] }[]>();
     for (const g of allGoals) {
       if (!GOAL_VISIBLE.has(g.status) || g.trashedAt || g.softDeletedAt) continue;
+      if (!goalVisibleInWeek(g)) continue;   // 완료 주차가 지난 목표는 컨텍스트에서도 제외
       if (!goalsByOrg.has(g.organizationId)) goalsByOrg.set(g.organizationId, []);
       goalsByOrg.get(g.organizationId)!.push({
         title: g.title,
@@ -101,6 +113,11 @@ export default function WeeklyReportModal({ onClose }: { onClose: () => void }) 
           return gt ? `[${gt}] ${text}` : text;
         };
         const distribute = (i: { goalId?: string; authorId?: string; authorName?: string; participantIds?: string[] }, text: string, kind: 'hasDone' | 'willDo') => {
+          // 완료 주차가 지난 목표의 잔여 항목은 제외 (화면 가시성과 동일)
+          if (i.goalId) {
+            const g = goalById.get(i.goalId);
+            if (g && !goalVisibleInWeek(g)) return;
+          }
           const targets = (i.participantIds && i.participantIds.length > 0) ? i.participantIds : [i.authorId || 'unknown'];
           targets.forEach(uid => pushTo(uid, i.authorName, tag(i, text), kind));
         };

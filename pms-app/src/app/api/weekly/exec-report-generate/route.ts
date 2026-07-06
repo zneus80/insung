@@ -135,11 +135,22 @@ export async function POST(req: NextRequest) {
     const posById = new Map(users.map(u => [u.id, u.position]));
     // 팀별 핵심목표 컨텍스트 — 실효성·KPI 달성·기한 대비 진척 판단 근거 (승인 이후 상태만)
     const goalTitleById = new Map(goalsSnap.docs.map(d => [d.id, (d.data() as any).title as string]));
+    // 목표 가시성 — 주간보고 화면과 동일 규칙: 완료 목표는 '완료한 주차'까지만 리포트 대상.
+    const targetKey = t.year * 100 + t.week;
+    const goalVisibleInWeek = (g: any) => {
+      if (g.status !== 'COMPLETED') return true;
+      const at = (g.completionExecApprovedAt ?? g.updatedAt)?.toDate?.();
+      if (!at) return false;
+      const w = isoWeek(at);
+      return targetKey <= (w.year * 100 + w.week);
+    };
+    const goalRawById = new Map(goalsSnap.docs.map(d => [d.id, d.data() as any]));
     const GOAL_VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
     const goalsByOrg = new Map<string, Array<{ title: string; status: string; progress: number; dueDate?: string; kpis?: string[] }>>();
     for (const doc of goalsSnap.docs) {
       const g = doc.data() as any;
       if (!GOAL_VISIBLE.has(g.status) || g.trashedAt || g.softDeletedAt) continue;
+      if (!goalVisibleInWeek(g)) continue;   // 완료 주차가 지난 목표는 컨텍스트에서도 제외
       if (!goalsByOrg.has(g.organizationId)) goalsByOrg.set(g.organizationId, []);
       goalsByOrg.get(g.organizationId)!.push({
         title: g.title,
@@ -194,6 +205,11 @@ export async function POST(req: NextRequest) {
             return gt ? `[${gt}] ${text}` : text;
           };
           const distribute = (i: any, text: string, kind: 'hasDone' | 'willDo') => {
+            // 완료 주차가 지난 목표의 잔여 항목은 제외 (화면 가시성과 동일)
+            if (i.goalId) {
+              const g = goalRawById.get(i.goalId);
+              if (g && !goalVisibleInWeek(g)) return;
+            }
             const targets = (Array.isArray(i.participantIds) && i.participantIds.length > 0) ? i.participantIds : [i.authorId || 'unknown'];
             targets.forEach((uid: string) => pushTo(uid, i.authorName, tag(i, text), kind));
           };
