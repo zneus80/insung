@@ -63,7 +63,9 @@ function buildPrompt(divisionName: string, year: number, week: number, teams: Re
     '【답변 구조 — 반드시 준수】',
     '- 서술 단위는 팀 → 업무(공동업무 단위) → 참여 개인 순으로 판단합니다. 여러 사람이 같은 업무를 수행한 경우 사람별로 반복 서술하지 말고, 업무를 기준으로 한 번만 설명하면서 "A(주도)·B·C 참여, A는 ~, B는 ~ 담당" 식으로 참여자와 역할을 묶습니다.',
     '- 개인별 나열은 그 사람 고유의 단독 업무·특이 기여가 있을 때만 사용합니다.',
-    '- "[일반]" 태그 항목은 핵심목표에 속하지 않는 일반업무입니다. 누락하지 말고 팀별로 "일반업무: ~ 등"처럼 한두 줄로 요약해 포함하세요(항목 전체 나열은 불필요). 특이사항이 있으면 분석에도 반영합니다.',
+    '- 각 실적/계획 항목 앞의 대괄호 태그는 그 항목이 속한 업무를 나타냅니다: "[목표명]"이면 해당 핵심목표의 실적/계획이고, "[일반]"이면 핵심목표에 속하지 않는 일반업무입니다. ★항목은 반드시 태그에 적힌 목표에만 귀속시키고, 다른 목표의 실적/계획과 절대 섞지 마세요.',
+    '- 각 인원의 hasDone/willDo 는 작성자가 아니라 실제 업무 수행자(참여자) 기준으로 귀속된 것입니다. 같은 항목이 여러 사람에게 있으면 그 업무를 함께 수행한 것입니다.',
+    '- "[일반]" 일반업무는 누락하지 말고 팀별로 "일반업무: ~ 등"처럼 한두 줄로 요약해 포함하세요(항목 전체 나열은 불필요). 특이사항이 있으면 분석에도 반영합니다.',
     '- teams[].goals 는 팀 핵심목표 컨텍스트(상태·진행률·추진기한·KPI)입니다. 주간 실적을 평가할 때 이 컨텍스트와 대조해 ①실적의 실효성(계획 나열이 아닌 실제 진척) ②KPI 달성 방향성 ③기한 대비 진척(기한이 많이 남은 목표의 낮은 진행률을 부진으로 단정하지 않기)을 판단하세요.',
     '- 추론 표현: 누적 데이터가 제한적이므로 직접 확인되지 않는 판단은 "현재 데이터 기준으로는 ~로 추론됩니다"처럼 추론임을 명시하고 한계를 밝히세요.',
     '【출력 형식 — 반드시 준수】',
@@ -131,6 +133,7 @@ export async function POST(req: NextRequest) {
     const nameById = new Map(users.map(u => [u.id, u.name]));
     const posById = new Map(users.map(u => [u.id, u.position]));
     // 팀별 핵심목표 컨텍스트 — 실효성·KPI 달성·기한 대비 진척 판단 근거 (승인 이후 상태만)
+    const goalTitleById = new Map(goalsSnap.docs.map(d => [d.id, (d.data() as any).title as string]));
     const GOAL_VISIBLE = new Set(['APPROVED', 'IN_PROGRESS', 'COMPLETED']);
     const goalsByOrg = new Map<string, Array<{ title: string; status: string; progress: number; dueDate?: string; kpis?: string[] }>>();
     for (const doc of goalsSnap.docs) {
@@ -176,18 +179,26 @@ export async function POST(req: NextRequest) {
         taskSnaps.forEach((snap, idx) => {
           const orgId = teamOrgIds[idx];
           const d = snap.exists ? (snap.data() as any) : null;
-          const byAuthor = new Map<string, { name: string; position?: string; hasDone: string[]; willDo: string[] }>();
-          const push = (aId: string | undefined, aName: string | undefined, text: string, kind: 'hasDone' | 'willDo') => {
-            const id = aId || 'unknown';
-            const name = aName || nameById.get(id) || '미상';
-            if (!byAuthor.has(id)) byAuthor.set(id, { name, position: posById.get(id), hasDone: [], willDo: [] });
-            const v = (text || '').trim(); if (v) byAuthor.get(id)![kind].push(v);
+          // 항목을 '업무 수행자' 기준으로 귀속 — 참여인원(participantIds)이 있으면 그들에게(대표 작성 시 참여자 전원 실적),
+          // 없으면 작성자(authorId)에게. 각 항목엔 소속 목표명을 태그해 AI가 실적/계획을 정확한 목표에 연결하게 한다.
+          const byPerson = new Map<string, { name: string; position?: string; hasDone: string[]; willDo: string[] }>();
+          const pushTo = (uid: string, fallbackName: string | undefined, text: string, kind: 'hasDone' | 'willDo') => {
+            const name = nameById.get(uid) || fallbackName || '미상';
+            if (!byPerson.has(uid)) byPerson.set(uid, { name, position: posById.get(uid), hasDone: [], willDo: [] });
+            const v = (text || '').trim(); if (v) byPerson.get(uid)![kind].push(v);
           };
-          // 일반업무(goalId 없음)는 [일반] 태그로 구분 — AI가 핵심업무와 별도로 요약에 포함하도록.
-          const tag = (i: any, text: string) => (i.goalId ? text : `[일반] ${text}`);
-          (d?.hasDoneItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'hasDone'));
-          (d?.willDoItems ?? []).forEach((i: any) => push(i.authorId, i.authorName, tag(i, i.title || i.content), 'willDo'));
-          const members = [...byAuthor.values()].filter(m => m.hasDone.length || m.willDo.length);
+          const tag = (i: any, text: string) => {
+            if (!i.goalId) return `[일반] ${text}`;
+            const gt = goalTitleById.get(i.goalId);
+            return gt ? `[${gt}] ${text}` : text;
+          };
+          const distribute = (i: any, text: string, kind: 'hasDone' | 'willDo') => {
+            const targets = (Array.isArray(i.participantIds) && i.participantIds.length > 0) ? i.participantIds : [i.authorId || 'unknown'];
+            targets.forEach((uid: string) => pushTo(uid, i.authorName, tag(i, text), kind));
+          };
+          (d?.hasDoneItems ?? []).forEach((i: any) => distribute(i, i.title || i.content, 'hasDone'));
+          (d?.willDoItems ?? []).forEach((i: any) => distribute(i, i.title || i.content, 'willDo'));
+          const members = [...byPerson.values()].filter(m => m.hasDone.length || m.willDo.length);
           if (members.length) teams.push({
             teamName: orgById.get(orgId)?.name ?? '(팀)',
             members,
@@ -207,6 +218,7 @@ export async function POST(req: NextRequest) {
         await cacheRef.set({
           execId: exec.id, year: t.year, week: t.week, content: text,
           generatedAt: FieldValue.serverTimestamp(), generatedByName: '시스템(월요일 자동)',
+          viewedAt: FieldValue.delete(),   // 새로 생성된 리포트는 미열람 — 대시보드 NEW 배지 재표시
         }, { merge: true });
 
         // 알림
