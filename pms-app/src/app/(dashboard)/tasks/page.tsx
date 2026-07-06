@@ -1111,8 +1111,17 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
     };
     // 핵심업무 셀 — 목표별 그룹(진행률은 Has Done 만)
     const goalOrder = new Map(activeGoals.map((g, idx) => [g.id, idx]));
+    // 화면과 동일한 목표 가시성 규칙 — 완료 목표는 완료한 주차까지만 인쇄(그 이후 주차에서는 제외)
+    const viewedKey = year * 100 + week;
+    const visibleGoalIds = new Set(activeGoals.filter(g => {
+      if (g.status !== 'COMPLETED') return true;
+      const at = g.completionExecApprovedAt ?? g.updatedAt;
+      if (!at) return false;
+      const w = getISOWeek(at instanceof Date ? at : new Date(at));
+      return viewedKey <= (w.year * 100 + w.week);
+    }).map(g => g.id));
     const coreCell = (items: SimpleTaskItem[], showPct: boolean) => {
-      const goalIds = [...new Set(items.filter(i => i.goalId).map(i => i.goalId!))]
+      const goalIds = [...new Set(items.filter(i => i.goalId && visibleGoalIds.has(i.goalId)).map(i => i.goalId!))]
         // 화면(핵심목표)과 동일 순서로 정렬 — Has Done/Will Do 순서 어긋남 방지
         .sort((a, b) => (goalOrder.get(a) ?? 999) - (goalOrder.get(b) ?? 999));
       if (!goalIds.length) return '<span class="empty">—</span>';
@@ -1218,20 +1227,26 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
             <div className="rounded-xl border bg-white overflow-hidden">{secHeader(hasDoneItems, true)}</div>
             <div className="rounded-xl border bg-white overflow-hidden">{secHeader(willDoItems, false)}</div>
             {unionGoals.length > 0 && (
-              <>
-                <div className="rounded-lg bg-blue-50/70 px-4 py-1.5 text-[11px] font-bold text-blue-700">핵심업무</div>
-                <div className="rounded-lg bg-blue-50/70 px-4 py-1.5 text-[11px] font-bold text-blue-700">핵심업무</div>
-                {unionGoals.map(g => (
-                  <Fragment key={g.id}>
-                    {hdSet.has(g.id)
-                      ? <div className="rounded-xl border bg-white overflow-hidden h-full">{goalBlockFor('hd', g, hasDoneItems, true)}</div>
-                      : <div aria-hidden className="h-full" />}
-                    {wdSet.has(g.id)
-                      ? <div className="rounded-xl border bg-white overflow-hidden h-full">{goalBlockFor('wd', g, willDoItems, false)}</div>
-                      : <div aria-hidden className="h-full" />}
-                  </Fragment>
-                ))}
-              </>
+              /* 핵심업무 — 하나의 박스 안에서 목표별 행(좌 hd / 우 wd) + 행 구분선. 없는 쪽 칸은 공백. */
+              <div className="col-span-2 rounded-xl border bg-white overflow-hidden">
+                <div className="grid grid-cols-2">
+                  <div className="bg-blue-50/70 px-4 py-1.5 text-[11px] font-bold text-blue-700 border-b border-r">핵심업무</div>
+                  <div className="bg-blue-50/70 px-4 py-1.5 text-[11px] font-bold text-blue-700 border-b">핵심업무</div>
+                  {unionGoals.map((g, idx) => {
+                    const rowBorder = idx === unionGoals.length - 1 ? '' : 'border-b';
+                    return (
+                      <Fragment key={g.id}>
+                        <div className={cn('border-r min-w-0', rowBorder)}>
+                          {hdSet.has(g.id) ? goalBlockFor('hd', g, hasDoneItems, true) : null}
+                        </div>
+                        <div className={cn('min-w-0', rowBorder)}>
+                          {wdSet.has(g.id) ? goalBlockFor('wd', g, willDoItems, false) : null}
+                        </div>
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              </div>
             )}
             <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('hd', hasDoneItems, true)}</div>
             <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('wd', willDoItems, false)}</div>
