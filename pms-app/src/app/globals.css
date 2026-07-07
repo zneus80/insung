@@ -130,6 +130,16 @@
        여백·카드·테이블(rem 기반)은 그대로 두고 '글자만' 커지거나 작아지게 한다. */
   }
 
+  /* 클릭 가능한 요소는 손모양 커서 — Tailwind v4 가 버튼 기본 커서를 default 로 바꿔 pointer 를 복원.
+     비활성(disabled) 버튼은 기본 화살표 유지. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
   /* 개인 글자 크기 조절 — 텍스트 유틸리티만 배율 적용(여백/블록 크기 불변).
      'html .text-*' 로 Tailwind 단일 클래스 유틸리티보다 우선순위를 높여 덮어쓴다.
      (임원·CEO .exec-larger-text 오버라이드는 특이도가 더 높아 그대로 우선 적용됨) */
