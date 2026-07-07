@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import PrivacyPolicyModal from '@/components/auth/PrivacyPolicyModal';
 import { toast } from 'sonner';
 
 export default function LoginPage() {
@@ -19,6 +20,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
 
   useEffect(() => {
     // 목업 모드: 로그인 없이 바로 대시보드
@@ -153,8 +155,21 @@ export default function LoginPage() {
           계정이 없으신가요? HR 관리자에게 초대를 요청하세요.
         </p>
 
+        {/* 개인정보처리방침 — 박스 최하단 링크, 클릭 시 팝업 */}
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={() => setPrivacyOpen(true)}
+            className="text-xs text-gray-400 underline underline-offset-2 hover:text-gray-600 transition-colors"
+          >
+            개인정보처리방침
+          </button>
+        </div>
+
         <span className="absolute bottom-3 right-4 text-xs font-medium text-gray-400 select-none">{APP_VERSION}</span>
       </div>
+
+      <PrivacyPolicyModal open={privacyOpen} onOpenChange={setPrivacyOpen} />
     </div>
   );
 }
