@@ -21,11 +21,12 @@ export default function PrivacyPolicyModal({ open, onOpenChange }: {
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      {/* 스크롤은 본문에만 — 헤더·닫기(X) 버튼은 스크롤해도 상단 고정 */}
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>개인정보처리방침</DialogTitle>
         </DialogHeader>
-        <div className="space-y-5">
+        <div className="space-y-5 overflow-y-auto pr-2 -mr-2">
           <p className="text-[13px] leading-relaxed text-gray-600">
             &lsquo;주식회사 인성&rsquo;(이하 &lsquo;회사&rsquo;) 목표성과관리 프로그램 PMS(Performance Management System)는
             정보주체의 개인정보보호를 매우 중요시하며, 『정보통신망 이용촉진 및 정보보호 등에 관한 법률』,
