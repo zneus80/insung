@@ -51,7 +51,7 @@ export interface AiMemberInput {
   selfEvalTotal?: number;      // 자기평가 가중 환산 총점(0~100). 미제출/미입력이면 생략.
   innovationCount?: number;    // 당해년도 혁신활동 참여 수(스마트프로젝트·TDS PM/멤버/수행 등) — 보조 가점
   innovationNames?: string[];  // 참여 혁신활동명(최대 일부)
-  weeklyHighlights: string[];  // 그 해 Has Done 주요 실적
+  weeklyHighlights: string[];  // 그 해 Has Done 중 일반업무(비목표) 실적 — 목표 연동분은 goals[].weeklyNotes 에 포함(중복 방지)
   selfEvalComments: string[];  // 자기평가 의견(점수 포함)
   generalWorkComments?: string[]; // 자기평가 중 '일반업무'만 별도(요약에 반드시 반영)
   // 팀장·본부장 전용 — 책임 조직(+산하)의 핵심목표 완료율(%). 관리자 가·감점 근거.

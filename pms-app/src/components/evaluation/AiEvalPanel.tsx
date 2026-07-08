@@ -126,10 +126,11 @@ export default function AiEvalPanel({
               .flatMap(wt => (wt.hasDoneItems ?? []).filter(i => i.goalId === g.id).map(i => (i.title || i.content || '').trim()))
               .filter(Boolean).slice(0, 12),
           })),
+          // 토큰 절약: 목표 연동(goalId) 항목은 goals[].weeklyNotes 에 이미 포함 — 일반업무 실적만 (중복 방지)
           weeklyHighlights: (weeklyTasksByMember[m.id] ?? [])
             .slice().sort((a, b) => b.weekNumber - a.weekNumber) // 최신 주차 우선
-            .flatMap(wt => (wt.hasDoneItems ?? []).map(i => (i.title || i.content)))
-            .filter(Boolean).slice(0, 30),
+            .flatMap(wt => (wt.hasDoneItems ?? []).filter(i => !i.goalId).map(i => (i.title || i.content)))
+            .filter(Boolean).slice(0, 12),
           selfEvalComments,                            // 자기평가(점수 포함)
           generalWorkComments,                         // 일반업무만 별도
           // 팀장·본부장 가·감점 — 책임 조직(+산하) 완료율
