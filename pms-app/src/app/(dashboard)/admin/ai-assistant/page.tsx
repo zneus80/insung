@@ -196,10 +196,11 @@ function AssistantContent() {
           const mf = d.mf.find(e => e.userId === u.id);
           // 본인 작성분 + 참여분(핵심업무 실적의 참여인원으로 지정된 항목) — 참여 실적 누락 방지
           const isMine = (i: SimpleTaskItem, w: WeeklyTask) => (i.authorId ?? w.userId) === u.id || (i.participantIds ?? []).includes(u.id);
+          // 토큰 절약: 목표 연동(goalId) 항목은 coreGoals[].notes 에 이미 포함되므로 여기서 제외(중복 방지) — 일반업무 실적만.
           const weeklyHi = d.wt
             .slice().sort((a, b) => b.weekNumber - a.weekNumber) // 최신 주차 우선 — 컷오프 시 옛 데이터가 최신을 밀어내지 않도록
-            .flatMap(w => (w.hasDoneItems ?? []).filter(i => isMine(i, w)).map(i => (i.title || i.content || '').trim()))
-            .filter(Boolean).slice(0, 15);
+            .flatMap(w => (w.hasDoneItems ?? []).filter(i => isMine(i, w) && !i.goalId).map(i => (i.title || i.content || '').trim()))
+            .filter(Boolean).slice(0, 12);
           const innovNames = d.innov
             .filter(a => a.status !== 'DROPPED')  // Drop(실패·중단)은 성과 집계 제외 — 기록용
             .filter(a => getPmIds(a).includes(u.id) || (a.memberIds ?? []).includes(u.id) || getPerformerIds(a).includes(u.id) || a.instructorId === u.id)
