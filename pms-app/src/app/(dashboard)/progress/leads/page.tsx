@@ -113,10 +113,19 @@ function ProgressContent() {
         setScopedUsers(usersInScope);
         setNameById(Object.fromEntries(allUsers.map(u => [u.id, u.name])));
 
-        // 산하 TEAM 조직만 추출 (팀장/팀원 그룹핑 기준)
-        // ※ 팀장 역할 본부 책임자는 산하 팀에 목표를 등록하므로, 본부를 별도 단위로 띄울 필요 없음.
+        // 조직 체인 기준 — 목표의 소속 조직(organizationId) 또는 연관 조직(relatedOrgIds)이 스코프와 교차하는 확정 목표만.
+        const scoped = filterConfirmed(allGoals.filter(g =>
+          (descIds.includes(g.organizationId) || (g.relatedOrgIds ?? []).some(o => descIds.includes(o)))
+        ));
+        setScopedGoals(scoped);
+
+        // 산하 조직 탭 — TEAM 전체 + '확정 목표가 소속된 본부(HEADQUARTERS)'.
+        // 팀장 역할 본부 책임자는 보통 산하 팀에 목표를 등록하지만, 본부 자체에 등록된 목표(예: 남부사업소)가
+        // 있으면 그 본부도 탭으로 노출해 임원 진행현황에서 누락되지 않게 한다.
+        const goalOrgIds = new Set(scoped.flatMap(g => [g.organizationId, ...(g.relatedOrgIds ?? [])]));
         const teams = allOrgs
-          .filter(o => o.type === 'TEAM' && descIds.includes(o.id))
+          .filter(o => descIds.includes(o.id)
+            && (o.type === 'TEAM' || (o.type === 'HEADQUARTERS' && goalOrgIds.has(o.id))))
           .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
         setTeamOrgs(teams);
         if (teams.length > 0) {
@@ -126,12 +135,6 @@ function ProgressContent() {
           const valid = restored && teams.some(t => t.id === restored) ? restored : teams[0].id;
           setActiveTeamIdRaw(valid);
         }
-
-        // 조직 체인 기준 — 목표의 소속 조직(organizationId) 또는 연관 조직(relatedOrgIds)이 스코프와 교차하는 확정 목표만.
-        const scoped = filterConfirmed(allGoals.filter(g =>
-          (descIds.includes(g.organizationId) || (g.relatedOrgIds ?? []).some(o => descIds.includes(o)))
-        ));
-        setScopedGoals(scoped);
       } finally {
         setLoading(false);
       }
