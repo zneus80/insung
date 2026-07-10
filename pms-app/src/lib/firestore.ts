@@ -768,7 +768,8 @@ export async function getPendingGoalsByOrganizations(orgIds: string[]): Promise<
         } as Goal;
       }));
   }
-  return results.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  // 표시범위 잠금 시: 승인대기함에서도 대상 인원 목표 숨김(목록 화면과 일관)
+  return applyViewScopeGoals(results.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()));
 }
 
 // ─── 목표 이력 ────────────────────────────────
