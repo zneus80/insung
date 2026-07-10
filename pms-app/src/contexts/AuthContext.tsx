@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -151,17 +152,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(t);
   }, [firebaseUser]);
 
-  // 중복로그인 방지 — 본인 활성 세션 ID 구독. 다른 기기에서 로그인하면(activeSessionId 변경)
-  // 로컬 세션과 달라지므로 이 기기는 자동 로그아웃(마지막 로그인 우선).
+  // 중복로그인 방지 — 본인 활성 세션 ID 구독. "다른 기기가 새로 로그인"한 실제 변경 이벤트에서만 로그아웃(마지막 로그인 우선).
+  // 견고성 3중 가드:
+  //   ① fromCache 스냅샷 무시 — 서버 확정 값에서만 판정(로그인 직후 캐시 옛값 레이스 차단)
+  //   ② 첫 서버 스냅샷은 '기준선'으로만 기록하고 로그아웃하지 않음 — 로드 시 로컬↔문서 불일치(옛 세션 잔재)로 인한 오탐 차단
+  //   ③ 그 이후 remote 가 내 로컬 세션과 달라지는 '변경'에서만 로그아웃 — 실제 타 기기 접속만 반응
+  const sessionBaselineRef = useRef(false);
   useEffect(() => {
     if (IS_MOCK || !firebaseUser) return;
     if (isLocalDevHost()) return; // 로컬 개발은 중복로그인 방지 비활성(운영 세션과 충돌 방지)
+    sessionBaselineRef.current = false;
     const unsub = onSnapshot(doc(db, COLLECTIONS.USERS, firebaseUser.uid), snap => {
-      // 캐시 스냅샷 무시 — 로그인 직후 서버 반영 전 옛 세션ID(캐시)로 새 세션을 잘못 로그아웃시키는 레이스 방지.
-      if (snap.metadata.fromCache) return;
+      if (snap.metadata.fromCache) return;                 // ① 서버 확정만
+      if (!sessionBaselineRef.current) { sessionBaselineRef.current = true; return; } // ② 첫 서버 스냅샷 = 기준선
       const remote = snap.data()?.activeSessionId as string | undefined;
       const local = getLocalSessionId();
-      if (remote && local && remote !== local) {
+      if (remote && local && remote !== local) {           // ③ 이후 실제 변경(타 기기 접속)에서만
         signOut().catch(() => {});
         toast.error('다른 기기에서 로그인되어 이 기기는 로그아웃되었습니다.');
       }
