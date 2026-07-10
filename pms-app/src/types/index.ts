@@ -68,6 +68,9 @@ export interface User {
   activeSessionId?: string;
   /** 알림 이메일 수신 여부 — 본인이 헤더 메뉴에서 on/off. 기본 false(비활성). (v0.9.3) */
   emailNotificationsEnabled?: boolean;
+  /** 내부 관리 플래그(M) — 표시범위 잠금(systemSettings.viewScopeLocked) ON 시 해당 인원과 기록을 전 화면에서 숨김.
+   *  라벨은 중립적으로 'M'만 노출. 삭제가 아니라 노출 제어(복원 가능). (v0.9.4) */
+  viewTag?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

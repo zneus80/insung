@@ -67,7 +67,7 @@ function UsersContent() {
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isCeoViewer: false, isActingLead: false });
+  const [form, setForm] = useState({ name: '', email: '', role: 'MEMBER' as UserRole, organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isCeoViewer: false, isActingLead: false, viewTag: false });
   const [orgSearch, setOrgSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
@@ -113,6 +113,7 @@ function UsersContent() {
 
   async function load() {
     try {
+      // 표시범위 잠금 ON 이면 사용자 관리에서도 대상 인원 숨김(요청). M 지정/해제는 표시범위 잠금 OFF 상태에서 수행.
       const [u, o] = await Promise.all([getAllUsers(), getActiveOrganizations()]);
       setUsers(u);
       setOrgs(o);
@@ -303,14 +304,14 @@ function UsersContent() {
   // ── 단건 저장 ─────────────────────────────────
   function openNew() {
     setEditing(null);
-    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isCeoViewer: false, isActingLead: false });
+    setForm({ name: '', email: '', role: 'MEMBER', organizationId: '', position: '', hireDate: '', isHrAdmin: false, isHrMaster: false, isCeoViewer: false, isActingLead: false, viewTag: false });
     setOrgSearch('');
     setShowDialog(true);
   }
 
   function openEdit(user: User) {
     setEditing(user);
-    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', hireDate: user.hireDate ?? '', isHrAdmin: !!user.isHrAdmin, isHrMaster: !!user.isHrMaster, isCeoViewer: !!user.isCeoViewer, isActingLead: !!user.isActingLead });
+    setForm({ name: user.name, email: user.email, role: user.role, organizationId: user.organizationId, position: user.position ?? '', hireDate: user.hireDate ?? '', isHrAdmin: !!user.isHrAdmin, isHrMaster: !!user.isHrMaster, isCeoViewer: !!user.isCeoViewer, isActingLead: !!user.isActingLead, viewTag: !!user.viewTag });
     setOrgSearch('');
     setShowDialog(true);
   }
@@ -379,6 +380,7 @@ function UsersContent() {
           isCeoViewer: form.isCeoViewer,
           // 팀장 역할일 때만 의미 있음 — 다른 역할은 false 로 저장
           isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
+          viewTag: form.viewTag,
         });
 
         // Q3: 조직 변경 시 — 당해년도 평가 doc(IE/자기평가/육성면담서)의 organizationId 이전 옵션
@@ -431,6 +433,7 @@ function UsersContent() {
           isHrMaster: form.isHrMaster,
           isCeoViewer: form.isCeoViewer,
           isActingLead: form.role === 'TEAM_LEAD' ? form.isActingLead : false,
+          viewTag: form.viewTag,
           isActive: false,
         });
         toast.success('사용자가 등록되었습니다. 초대 또는 직접 등록 버튼으로 계정을 활성화하세요.');
@@ -1115,6 +1118,18 @@ function UsersContent() {
                         </span>
                       </Label>
                     </div>
+                    {(userProfile?.isHrAdmin || userProfile?.isHrMaster) && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          id="viewTag"
+                          type="checkbox"
+                          checked={form.viewTag}
+                          onChange={e => setForm(f => ({ ...f, viewTag: e.target.checked }))}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <Label htmlFor="viewTag" className="cursor-pointer text-gray-500">M</Label>
+                      </div>
+                    )}
                     {!canManageHrRoles && (
                       <p className="text-xs text-gray-400">HR 권한 변경은 HR 마스터만 가능합니다.</p>
                     )}
