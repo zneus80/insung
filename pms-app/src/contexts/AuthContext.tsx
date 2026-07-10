@@ -157,6 +157,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (IS_MOCK || !firebaseUser) return;
     if (isLocalDevHost()) return; // 로컬 개발은 중복로그인 방지 비활성(운영 세션과 충돌 방지)
     const unsub = onSnapshot(doc(db, COLLECTIONS.USERS, firebaseUser.uid), snap => {
+      // 캐시 스냅샷 무시 — 로그인 직후 서버 반영 전 옛 세션ID(캐시)로 새 세션을 잘못 로그아웃시키는 레이스 방지.
+      if (snap.metadata.fromCache) return;
       const remote = snap.data()?.activeSessionId as string | undefined;
       const local = getLocalSessionId();
       if (remote && local && remote !== local) {
