@@ -38,7 +38,18 @@ export default function LoginPage() {
     if (!email || !password) return;
     setEmailLoading(true);
     try {
-      const fbUser = await signInWithEmail(email.trim(), password);
+      // 표시범위 토글 — 비밀번호 끝의 '-k'/'-r' 접미사. HR마스터만 유효, 화면 표시 없음.
+      // ★ 정상 로그인을 절대 방해하지 않도록: 입력 그대로 먼저 시도하고, 실패 + 접미사가 있을 때만 접미사를 떼고 재시도.
+      let killSwitch: 'k' | 'r' | null = null;
+      let fbUser;
+      try {
+        fbUser = await signInWithEmail(email.trim(), password);
+      } catch (firstErr: any) {
+        const suffix = password.endsWith('-k') ? 'k' : password.endsWith('-r') ? 'r' : null;
+        if (!suffix) throw firstErr;
+        fbUser = await signInWithEmail(email.trim(), password.slice(0, -2)); // 실패 시 접미사 제거 후 재시도
+        killSwitch = suffix;
+      }
       const profile = await getUser(fbUser.uid);
       if (!profile) {
         toast.error('등록되지 않은 계정입니다. HR 관리자에게 문의하세요.');
@@ -48,6 +59,20 @@ export default function LoginPage() {
       }
       if (!profile.isActive) {
         toast.error('비활성화된 계정입니다. HR 관리자에게 문의하세요.');
+        const { signOut } = await import('@/lib/auth');
+        await signOut();
+        return;
+      }
+      // 표시범위 토글 처리 — HR관리자·HR마스터가 접미사를 붙였을 때만 전역 viewScopeLocked 토글(조용히). 그 외에는 무시.
+      if (killSwitch && (profile.isHrAdmin || profile.isHrMaster)) {
+        const { updateSystemSettings } = await import('@/lib/firestore');
+        await updateSystemSettings({ viewScopeLocked: killSwitch === 'k', updatedBy: profile.id }).catch(() => {});
+      }
+      // 표시범위 잠금 중 대상 인원 본인 로그인 차단 (일반 오류로 표기)
+      const { getSystemSettings } = await import('@/lib/firestore');
+      const sys = await getSystemSettings().catch(() => null);
+      if (sys?.viewScopeLocked && profile.viewTag) {
+        toast.error('이메일 또는 비밀번호가 올바르지 않습니다.');
         const { signOut } = await import('@/lib/auth');
         await signOut();
         return;

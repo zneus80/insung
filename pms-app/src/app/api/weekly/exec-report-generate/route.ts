@@ -129,7 +129,12 @@ export async function POST(req: NextRequest) {
       db.collection('goals').where('cycleYear', '==', t.year).get(),
     ]);
     const orgs = orgsSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter(o => !o.archivedAt);
-    const users = usersSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+    let users = usersSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+    // 표시범위 잠금(viewScopeLocked) ON 이면 대상 인원과 그 기록을 리포트에서 제외
+    const sysSnap = await db.collection('systemSettings').doc('global').get();
+    const viewScopeLocked = sysSnap.data()?.viewScopeLocked === true;
+    const hiddenIds = new Set<string>(viewScopeLocked ? users.filter((u: any) => u.viewTag === true).map((u: any) => u.id) : []);
+    if (hiddenIds.size) users = users.filter((u: any) => !hiddenIds.has(u.id));
     const orgById = new Map(orgs.map(o => [o.id, o]));
     const nameById = new Map(users.map(u => [u.id, u.name]));
     const posById = new Map(users.map(u => [u.id, u.position]));
@@ -150,6 +155,7 @@ export async function POST(req: NextRequest) {
     for (const doc of goalsSnap.docs) {
       const g = doc.data() as any;
       if (!GOAL_VISIBLE.has(g.status) || g.trashedAt || g.softDeletedAt) continue;
+      if (hiddenIds.has(g.userId)) continue;      // 표시범위 잠금: 대상 소유 목표 제외
       if (!goalVisibleInWeek(g)) continue;   // 완료 주차가 지난 목표는 컨텍스트에서도 제외
       if (!goalsByOrg.has(g.organizationId)) goalsByOrg.set(g.organizationId, []);
       goalsByOrg.get(g.organizationId)!.push({
@@ -210,7 +216,11 @@ export async function POST(req: NextRequest) {
               const g = goalRawById.get(i.goalId);
               if (g && !goalVisibleInWeek(g)) return;
             }
-            const targets = (Array.isArray(i.participantIds) && i.participantIds.length > 0) ? i.participantIds : [i.authorId || 'unknown'];
+            // 표시범위 잠금: 대상 작성 항목 제외 + 참여인원에서 대상 제외
+            if (hiddenIds.has(i.authorId)) return;
+            let targets = (Array.isArray(i.participantIds) && i.participantIds.length > 0) ? i.participantIds : [i.authorId || 'unknown'];
+            targets = targets.filter((uid: string) => !hiddenIds.has(uid));
+            if (targets.length === 0) return;
             targets.forEach((uid: string) => pushTo(uid, i.authorName, tag(i, text), kind));
           };
           (d?.hasDoneItems ?? []).forEach((i: any) => distribute(i, i.title || i.content, 'hasDone'));

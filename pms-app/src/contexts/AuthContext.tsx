@@ -12,7 +12,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { onAuthChange, signOut } from '@/lib/auth';
 import { db } from '@/lib/firebase';
-import { getUser, updateUser, getOrganizations, getLocalSessionId, registerActiveSession, COLLECTIONS } from '@/lib/firestore';
+import { getUser, updateUser, getOrganizations, getLocalSessionId, registerActiveSession, isLocalDevHost, COLLECTIONS } from '@/lib/firestore';
 import { getEffectiveEvalRole, type EffectiveEvalRole } from '@/lib/approval-filters';
 import { leadsAnyEvalUnit } from '@/lib/org-eval';
 import { useIdleLogout } from '@/hooks/useIdleLogout';
@@ -81,6 +81,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthChange(async (fbUser) => {
       if (fbUser) {
         const profile = await getUser(fbUser.uid);
+        // 표시범위 잠금 ON 중 대상 인원 세션은 즉시 종료(이미 로그인된 상태에서 전환된 경우 포함)
+        if (profile?.viewTag) {
+          try {
+            const { isViewScopeLocked } = await import('@/lib/firestore');
+            if (await isViewScopeLocked()) {
+              const { signOut } = await import('@/lib/auth');
+              await signOut();
+              setFirebaseUser(null); setRealProfile(null); setPreviewKey(null); setLoading(false);
+              return;
+            }
+          } catch { /* 조회 실패 시 통과 */ }
+        }
         if (profile && (profile.role as string) === 'HR_ADMIN') {
           profile.role = 'TEAM_LEAD';
           profile.isHrAdmin = true;
@@ -143,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 로컬 세션과 달라지므로 이 기기는 자동 로그아웃(마지막 로그인 우선).
   useEffect(() => {
     if (IS_MOCK || !firebaseUser) return;
+    if (isLocalDevHost()) return; // 로컬 개발은 중복로그인 방지 비활성(운영 세션과 충돌 방지)
     const unsub = onSnapshot(doc(db, COLLECTIONS.USERS, firebaseUser.uid), snap => {
       const remote = snap.data()?.activeSessionId as string | undefined;
       const local = getLocalSessionId();

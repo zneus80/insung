@@ -110,10 +110,18 @@ export async function updateUser(uid: string, data: Partial<User>) {
 
 // ── 중복로그인 방지 (마지막 로그인 우선) ──────────────────────
 export const SESSION_KEY = 'pms_active_session';
-/** 로그인 직후 호출 — 새 세션 ID를 발급해 본인 문서·로컬에 저장. 다른 기기는 이 변경을 감지해 자동 로그아웃. */
+/** 로컬 개발(localhost) 여부 — 중복로그인 방지는 운영에서만 동작(로컬↔운영 같은 계정 충돌 방지). */
+export function isLocalDevHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0';
+}
+/** 로그인 직후 호출 — 새 세션 ID를 발급해 본인 문서·로컬에 저장. 다른 기기는 이 변경을 감지해 자동 로그아웃.
+ *  로컬 개발에서는 운영 세션을 밀어내지 않도록 문서 쓰기를 생략(로컬 전용). */
 export async function registerActiveSession(userId: string): Promise<void> {
   const sid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}_${Math.round(Math.random() * 1e9)}`;
   if (typeof window !== 'undefined') localStorage.setItem(SESSION_KEY, sid);
+  if (isLocalDevHost()) return; // 로컬은 세션 등록 생략 — 운영 세션 미영향
   await updateDoc(doc(db, COLLECTIONS.USERS, userId), { activeSessionId: sid, updatedAt: serverTimestamp() });
 }
 export function getLocalSessionId(): string | null {
@@ -146,14 +154,79 @@ export async function getUsersByOrganization(orgId: string): Promise<User[]> {
   } as User));
 }
 
-export async function getAllUsers(): Promise<User[]> {
+// ─── 표시범위 잠금(표시 태그 인원 숨김) — 전역 상태 캐시 ──────────────
+// systemSettings.global.viewScopeLocked 이 true 면 viewTag 인원과 그 기록을 전 화면에서 숨긴다(삭제 아님, 복원 가능).
+let _vslCache: { at: number; v: boolean } | null = null;
+let _hiddenIdsCache: { at: number; ids: Set<string> } | null = null;
+const M_CACHE_TTL = 10_000;
+export async function isViewScopeLocked(): Promise<boolean> {
+  if (_vslCache && Date.now() - _vslCache.at < M_CACHE_TTL) return _vslCache.v;
+  try {
+    const s = await getDoc(doc(db, COLLECTIONS.SYSTEM_SETTINGS, 'global'));
+    const v = s.data()?.viewScopeLocked === true;
+    _vslCache = { at: Date.now(), v };
+    return v;
+  } catch { return _vslCache?.v ?? false; }
+}
+/** 표시범위 잠금가 켜져 있을 때 숨겨야 하는 대상 인원 userId 집합. 꺼져 있으면 빈 집합. */
+export async function getHiddenUserIds(): Promise<Set<string>> {
+  if (!(await isViewScopeLocked())) return new Set();
+  if (_hiddenIdsCache && Date.now() - _hiddenIdsCache.at < M_CACHE_TTL) return _hiddenIdsCache.ids;
   const snap = await getDocs(collection(db, COLLECTIONS.USERS));
-  return snap.docs.map(d => ({
+  const ids = new Set(snap.docs.filter(d => d.data().viewTag === true).map(d => d.id));
+  _hiddenIdsCache = { at: Date.now(), ids };
+  return ids;
+}
+
+export async function getAllUsers(opts?: { includeHidden?: boolean }): Promise<User[]> {
+  const snap = await getDocs(collection(db, COLLECTIONS.USERS));
+  const all = snap.docs.map(d => ({
     ...d.data(),
     id: d.id,
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
   } as User));
+  // 표시범위 잠금 ON 이면 대상 인원 제외. 사용자 관리 화면 등은 includeHidden:true 로 원본을 받는다.
+  if (!opts?.includeHidden && await isViewScopeLocked()) return all.filter(u => !u.viewTag);
+  return all;
+}
+
+/** 표시범위 잠금 ON 시 숨겨야 하는 대상 인원 이름 목록(알림 제목·본문 텍스트 필터용). 꺼져 있으면 빈 배열. */
+let _hiddenNamesCache: { at: number; names: string[] } | null = null;
+export async function getHiddenUserNames(): Promise<string[]> {
+  if (!(await isViewScopeLocked())) return [];
+  if (_hiddenNamesCache && Date.now() - _hiddenNamesCache.at < M_CACHE_TTL) return _hiddenNamesCache.names;
+  const snap = await getDocs(collection(db, COLLECTIONS.USERS));
+  const names = snap.docs.filter(d => d.data().viewTag === true).map(d => (d.data().name as string) || '').filter(Boolean);
+  _hiddenNamesCache = { at: Date.now(), names };
+  return names;
+}
+
+/** 표시범위 잠금 ON 시: 마일리지·포상은 대상 소유(userId) 레코드 숨김. */
+async function applyViewScopeMileages(list: Mileage[]): Promise<Mileage[]> {
+  const h = await getHiddenUserIds();
+  return h.size ? list.filter(m => !h.has(m.userId)) : list;
+}
+async function applyViewScopeAwards(list: Award[]): Promise<Award[]> {
+  const h = await getHiddenUserIds();
+  return h.size ? list.filter(a => !h.has(a.userId)) : list;
+}
+/** 표시범위 잠금 ON 시: 혁신활동은 참여자 목록에서 대상 제외 + 남은 참여자가 없으면(활동에 대상만 있었으면) 숨김. */
+async function applyViewScopeInnovations(list: InnovationActivity[]): Promise<InnovationActivity[]> {
+  const h = await getHiddenUserIds();
+  if (!h.size) return list;
+  return list.map(a => ({
+    ...a,
+    pmIds: (a.pmIds ?? []).filter(id => !h.has(id)),
+    memberIds: (a.memberIds ?? []).filter(id => !h.has(id)),
+    performerIds: (a.performerIds ?? []).filter(id => !h.has(id)),
+    pmId: a.pmId && h.has(a.pmId) ? undefined : a.pmId,
+    performerId: a.performerId && h.has(a.performerId) ? undefined : a.performerId,
+    instructorId: a.instructorId && h.has(a.instructorId) ? undefined : a.instructorId,
+  })).filter(a =>
+    (a.pmIds?.length || 0) + (a.memberIds?.length || 0) + (a.performerIds?.length || 0) > 0
+    || !!a.pmId || !!a.performerId || !!a.instructorId
+  );
 }
 
 // ─── 조직 ─────────────────────────────────────
@@ -548,7 +621,24 @@ export async function getAllGoalsByYear(year: number): Promise<Goal[]> {
     completionExecApprovedAt: fromTimestamp(d.data().completionExecApprovedAt),
     autoAbandonedByOrgChange: d.data().autoAbandonedByOrgChange ?? false,
   } as Goal));
-  return goals.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return applyViewScopeGoals(goals.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()));
+}
+
+/** 표시범위 잠금 ON 시: 대상 소유 목표는 숨기고, 공동수행자 목록/가중치에서 대상 제외(목표 자체는 유지). */
+async function applyViewScopeGoals(goals: Goal[]): Promise<Goal[]> {
+  const hidden = await getHiddenUserIds();
+  if (hidden.size === 0) return goals;
+  return goals
+    .filter(g => !hidden.has(g.userId))
+    .map(g => {
+      const collabAll = g.collaboratorIds ?? [];
+      const collab = collabAll.filter(id => !hidden.has(id));
+      if (collab.length === collabAll.length) return g;
+      const weights = g.weights
+        ? Object.fromEntries(Object.entries(g.weights).filter(([id]) => !hidden.has(id)))
+        : g.weights;
+      return { ...g, collaboratorIds: collab, weights };
+    });
 }
 
 function mapGoalDoc(d: any): Goal {
@@ -615,7 +705,7 @@ export async function getGoalsByOrganizations(orgIds: string[], year?: number): 
       merged.push(mapGoalDoc(d));
     }
   }
-  return merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return applyViewScopeGoals(merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()));
 }
 
 // 팀장: 승인 대기 목표 조회
@@ -1463,12 +1553,20 @@ export async function getOneOnOnesForUser(userId: string): Promise<OneOnOne[]> {
   ]);
   const map = new Map<string, OneOnOne>();
   [...asLeader, ...asMember].forEach(r => map.set(r.id, r));
-  return Array.from(map.values())
-    .sort((a, b) => {
-      const ta = a.lastMessageAt ?? a.createdAt;
-      const tb = b.lastMessageAt ?? b.createdAt;
-      return tb.getTime() - ta.getTime();
+  let rooms = Array.from(map.values());
+  // 표시범위 잠금 ON 시: 상대(counterpart)가 대상 인원인 대화방 숨김
+  const hidden = await getHiddenUserIds();
+  if (hidden.size) {
+    rooms = rooms.filter(r => {
+      const counterpart = r.leaderId === userId ? r.memberId : r.leaderId;
+      return !hidden.has(counterpart);
     });
+  }
+  return rooms.sort((a, b) => {
+    const ta = a.lastMessageAt ?? a.createdAt;
+    const tb = b.lastMessageAt ?? b.createdAt;
+    return tb.getTime() - ta.getTime();
+  });
 }
 
 export async function getOneOnOne(id: string): Promise<OneOnOne | null> {
@@ -1675,7 +1773,7 @@ export async function setMileage(userId: string, data: Omit<Mileage, 'id' | 'upd
 
 export async function getAllMileages(): Promise<Mileage[]> {
   const snap = await getDocs(collection(db, COLLECTIONS.MILEAGES));
-  return snap.docs.map(d => mapMileage(d.id, d.data()));
+  return applyViewScopeMileages(snap.docs.map(d => mapMileage(d.id, d.data())));
 }
 
 // ─── 연간 목표 ────────────────────────────────
@@ -2156,12 +2254,12 @@ export async function getAllAwards(): Promise<Award[]> {
     collection(db, COLLECTIONS.AWARDS),
     orderBy('awardDate', 'desc'),
   ));
-  return snap.docs.map(d => ({
+  return applyViewScopeAwards(snap.docs.map(d => ({
     ...d.data(),
     id: d.id,
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-  } as Award));
+  } as Award)));
 }
 
 /** 연도 범위로 포상 이력 조회 (awardDate 가 YYYY-MM-DD 문자열) */
@@ -2172,12 +2270,12 @@ export async function getAwardsByYearRange(startYear: number, endYear: number): 
     where('awardDate', '<=', `${endYear}-12-31`),
     orderBy('awardDate', 'desc'),
   ));
-  return snap.docs.map(d => ({
+  return applyViewScopeAwards(snap.docs.map(d => ({
     ...d.data(),
     id: d.id,
     createdAt: fromTimestamp(d.data().createdAt) ?? new Date(),
     updatedAt: fromTimestamp(d.data().updatedAt) ?? new Date(),
-  } as Award));
+  } as Award)));
 }
 
 /** 특정 연도의 모든 포상 이력 조회 */
@@ -2248,6 +2346,8 @@ export interface SystemSettings {
   lockedYears?: number[];
   /** AI 성과평가 기준(HR마스터 편집). 비어있으면 코드 기본값(SHARED_EVAL_CRITERIA) 사용. */
   aiEvalCriteria?: string[];
+  /** 표시범위 잠금 — true 면 표시 태그 인원과 그 기록을 전 화면에서 숨김(복원 가능). 비밀번호 접미사 -k/-r 로 토글. (v0.9.4) */
+  viewScopeLocked?: boolean;
   updatedBy?: string;
   updatedAt?: Date;
 }
@@ -2442,6 +2542,7 @@ export async function getSystemSettings(): Promise<SystemSettings | null> {
     activeYear: d.activeYear ?? new Date().getFullYear(),
     lockedYears: Array.isArray(d.lockedYears) ? d.lockedYears : [],
     aiEvalCriteria: Array.isArray(d.aiEvalCriteria) ? d.aiEvalCriteria : undefined,
+    viewScopeLocked: d.viewScopeLocked === true,
     updatedBy: d.updatedBy,
     updatedAt: d.updatedAt ? (d.updatedAt as Timestamp).toDate() : undefined,
   };
@@ -2796,7 +2897,20 @@ export async function getTeamWeeklyTasksByOrgsAndWeek(
   const ids = [...new Set(orgIds.filter(Boolean))].map(o => teamWeeklyDocId(o, year, week));
   if (!ids.length) return [];
   const snaps = await Promise.all(ids.map(id => getDoc(doc(db, COLLECTIONS.WEEKLY_TASKS, id))));
-  return snaps.filter(s => s.exists()).map(s => toWeeklyTask(s));
+  return applyViewScopeWeekly(snaps.filter(s => s.exists()).map(s => toWeeklyTask(s)));
+}
+
+/** 표시범위 잠금 ON 시: 대상 작성 항목 제거 + 참여인원에서 대상 제외 + 레거시 M 개인문서 제외. */
+async function applyViewScopeWeekly(tasks: WeeklyTask[]): Promise<WeeklyTask[]> {
+  const hidden = await getHiddenUserIds();
+  if (hidden.size === 0) return tasks;
+  const clean = (items: SimpleTaskItem[]) => (items ?? [])
+    .filter(i => !(i.authorId && hidden.has(i.authorId)))
+    .map(i => (i.participantIds?.some(id => hidden.has(id)))
+      ? { ...i, participantIds: i.participantIds!.filter(id => !hidden.has(id)) } : i);
+  return tasks
+    .filter(t => !(t.userId && hidden.has(t.userId)))
+    .map(t => ({ ...t, hasDoneItems: clean(t.hasDoneItems), willDoItems: clean(t.willDoItems) }));
 }
 
 type WeeklyMember = { id: string; organizationId: string };
@@ -2854,7 +2968,7 @@ export async function getAllWeeklyTasksByYear(year: number): Promise<WeeklyTask[
   const teamDocs = all.filter(t => !!t.teamOrgId);
   const covered = new Set(teamDocs.map(t => `${t.organizationId}__${t.weekNumber}`));
   const keptLegacy = all.filter(t => !t.teamOrgId && !covered.has(`${t.organizationId}__${t.weekNumber}`));
-  return [...teamDocs, ...keptLegacy];
+  return applyViewScopeWeekly([...teamDocs, ...keptLegacy]);
 }
 
 // ─── 임원 위클리 리포트 캐시 (주차별 영구 저장) ──────────────
@@ -2919,8 +3033,8 @@ export async function getWeeklyTasksByMembersAndYear(
     ))
   ));
   const [teamSnaps, legacyResults] = await Promise.all([teamSnapsP, legacyP]);
-  const teamDocs = teamSnaps.filter(s => s.exists()).map(s => toWeeklyTask(s)).filter(t => !!t.teamOrgId);
-  const legacyDocs = legacyResults.flatMap(snap => snap.docs.map(d => toWeeklyTask(d))).filter(t => !t.teamOrgId);
+  const teamDocs = await applyViewScopeWeekly(teamSnaps.filter(s => s.exists()).map(s => toWeeklyTask(s)).filter(t => !!t.teamOrgId));
+  const legacyDocs = await applyViewScopeWeekly(legacyResults.flatMap(snap => snap.docs.map(d => toWeeklyTask(d))).filter(t => !t.teamOrgId));
   return explodeTeamDocsToMembers(teamDocs, legacyDocs, members);
 }
 
@@ -3098,7 +3212,7 @@ export async function getNotifications(userId: string): Promise<AppNotification[
     where('userId', '==', userId),
     orderBy('createdAt', 'desc'),
   ));
-  return snap.docs.map(d => {
+  const list = snap.docs.map(d => {
     const data = d.data();
     // 구버전 호환: link / title / category 자동 보강
     return {
@@ -3110,6 +3224,10 @@ export async function getNotifications(userId: string): Promise<AppNotification[
       createdAt: fromTimestamp(data.createdAt) ?? new Date(),
     } as AppNotification;
   });
+  // 표시범위 잠금 ON 시: 제목·본문에 대상 인원 이름이 들어간 알림 숨김
+  const hiddenNames = await getHiddenUserNames();
+  if (!hiddenNames.length) return list;
+  return list.filter(n => !hiddenNames.some(nm => (n.title ?? '').includes(nm) || (n.message ?? '').includes(nm)));
 }
 
 export async function getUnreadNotificationCount(userId: string): Promise<number> {
@@ -3118,7 +3236,13 @@ export async function getUnreadNotificationCount(userId: string): Promise<number
     where('userId', '==', userId),
     where('read', '==', false),
   ));
-  return snap.size;
+  // 표시범위 잠금 ON 시: 대상 이름이 들어간 알림은 카운트에서도 제외(뱃지·목록 일치)
+  const hiddenNames = await getHiddenUserNames();
+  if (!hiddenNames.length) return snap.size;
+  return snap.docs.filter(d => {
+    const t = (d.data().title as string) ?? ''; const m = (d.data().message as string) ?? '';
+    return !hiddenNames.some(nm => t.includes(nm) || m.includes(nm));
+  }).length;
 }
 
 export async function markNotificationRead(id: string) {
@@ -3156,7 +3280,7 @@ export async function listInnovationActivities(year: number): Promise<Innovation
     collection(db, COLLECTIONS.INNOVATION_ACTIVITIES),
     where('year', '==', year),
   ));
-  return snap.docs.map(d => {
+  return applyViewScopeInnovations(snap.docs.map(d => {
     const data = d.data();
     return {
       ...data,
@@ -3164,13 +3288,13 @@ export async function listInnovationActivities(year: number): Promise<Innovation
       createdAt: fromTimestamp(data.createdAt) ?? new Date(),
       updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
     } as InnovationActivity;
-  });
+  }));
 }
 
 /** 전체 연도 혁신활동 — 승진 요건(누적 PM 실적)처럼 연도 무관 집계에 사용. */
 export async function listAllInnovationActivities(): Promise<InnovationActivity[]> {
   const snap = await getDocs(collection(db, COLLECTIONS.INNOVATION_ACTIVITIES));
-  return snap.docs.map(d => {
+  return applyViewScopeInnovations(snap.docs.map(d => {
     const data = d.data();
     return {
       ...data,
@@ -3178,7 +3302,7 @@ export async function listAllInnovationActivities(): Promise<InnovationActivity[
       createdAt: fromTimestamp(data.createdAt) ?? new Date(),
       updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
     } as InnovationActivity;
-  });
+  }));
 }
 
 export async function listInnovationActivitiesByYearRange(startYear: number, endYear: number): Promise<InnovationActivity[]> {
@@ -3187,7 +3311,7 @@ export async function listInnovationActivitiesByYearRange(startYear: number, end
     where('year', '>=', startYear),
     where('year', '<=', endYear),
   ));
-  return snap.docs.map(d => {
+  return applyViewScopeInnovations(snap.docs.map(d => {
     const data = d.data();
     return {
       ...data,
@@ -3195,7 +3319,7 @@ export async function listInnovationActivitiesByYearRange(startYear: number, end
       createdAt: fromTimestamp(data.createdAt) ?? new Date(),
       updatedAt: fromTimestamp(data.updatedAt) ?? new Date(),
     } as InnovationActivity;
-  });
+  }));
 }
 
 export async function listInnovationActivitiesByUser(userId: string): Promise<InnovationActivity[]> {

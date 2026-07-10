@@ -638,6 +638,17 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
 }) {
   const [hasDoneItems, setHasDoneItems] = useState<SimpleTaskItem[]>([]);
   const [willDoItems, setWillDoItems] = useState<SimpleTaskItem[]>([]);
+  // 표시범위 잠금 시 — 표시에서만 대상 작성 항목 제거. 상태(state)는 원본 유지 → 저장 시 대상 항목 보존(비파괴).
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let alive = true;
+    import('@/lib/firestore').then(m => m.getHiddenUserIds()).then(s => { if (alive) setHiddenIds(s); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const viewItems = (items: SimpleTaskItem[]) => hiddenIds.size === 0 ? items
+    : items.filter(i => !(i.authorId && hiddenIds.has(i.authorId)))
+        .map(i => i.participantIds?.some(id => hiddenIds.has(id))
+          ? { ...i, participantIds: i.participantIds.filter(id => !hiddenIds.has(id)) } : i);
   const [goalProgress, setGoalProgress] = useState<Record<string, number>>({});
   const [leadComments, setLeadComments] = useState<LeadCommentEntry[]>([]);
   const [activeGoals, setActiveGoals] = useState<Goal[]>([]);
@@ -1182,6 +1193,10 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
     return <div className="space-y-3">{[1, 2].map(i => <div key={i} className="h-36 animate-pulse rounded-xl bg-gray-100" />)}</div>;
   }
 
+  // 렌더 전용(M 숨김 적용) — 저장은 원본 state(hasDoneItems/willDoItems)로 하여 M 항목 보존.
+  const hdView = viewItems(hasDoneItems);
+  const wdView = viewItems(willDoItems);
+
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
@@ -1211,21 +1226,21 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
 
       {/* 모바일: 컬럼별 단일 카드 스택 */}
       <div className="md:hidden space-y-4">
-        {renderColumnCard('hd', hasDoneItems, true)}
-        {renderColumnCard('wd', willDoItems, false)}
+        {renderColumnCard('hd', hdView, true)}
+        {renderColumnCard('wd', wdView, false)}
       </div>
       {/* 데스크톱: 동일 핵심목표의 Has Done/Will Do 블록을 목표별 행으로 좌우 정렬.
           한쪽에 진행사항이 없는 목표(읽기전용 뷰에서 생략되는 쪽)는 그 칸을 공백으로 두어 라인을 유지한다. */}
       {(() => {
-        const goalsHd = goalsToShowFor(hasDoneItems);
-        const goalsWd = goalsToShowFor(willDoItems);
+        const goalsHd = goalsToShowFor(hdView);
+        const goalsWd = goalsToShowFor(wdView);
         const hdSet = new Set(goalsHd.map(g => g.id));
         const wdSet = new Set(goalsWd.map(g => g.id));
         const unionGoals = activeGoals.filter(g => hdSet.has(g.id) || wdSet.has(g.id));
         return (
           <div className="hidden md:grid grid-cols-2 gap-x-4 gap-y-3 items-stretch">
-            <div className="rounded-xl border bg-white overflow-hidden">{secHeader(hasDoneItems, true)}</div>
-            <div className="rounded-xl border bg-white overflow-hidden">{secHeader(willDoItems, false)}</div>
+            <div className="rounded-xl border bg-white overflow-hidden">{secHeader(hdView, true)}</div>
+            <div className="rounded-xl border bg-white overflow-hidden">{secHeader(wdView, false)}</div>
             {unionGoals.length > 0 && (
               /* 핵심업무 — 하나의 박스 안에서 목표별 행(좌 hd / 우 wd) + 행 구분선. 없는 쪽 칸은 공백. */
               <div className="col-span-2 rounded-xl border bg-white overflow-hidden">
@@ -1237,10 +1252,10 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
                     return (
                       <Fragment key={g.id}>
                         <div className={cn('border-r min-w-0', rowBorder)}>
-                          {hdSet.has(g.id) ? goalBlockFor('hd', g, hasDoneItems, true) : null}
+                          {hdSet.has(g.id) ? goalBlockFor('hd', g, hdView, true) : null}
                         </div>
                         <div className={cn('min-w-0', rowBorder)}>
-                          {wdSet.has(g.id) ? goalBlockFor('wd', g, willDoItems, false) : null}
+                          {wdSet.has(g.id) ? goalBlockFor('wd', g, wdView, false) : null}
                         </div>
                       </Fragment>
                     );
@@ -1248,8 +1263,8 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
                 </div>
               </div>
             )}
-            <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('hd', hasDoneItems, true)}</div>
-            <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('wd', willDoItems, false)}</div>
+            <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('hd', hdView, true)}</div>
+            <div className="rounded-xl border bg-white overflow-hidden">{generalBlock('wd', wdView, false)}</div>
           </div>
         );
       })()}
