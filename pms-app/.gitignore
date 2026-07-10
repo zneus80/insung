@@ -55,3 +55,7 @@ check-firestore.js
 
 # Claude Code
 .claude/
+
+# 로컬 데이터 백업·임시 스크립트 (인사데이터 — 저장소 커밋 금지)
+backup_*.json
+_*.cjs
