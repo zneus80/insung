@@ -790,7 +790,10 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
           const noteGoalIds = new Set(hd.filter(i => i.goalId).map(i => i.goalId as string));
           for (const gid of new Set<string>([...Object.keys(gpEff ?? {}), ...noteGoalIds])) {
             const titles = hd.filter(i => i.goalId === gid).map(i => (i.title || i.content).trim()).filter(Boolean);
-            goalComments[gid] = titles.length ? `[${year}년 ${week}주차] ${titles.join(', ')}` : `${year}년 ${week}주차 주간보고`;
+            // 각 진행사항('+진행사항 추가')을 한 줄씩 내려서 연동 — 골카드 진행기록은 whitespace-pre-wrap로 줄바꿈 보존.
+            goalComments[gid] = titles.length
+              ? `[${year}년 ${week}주차]\n${titles.map(t => `▷ ${t}`).join('\n')}`
+              : `${year}년 ${week}주차 주간보고`;
           }
           if (Object.keys(goalComments).length > 0) {
             try { await syncWeeklyGoalProgress({ orgId, actorId: currentUser.id, year, week, goalProgress: gpEff ?? {}, goalComments }); }
