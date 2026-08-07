@@ -123,13 +123,14 @@ export default function AiEvalPanel({
             dueDate: g.dueDate ? new Date(g.dueDate).toISOString().slice(0, 10) : undefined,
             // 이 목표의 주간 진행사항(주간업무보고에서 goalId 연계된 항목) — 난도 추정 보조
             weeklyNotes: (weeklyTasksByMember[m.id] ?? [])
-              .flatMap(wt => (wt.hasDoneItems ?? []).filter(i => i.goalId === g.id).map(i => (i.title || i.content || '').trim()))
+              .slice().sort((a, b) => b.weekNumber - a.weekNumber)
+              .flatMap(wt => (wt.hasDoneItems ?? []).filter(i => i.goalId === g.id).map(i => { const t = (i.title || i.content || '').trim(); return t ? `${wt.weekNumber}주차: ${t}` : ''; }))
               .filter(Boolean).slice(0, 12),
           })),
           // 토큰 절약: 목표 연동(goalId) 항목은 goals[].weeklyNotes 에 이미 포함 — 일반업무 실적만 (중복 방지)
           weeklyHighlights: (weeklyTasksByMember[m.id] ?? [])
             .slice().sort((a, b) => b.weekNumber - a.weekNumber) // 최신 주차 우선
-            .flatMap(wt => (wt.hasDoneItems ?? []).filter(i => !i.goalId).map(i => (i.title || i.content)))
+            .flatMap(wt => (wt.hasDoneItems ?? []).filter(i => !i.goalId).map(i => { const t = (i.title || i.content || '').trim(); return t ? `${wt.weekNumber}주차: ${t}` : ''; }))
             .filter(Boolean).slice(0, 12),
           selfEvalComments,                            // 자기평가(점수 포함)
           generalWorkComments,                         // 일반업무만 별도

@@ -199,7 +199,7 @@ function AssistantContent() {
           // 토큰 절약: 목표 연동(goalId) 항목은 coreGoals[].notes 에 이미 포함되므로 여기서 제외(중복 방지) — 일반업무 실적만.
           const weeklyHi = d.wt
             .slice().sort((a, b) => b.weekNumber - a.weekNumber) // 최신 주차 우선 — 컷오프 시 옛 데이터가 최신을 밀어내지 않도록
-            .flatMap(w => (w.hasDoneItems ?? []).filter(i => isMine(i, w) && !i.goalId).map(i => (i.title || i.content || '').trim()))
+            .flatMap(w => (w.hasDoneItems ?? []).filter(i => isMine(i, w) && !i.goalId).map(i => { const t = (i.title || i.content || '').trim(); return t ? `${w.weekNumber}주차: ${t}` : ''; }))
             .filter(Boolean).slice(0, 12);
           const innovNames = d.innov
             .filter(a => a.status !== 'DROPPED')  // Drop(실패·중단)은 성과 집계 제외 — 기록용
@@ -216,7 +216,7 @@ function AssistantContent() {
           // 목표별 주간 추진내용(본인 작성, goalId 연계) — 임팩트·진척 추정 근거
           const goalNotes = (gid: string) => d.wt
             .slice().sort((a, b) => b.weekNumber - a.weekNumber)
-            .flatMap(w => (w.hasDoneItems ?? []).filter(i => isMine(i, w) && i.goalId === gid).map(i => (i.title || i.content || '').trim()))
+            .flatMap(w => (w.hasDoneItems ?? []).filter(i => isMine(i, w) && i.goalId === gid).map(i => { const t = (i.title || i.content || '').trim(); return t ? `${w.weekNumber}주차: ${t}` : ''; }))
             .filter(Boolean).slice(0, 8);
           yrs[y] = {
             grade: ie && (ie.status === 'EXEC_CONFIRMED' || ie.status === 'PUBLISHED') ? ie.execGrade : undefined,
