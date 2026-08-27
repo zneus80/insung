@@ -46,7 +46,7 @@ function getISOWeek(date: Date) {
 }
 // 1차 베타 한시 조치 — 이 시점까지는 지난 주 주간업무보고도 작성·수정 허용(주 토요일 이후 잠금 해제).
 // 베타 종료 후엔 기존대로 해당 주 토요일 이후 본문 잠금으로 복귀.
-const BETA_PAST_EDIT_UNTIL = new Date('2026-08-31T23:59:59+09:00');
+const BETA_PAST_EDIT_UNTIL = new Date('2026-09-10T23:59:59+09:00');
 function isBetaPastEditOpen(): boolean {
   return new Date() <= BETA_PAST_EDIT_UNTIL;
 }
@@ -138,7 +138,7 @@ function MemberTasksPage() {
           <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
             <Info className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
             <span>
-              <b>주간업무보고 1차 베타 안내</b> — <b>8월 31일까지</b> 지난 주 주간업무보고도 한시적으로 <b>작성·수정</b>할 수 있습니다.
+              <b>주간업무보고 1차 베타 안내</b> — <b>9월 10일까지</b> 지난 주 주간업무보고도 한시적으로 <b>작성·수정</b>할 수 있습니다.
               빠진 주차가 있다면 이 기간 안에 보완해 주세요. (베타 종료 후에는 해당 주 마감 이후 수정이 잠깁니다.)
             </span>
           </div>
