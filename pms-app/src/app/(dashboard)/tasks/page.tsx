@@ -672,10 +672,11 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
   const { isYearLocked } = useActiveYear();
   const yearLocked = isYearLocked(year);   // 확정 연도 — 코멘트 포함 모든 쓰기 차단
   const { start, end } = getWeekRange(year, week);
-  const saturday = new Date(start); saturday.setDate(start.getDate() + 5); saturday.setHours(0, 0, 0, 0);
-  // 검토자(read-only)는 항상 본문 잠금. 편집 가능자도 해당 주 토요일 이후 잠금.
-  // 단, 1차 베타 기간(~8/31)에는 지난 주도 한시적으로 작성·수정 허용(토요일 잠금 해제).
-  const isBodyLocked = !editable || (new Date() >= saturday && !isBetaPastEditOpen());
+  // 작성 마감 = 익주 월요일 23:59:59 → 다음 주 화요일 0시(= start+8일)부터 본문 잠금.
+  const lockAt = new Date(start); lockAt.setDate(start.getDate() + 8); lockAt.setHours(0, 0, 0, 0);
+  // 검토자(read-only)는 항상 본문 잠금. 편집 가능자도 작성 마감(익주 월요일 23:59) 이후 잠금.
+  // 단, 1차 베타 기간에는 지난 주도 한시적으로 작성·수정 허용(마감 잠금 해제).
+  const isBodyLocked = !editable || (new Date() >= lockAt && !isBetaPastEditOpen());
   // 핵심업무(골 연동) 항목은 해당 목표의 수행자(owner)+공동수행자만 추가/수정/삭제 가능.
   // 일반업무(goalId 없음)는 팀 공용이므로 누구나(편집권자) 가능.
   function canWriteGoalItem(goalId?: string): boolean {
@@ -1223,9 +1224,9 @@ function TeamWeeklyForm({ orgId, year, week, editable, currentUser, showCollabTF
         </Button>
       </div>
 
-      {editable && new Date() >= saturday && (
+      {editable && new Date() >= lockAt && !isBetaPastEditOpen() && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
-          해당 주 토요일이 지나 본문(실적/계획)은 읽기 전용입니다. 코멘트는 계속 가능합니다.
+          작성 마감(익주 월요일)이 지나 본문(실적/계획)은 읽기 전용입니다. 코멘트는 계속 가능합니다.
         </div>
       )}
 
