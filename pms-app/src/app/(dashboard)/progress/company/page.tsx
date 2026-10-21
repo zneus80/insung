@@ -25,7 +25,7 @@ import AuthGuard from '@/components/layout/AuthGuard';
 import { cn } from '@/lib/utils';
 import { compareOrgByDisplayOrder } from '@/lib/approval-filters';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
-import { ChevronDown, Lightbulb, FileText, Target, Lock } from 'lucide-react';
+import { ChevronDown, Lightbulb, FileText, Target, Lock, X } from 'lucide-react';
 import type {
   Organization, User, Goal, AnnualGoal, InnovationActivity,
 } from '@/types';
@@ -61,18 +61,8 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   const [innovations, setInnovations] = useState<InnovationActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  // 부문 카드에서 열린 카테고리 — 행(row) 단위로 관리해 같은 행 카드가 동시에 열림. key=행 인덱스.
-  const [openCat, setOpenCat] = useState<Record<number, 'done' | 'ongoing' | undefined>>({});
-  // 반응형 그리드 열 수 (기본 1 / md≥768 2 / lg≥1024 3) — 행 계산용
-  const [cols, setCols] = useState(3);
-  useEffect(() => {
-    const calc = () => setCols(window.innerWidth >= 1024 ? 3 : window.innerWidth >= 768 ? 2 : 1);
-    calc();
-    window.addEventListener('resize', calc);
-    return () => window.removeEventListener('resize', calc);
-  }, []);
-  // 열 수가 바뀌면 행 구성이 달라지므로 열림 상태 초기화
-  useEffect(() => { setOpenCat({}); }, [cols]);
+  // 부문 카드에서 완료/추진중 클릭 시 뜨는 팝업(화면 스크롤 이동 없이 오버레이로 표시).
+  const [popup, setPopup] = useState<{ label: string; cat: 'done' | 'ongoing'; goals: Goal[] } | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -95,6 +85,35 @@ function Content({ embedded = false }: { embedded?: boolean }) {
 
   const usersById = useMemo(() => new Map(users.map(u => [u.id, u])), [users]);
   const orgsById = useMemo(() => new Map(orgs.map(o => [o.id, o])), [orgs]);
+
+  // 팝업 목표 행 렌더러 — 제목·진행률·진행막대를 눈에 띄게 표시
+  const goalRow = (g: Goal) => {
+    const ownerOrg = orgsById.get(g.organizationId);
+    const masked = g.isConfidential && !revealConfidential;
+    const titleText = masked ? 'CONFIDENTIAL (대내외비)' : g.title;
+    const pct = Math.max(0, Math.min(100, g.progress ?? 0));
+    const done = g.status === 'COMPLETED';
+    return (
+      <div key={g.id} className="px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <p className={cn('text-sm font-semibold leading-snug break-words flex items-center gap-1.5 flex-1 min-w-0', masked ? 'text-red-600' : 'text-gray-900')}>
+            {g.isConfidential && <Lock className="h-3.5 w-3.5 shrink-0" />}
+            {titleText}
+          </p>
+          <span className={cn('text-base font-bold tabular-nums shrink-0', done ? 'text-green-600' : 'text-blue-600')}>{pct}%</span>
+        </div>
+        <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
+          <div className={cn('h-full rounded-full transition-all', done ? 'bg-green-500' : 'bg-blue-500')} style={{ width: `${pct}%` }} />
+        </div>
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          <p className="text-[11px] text-gray-400 truncate">{ownerOrg?.name ?? '—'}</p>
+          <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0', done ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700')}>
+            {done ? '완료' : '추진중'}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   // 부문/공장 목록 — DIVISION 우선, 없으면 최상위 (COMPANY 의 자식) 비-COMPANY 조직
   const divisions = useMemo(() => {
@@ -239,32 +258,11 @@ function Content({ embedded = false }: { embedded?: boolean }) {
             <p className="text-center text-sm text-gray-400 py-8 rounded-xl border bg-white">조직목표가 등록된 부문/공장이 없습니다.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
-              {shownDivisions.map((div, idx) => {
-                const rowIndex = Math.floor(idx / cols);   // 같은 행 카드는 동일 rowIndex → 동시 열림
+              {shownDivisions.map((div) => {
                 const subjects = subjectsForOrg(div.id);
                 const divGoals = goalsForDivision(div.id);
                 const doneGoals = divGoals.filter(g => g.status === 'COMPLETED');
                 const ongoingGoals = divGoals.filter(g => g.status !== 'COMPLETED');
-                const cat = openCat[rowIndex];
-                const shownGoals = cat === 'done' ? doneGoals : cat === 'ongoing' ? ongoingGoals : [];
-                const toggle = (c: 'done' | 'ongoing') => setOpenCat(p => ({ ...p, [rowIndex]: p[rowIndex] === c ? undefined : c }));
-                const goalRow = (g: Goal) => {
-                  const ownerOrg = orgsById.get(g.organizationId);
-                  const masked = g.isConfidential && !revealConfidential;
-                  const titleText = masked ? 'CONFIDENTIAL (대내외비)' : g.title;
-                  return (
-                    <div key={g.id} className="px-3 py-2 flex items-start gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className={cn('text-xs font-medium leading-snug break-words flex items-center gap-1.5', masked ? 'text-red-600' : 'text-gray-900')}>
-                          {g.isConfidential && <Lock className="h-3 w-3 shrink-0" />}
-                          {titleText}
-                        </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5 truncate">{ownerOrg?.name ?? '—'}</p>
-                      </div>
-                      <span className="text-[10px] text-gray-500 shrink-0">{g.progress ?? 0}%</span>
-                    </div>
-                  );
-                };
                 return (
                   <div key={div.id} className="rounded-xl border bg-white overflow-hidden h-full flex flex-col">
                     {/* 상단: 부문명 + 조직목표 주제 */}
@@ -275,35 +273,20 @@ function Content({ embedded = false }: { embedded?: boolean }) {
                       ))}
                     </div>
 
-                    {/* 하단 고정 블록: 완료/추진중 2구역 버튼 + (그 아래로 열리는 선택 목표 목록) */}
-                    <div className="mt-auto">
-                    {/* 완료 / 추진중 2구역 (클릭 시 아래로 해당 목표 노출) */}
-                    <div className="grid grid-cols-2 border-t divide-x">
+                    {/* 하단 고정 블록: 완료/추진중 2구역 버튼 — 클릭 시 팝업으로 해당 목표 현황 표시 */}
+                    <div className="mt-auto grid grid-cols-2 border-t divide-x">
                       <button
-                        onClick={() => toggle('done')}
-                        className={cn('flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors',
-                          cat === 'done' ? 'bg-green-100 text-green-800' : 'text-green-700 hover:bg-green-50')}
+                        onClick={() => setPopup({ label: `${div.name} · 완료`, cat: 'done', goals: doneGoals })}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-green-700 hover:bg-green-50 transition-colors"
                       >
                         완료 <span className="tabular-nums">{doneGoals.length}</span>
-                        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', cat !== 'done' && '-rotate-90')} />
                       </button>
                       <button
-                        onClick={() => toggle('ongoing')}
-                        className={cn('flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors',
-                          cat === 'ongoing' ? 'bg-blue-100 text-blue-800' : 'text-blue-700 hover:bg-blue-50')}
+                        onClick={() => setPopup({ label: `${div.name} · 추진중`, cat: 'ongoing', goals: ongoingGoals })}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition-colors"
                       >
                         추진중 <span className="tabular-nums">{ongoingGoals.length}</span>
-                        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', cat !== 'ongoing' && '-rotate-90')} />
                       </button>
-                    </div>
-                    {/* 선택된 카테고리 목표 목록 — 버튼 아래로 열림 */}
-                    {cat && (
-                      <div className="border-t">
-                        {shownGoals.length === 0
-                          ? <p className="px-3 py-3 text-xs text-gray-400">{cat === 'done' ? '완료된 목표가 없습니다.' : '추진 중인 목표가 없습니다.'}</p>
-                          : <div className="divide-y">{shownGoals.map(goalRow)}</div>}
-                      </div>
-                    )}
                     </div>
                   </div>
                 );
@@ -312,6 +295,35 @@ function Content({ embedded = false }: { embedded?: boolean }) {
           )}
         </section>
       </div>
+
+      {/* 완료/추진중 업무현황 팝업 — 화면 중앙 오버레이(페이지 스크롤 이동 없음) */}
+      {popup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setPopup(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 py-3.5 border-b flex items-center justify-between shrink-0">
+              <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <span className={cn('w-2 h-2 rounded-full', popup.cat === 'done' ? 'bg-green-500' : 'bg-blue-500')} />
+                {popup.label}
+                <span className="text-gray-400 font-normal tabular-nums">({popup.goals.length})</span>
+              </h2>
+              <button onClick={() => setPopup(null)} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-500">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {popup.goals.length === 0
+                ? <p className="px-4 py-10 text-center text-xs text-gray-400">{popup.cat === 'done' ? '완료된 목표가 없습니다.' : '추진 중인 목표가 없습니다.'}</p>
+                : <div className="divide-y">{popup.goals.map(goalRow)}</div>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
