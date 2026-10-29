@@ -240,7 +240,16 @@ export default function GoalDetailPage() {
     if (blockIfLocked()) return;
     setActionLoading(true);
     try {
-      await updateGoal(id, { status: 'COMPLETED', progress: 100 });
+      // 새 완료요청은 완료 결재 체인을 처음부터 다시 태운다 — 과거 완료 사이클에서 남은
+      // 완료 승인 플래그(회수·재개 후 잔존)를 반드시 초기화해야 결재가 상위로 올라간다.
+      const { deleteField } = await import('firebase/firestore');
+      await updateGoal(id, {
+        status: 'COMPLETED', progress: 100,
+        completionLeadApprovedBy: deleteField(), completionLeadApprovedAt: deleteField(),
+        completionHqApprovedBy: deleteField(), completionHqApprovedAt: deleteField(),
+        completionExecApprovedBy: deleteField(), completionExecApprovedAt: deleteField(),
+        completionTopApprovedBy: deleteField(), completionTopApprovedAt: deleteField(),
+      } as unknown as Partial<Goal>);
       await addGoalHistory({
         goalId: id, changedBy: userProfile.id,
         changeType: 'STATUS_CHANGED',
@@ -271,7 +280,14 @@ export default function GoalDetailPage() {
     if (blockIfLocked()) return;
     setActionLoading(true);
     try {
-      await updateGoal(id, { status: 'PENDING_ABANDON' });
+      // 새 포기요청은 포기 결재 체인을 처음부터 다시 — 과거 사이클의 잔존 승인 플래그 초기화.
+      const { deleteField } = await import('firebase/firestore');
+      await updateGoal(id, {
+        status: 'PENDING_ABANDON',
+        abandonLeadApprovedBy: deleteField(), abandonLeadApprovedAt: deleteField(),
+        abandonExecApprovedBy: deleteField(), abandonExecApprovedAt: deleteField(),
+        abandonTopApprovedBy: deleteField(), abandonTopApprovedAt: deleteField(),
+      } as unknown as Partial<Goal>);
       await addGoalHistory({
         goalId: id, changedBy: userProfile.id,
         changeType: 'STATUS_CHANGED',
@@ -409,7 +425,15 @@ export default function GoalDetailPage() {
     setActionLoading(true);
     try {
       const revertStatus: Goal['status'] = (goal.progress ?? 0) > 0 ? 'IN_PROGRESS' : 'APPROVED';
-      await updateGoal(id, { status: revertStatus, progress: goal.progress });
+      // 회수 시 완료 승인 플래그를 모두 비워, 재요청이 깨끗한 결재 체인으로 다시 올라가게 한다.
+      const { deleteField } = await import('firebase/firestore');
+      await updateGoal(id, {
+        status: revertStatus, progress: goal.progress,
+        completionLeadApprovedBy: deleteField(), completionLeadApprovedAt: deleteField(),
+        completionHqApprovedBy: deleteField(), completionHqApprovedAt: deleteField(),
+        completionExecApprovedBy: deleteField(), completionExecApprovedAt: deleteField(),
+        completionTopApprovedBy: deleteField(), completionTopApprovedAt: deleteField(),
+      } as unknown as Partial<Goal>);
       await addGoalHistory({
         goalId: id, changedBy: userProfile.id,
         changeType: 'STATUS_CHANGED',
@@ -429,7 +453,14 @@ export default function GoalDetailPage() {
     setActionLoading(true);
     try {
       const revertStatus: Goal['status'] = (goal.progress ?? 0) > 0 ? 'IN_PROGRESS' : 'APPROVED';
-      await updateGoal(id, { status: revertStatus });
+      // 회수 시 포기 승인 플래그를 모두 비워 재요청이 깨끗한 결재 체인으로 올라가게 한다.
+      const { deleteField } = await import('firebase/firestore');
+      await updateGoal(id, {
+        status: revertStatus,
+        abandonLeadApprovedBy: deleteField(), abandonLeadApprovedAt: deleteField(),
+        abandonExecApprovedBy: deleteField(), abandonExecApprovedAt: deleteField(),
+        abandonTopApprovedBy: deleteField(), abandonTopApprovedAt: deleteField(),
+      } as unknown as Partial<Goal>);
       await addGoalHistory({
         goalId: id, changedBy: userProfile.id,
         changeType: 'STATUS_CHANGED',
