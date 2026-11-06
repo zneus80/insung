@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import PrivacyPolicyModal from '@/components/auth/PrivacyPolicyModal';
+import { LOGOUT_REASON_KEY } from '@/hooks/useIdleLogout';
 import { toast } from 'sonner';
 
 export default function LoginPage() {
@@ -21,6 +22,17 @@ export default function LoginPage() {
   const [emailLoading, setEmailLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [autoLoggedOut, setAutoLoggedOut] = useState(false);
+
+  // 자동 로그아웃으로 넘어온 경우 안내 표시(한 번 읽고 지운다).
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(LOGOUT_REASON_KEY) === 'idle') {
+        setAutoLoggedOut(true);
+        sessionStorage.removeItem(LOGOUT_REASON_KEY);
+      }
+    } catch { /* 무시 */ }
+  }, []);
 
   useEffect(() => {
     // 목업 모드: 로그인 없이 바로 대시보드
@@ -132,6 +144,13 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-gray-900">INSUNG</h1>
           <p className="mt-1 text-sm text-gray-500">목표성과관리 시스템</p>
         </div>
+
+        {/* 자동 로그아웃 안내 — 시간 경과로 로그아웃된 뒤 넘어온 경우(SSS 차용) */}
+        {autoLoggedOut && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-center text-xs text-amber-700">
+            장시간 사용이 없어 자동으로 로그아웃되었습니다.<br />다시 로그인해 주세요.
+          </div>
+        )}
 
         {/* 이메일 로그인 폼 */}
         <form onSubmit={handleEmailLogin} className="space-y-3">

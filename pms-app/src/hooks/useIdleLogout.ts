@@ -13,6 +13,9 @@ import { useEffect, useRef } from 'react';
 import { signOut } from '@/lib/auth';
 import { toast } from 'sonner';
 
+/** 자동 로그아웃 사유 — 로그인 화면이 읽어 "자동 로그아웃되었습니다" 안내를 띄운다(SSS 차용). */
+export const LOGOUT_REASON_KEY = 'pms_logout_reason';
+
 interface Options {
   /** true 일 때만 타이머 동작 (로그인 상태에만 활성화) */
   enabled: boolean;
@@ -50,11 +53,14 @@ export function useIdleLogout({ enabled, timeoutMs = DEFAULT_TIMEOUT, warnBefore
       logoutTimerRef.current = setTimeout(async () => {
         try {
           await signOut();
-          toast.error('장시간 무활동으로 자동 로그아웃되었습니다.');
-          // 다음 렌더에서 AuthGuard 가 /login 으로 보냄
         } catch {
-          // 무시 — signOut 실패해도 페이지 상태로는 알 수 있게
+          // 무시 — signOut 실패해도 아래에서 로그인 화면으로 보낸다
         }
+        // 사유를 남기고 로그인 화면으로 '전체 새로고침' 이동(SSS 차용).
+        //  - 토스트만 띄우고 SPA 상태로 두면, 남아있던 세션 감시·self-heal 등 stale 상태 때문에
+        //    재로그인 버튼이 멈추는 경우가 있었다. 하드 내비게이션으로 클라이언트를 깨끗이 리셋한다.
+        try { sessionStorage.setItem(LOGOUT_REASON_KEY, 'idle'); } catch { /* 무시 */ }
+        if (typeof window !== 'undefined') window.location.assign('/login');
       }, timeoutMs);
     }
 
