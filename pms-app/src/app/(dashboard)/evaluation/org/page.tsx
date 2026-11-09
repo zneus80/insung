@@ -16,7 +16,6 @@ import {
   upsertDivisionGradeQuota,
   getAllDivisionGradeQuotas,
   getOrgEvalPublish,
-  setOrgEvalPublish,
   getGradeQuotas,
   getAllIndividualEvaluations,
   getSelfEvaluationsByUsers,
@@ -173,8 +172,7 @@ function OrgEvaluationContent() {
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [evaluations, setEvaluations] = useState<OrganizationEvaluation[]>([]);
   const [divQuotas, setDivQuotas] = useState<DivisionGradeQuota[]>([]);
-  const [orgPublished, setOrgPublished] = useState(false);   // 조직평가결과 공개 여부
-  const [publishing, setPublishing] = useState(false);
+  const [orgPublished, setOrgPublished] = useState(false);   // 조직평가결과 공개 여부(표시용 — 공개 토글은 평가기간 관리로 이동)
   const [globalQuotas, setGlobalQuotas] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
@@ -825,37 +823,12 @@ function OrgEvaluationContent() {
         {/* ── HR_ADMIN: 개인 등급 쿼터 확정 ── */}
         {showQuotaSection && (
           <section className="space-y-4">
-            {/* 조직평가결과 공개 — HR마스터/CEO 전용. 공개 전에는 일반 사용자에게 조직등급 미노출 (§6-1) */}
-            {(isHrMaster || isCeo) && (
-              <div className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${orgPublished ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
-                <p className={`text-sm ${orgPublished ? 'text-green-700' : 'text-amber-700'}`}>
-                  {orgPublished
-                    ? <>✅ <b>{year}년 조직평가결과가 공개되었습니다.</b> 팀원·팀장 화면에 조직등급이 표시됩니다.</>
-                    : <>🔒 <b>{year}년 조직평가결과가 아직 비공개입니다.</b> 공개 전에는 팀원·팀장에게 조직등급이 표시되지 않습니다.</>}
-                </p>
-                <Button
-                  size="sm"
-                  variant={orgPublished ? 'outline' : 'default'}
-                  disabled={publishing || isCeoViewer}
-                  className={orgPublished ? 'shrink-0' : 'shrink-0 bg-green-600 hover:bg-green-700'}
-                  onClick={async () => {
-                    if (!userProfile) return;
-                    const next = !orgPublished;
-                    if (!confirm(next
-                      ? `${year}년 조직평가결과를 공개하시겠습니까?\n공개 즉시 팀원·팀장 화면에 조직등급이 표시됩니다.`
-                      : `${year}년 조직평가결과 공개를 취소하시겠습니까?\n팀원·팀장 화면에서 조직등급이 숨겨집니다.`)) return;
-                    setPublishing(true);
-                    try {
-                      await setOrgEvalPublish(year, next, userProfile.id);
-                      setOrgPublished(next);
-                      toast.success(next ? '조직평가결과가 공개되었습니다.' : '조직평가결과 공개가 취소되었습니다.');
-                    } catch {
-                      toast.error('처리에 실패했습니다.');
-                    } finally { setPublishing(false); }
-                  }}
-                >
-                  {publishing ? '처리 중…' : orgPublished ? '공개 취소' : '조직평가결과 공개'}
-                </Button>
+            {/* 조직평가결과 공개 버튼은 '평가기간 관리'로 통합(연도 선택식). 여기서는 상태 표시만. */}
+            {(isHrMaster || isHrAdmin) && (
+              <div className={`rounded-xl border px-4 py-3 text-sm ${orgPublished ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                {orgPublished
+                  ? <>✅ <b>{year}년 조직평가결과가 공개 중입니다.</b> 팀원·팀장 화면에 조직등급이 표시됩니다.</>
+                  : <>🔒 <b>{year}년 조직평가결과가 비공개입니다.</b> 공개·취소는 <b>평가기간 관리</b> 화면에서 연도를 선택해 진행하세요.</>}
               </div>
             )}
             <div className="flex items-start justify-between gap-4">

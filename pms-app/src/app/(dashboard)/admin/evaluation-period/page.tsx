@@ -13,8 +13,8 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { CalendarDays, Eye } from 'lucide-react';
-import { seedIndividualEvaluations } from '@/lib/firestore';
+import { CalendarDays, Eye, Building2 } from 'lucide-react';
+import { seedIndividualEvaluations, getOrgEvalPublish, setOrgEvalPublish } from '@/lib/firestore';
 
 interface EvalPeriod {
   year: number;
@@ -35,12 +35,20 @@ export default function EvaluationPeriodPage() {
 
 function EvaluationPeriodContent() {
   const { userProfile } = useAuth();
-  const { activeYear: CURRENT_YEAR } = useActiveYear();
+  const { activeYear } = useActiveYear();
+  // 공개 작업은 활성연도에 묶지 않고 연도를 골라서 한다(활성연도 전환 없이 과거연도 공개 가능).
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const CURRENT_YEAR = selectedYear ?? activeYear;   // 선택연도(미선택 시 활성연도)
+  // 공개 권한: 개인평가 공개 = HR마스터 전용(개인등급은 HR마스터/CEO만 열람), 조직평가 공개 = HR마스터 + HR관리자.
+  const isHrMaster = !!userProfile?.isHrMaster;
+  const isHrAdmin = !!userProfile?.isHrAdmin;
   const [period, setPeriod] = useState<EvalPeriod | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [orgPublished, setOrgPublished] = useState(false);
+  const [orgPublishing, setOrgPublishing] = useState(false);
 
   async function handleSeedEvaluations() {
     if (!confirm(`${CURRENT_YEAR}년 평가 대상자를 등록합니다.\n\n평가 대상(팀원·팀장 — 최고관리자·임원 제외)에 미시작 평가 항목을 추가 생성합니다.\n· 이미 평가가 있는 사용자는 그대로 유지 (삭제·변경 없음)\n· 누락된 대상자만 새로 추가\n\n진행하시겠습니까?`)) return;
@@ -75,7 +83,14 @@ function EvaluationPeriodContent() {
       setPeriod(p);
       setStartDate(format(p.startDate, 'yyyy-MM-dd'));
       setEndDate(format(p.endDate, 'yyyy-MM-dd'));
+    } else {
+      // 선택연도에 평가기간 문서가 없으면 초기화(이전 연도 값이 남지 않게)
+      setPeriod(null);
+      setStartDate('');
+      setEndDate('');
     }
+    // 조직평가결과 공개 여부(선택연도)
+    try { setOrgPublished(await getOrgEvalPublish(CURRENT_YEAR)); } catch { setOrgPublished(false); }
     setLoading(false);
   }
 
@@ -156,10 +171,50 @@ function EvaluationPeriodContent() {
     }
   }
 
+  async function handleOrgPublishToggle() {
+    if (!userProfile) return;
+    const next = !orgPublished;
+    if (!confirm(next
+      ? `${CURRENT_YEAR}년 조직평가결과를 공개하시겠습니까?\n공개 즉시 팀원·팀장 화면에 조직등급이 표시됩니다.`
+      : `${CURRENT_YEAR}년 조직평가결과 공개를 취소하시겠습니까?\n팀원·팀장 화면에서 조직등급이 숨겨집니다.`)) return;
+    setOrgPublishing(true);
+    try {
+      await setOrgEvalPublish(CURRENT_YEAR, next, userProfile.id);
+      setOrgPublished(next);
+      toast.success(next ? '조직평가결과가 공개되었습니다.' : '조직평가결과 공개가 취소되었습니다.');
+    } catch {
+      toast.error('처리에 실패했습니다.');
+    } finally { setOrgPublishing(false); }
+  }
+
+  const YEAR_OPTIONS = [activeYear + 1, activeYear, activeYear - 1, activeYear - 2];
+
   return (
     <div className="flex flex-col h-full">
       <Header title="평가기간 관리" />
       <div className="flex-1 overflow-y-auto p-6 max-w-xl space-y-6">
+
+        {/* 연도 선택 — 공개/설정 대상 연도. 활성연도 전환 없이 과거연도 결과도 공개 가능. */}
+        <div className="rounded-xl border bg-white p-4">
+          <Label className="mb-2 block">대상 연도</Label>
+          <div className="flex flex-wrap gap-2">
+            {YEAR_OPTIONS.map(y => (
+              <button
+                key={y}
+                type="button"
+                onClick={() => { setLoading(true); setSelectedYear(y); }}
+                className={`rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors ${
+                  CURRENT_YEAR === y ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {y}년{y === activeYear && <span className="ml-1 text-[10px] font-normal opacity-80">(활성)</span>}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-400">
+            선택한 연도의 평가기간·대상자·결과 공개를 관리합니다. 활성연도를 바꾸지 않아도 과거 연도 결과를 공개할 수 있습니다.
+          </p>
+        </div>
 
         {/* 현재 상태 */}
         {period && (
@@ -229,14 +284,15 @@ function EvaluationPeriodContent() {
           </Button>
         </div>
 
-        {/* 평가결과 공개 */}
+        {/* 개인평가결과 공개 — HR마스터 전용(개인평가등급은 HR마스터/CEO만 열람). */}
+        {isHrMaster && (
         <div className="rounded-xl border bg-white p-6 space-y-4">
           <div className="flex items-center gap-2 mb-1">
             <Eye className="h-5 w-5 text-purple-600" />
-            <h2 className="font-semibold text-gray-900">평가결과 공개</h2>
+            <h2 className="font-semibold text-gray-900">개인평가결과 공개</h2>
           </div>
           <p className="text-sm text-gray-500">
-            공개 후 팀원·팀장이 본인의 최종 평가등급을 확인할 수 있습니다.
+            공개 후 팀원·팀장이 본인의 최종 <strong>개인평가등급</strong>을 확인할 수 있습니다.
             공개 취소 시 평가기간을 다시 수정할 수 있습니다.
           </p>
           {period?.isPublished ? (
@@ -258,6 +314,34 @@ function EvaluationPeriodContent() {
             </Button>
           )}
         </div>
+        )}
+
+        {/* 조직평가결과 공개 — HR마스터 + HR관리자. 공개 전에는 팀원·팀장에게 조직등급 미노출. */}
+        {(isHrMaster || isHrAdmin) && (
+          <div className="rounded-xl border bg-white p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Building2 className="h-5 w-5 text-green-600" />
+              <h2 className="font-semibold text-gray-900">조직평가결과 공개</h2>
+            </div>
+            <p className="text-sm text-gray-500">
+              공개 후 팀원·팀장 화면에 소속 부문/공장의 <strong>조직등급</strong>이 표시됩니다.
+              공개 전에는 조직등급이 노출되지 않습니다.
+            </p>
+            <div className={`rounded-lg border px-4 py-2.5 text-sm ${orgPublished ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+              {orgPublished
+                ? <>✅ <b>{CURRENT_YEAR}년 조직평가결과가 공개 중입니다.</b></>
+                : <>🔒 <b>{CURRENT_YEAR}년 조직평가결과가 비공개입니다.</b></>}
+            </div>
+            <Button
+              onClick={handleOrgPublishToggle}
+              disabled={orgPublishing}
+              className={`w-full ${orgPublished ? '' : 'bg-green-600 hover:bg-green-700'}`}
+              variant={orgPublished ? 'outline' : 'default'}
+            >
+              {orgPublishing ? '처리 중...' : orgPublished ? '조직평가결과 공개 취소' : '조직평가결과 공개'}
+            </Button>
+          </div>
+        )}
 
         {/* 익년도 평가 시작 안내 */}
         {period?.isPublished && (
