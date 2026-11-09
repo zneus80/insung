@@ -3,6 +3,7 @@ import { Noto_Sans_KR } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/sonner';
+import UpdateNotice from '@/components/UpdateNotice';
 
 const notoSansKr = Noto_Sans_KR({
   subsets: ['latin'],
@@ -42,6 +43,7 @@ export default function RootLayout({
         <AuthProvider>
           {children}
           <Toaster richColors closeButton position="top-right" />
+          <UpdateNotice />
         </AuthProvider>
       </body>
     </html>

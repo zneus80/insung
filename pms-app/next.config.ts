@@ -1,4 +1,15 @@
 import type { NextConfig } from "next";
+import { execSync } from "node:child_process";
+
+/**
+ * 빌드ID — 새 버전 알림(components/UpdateNotice)이 쓴다. 매 배포마다 달라야 한다.
+ * git 해시가 잡히면 그걸(의미 있음), 못 잡으면(Cloud Build 컨테이너에 .git/git 없음) 빌드 시각으로.
+ * 클라이언트 번들·/version.json 라우트 둘 다 이 값을 박아, 열어둔 옛 화면이 서버의 새 값과 다르면 알림을 띄운다.
+ */
+function resolveBuildId(): string {
+  try { return execSync("git rev-parse --short=12 HEAD").toString().trim(); } catch { return `b${Date.now()}`; }
+}
+const BUILD_ID = process.env.NEXT_PUBLIC_BUILD_ID || resolveBuildId();
 
 /**
  * 보안 헤더.
@@ -40,6 +51,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: 'standalone',
   images: { unoptimized: true },
+  env: { NEXT_PUBLIC_BUILD_ID: BUILD_ID },
   async headers() {
     return [
       { source: '/(.*)', headers: securityHeaders },
