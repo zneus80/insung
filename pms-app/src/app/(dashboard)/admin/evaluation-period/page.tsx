@@ -295,6 +295,11 @@ function EvaluationPeriodContent() {
             공개 후 팀원·팀장이 본인의 최종 <strong>개인평가등급</strong>을 확인할 수 있습니다.
             공개 취소 시 평가기간을 다시 수정할 수 있습니다.
           </p>
+          <div className={`rounded-lg border px-4 py-2.5 text-sm ${period?.isPublished ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+            {period?.isPublished
+              ? <>✅ <b>{CURRENT_YEAR}년 개인평가결과가 공개 중입니다.</b></>
+              : <>🔒 <b>{CURRENT_YEAR}년 개인평가결과가 비공개입니다.</b></>}
+          </div>
           {period?.isPublished ? (
             <Button
               onClick={handleUnpublish}
@@ -302,7 +307,7 @@ function EvaluationPeriodContent() {
               variant="outline"
               className="w-full border-red-300 text-red-600 hover:bg-red-50"
             >
-              {publishing ? '처리 중...' : '평가 결과 공개 취소'}
+              {publishing ? '처리 중...' : '개인평가결과 공개 취소'}
             </Button>
           ) : (
             <Button
@@ -310,7 +315,7 @@ function EvaluationPeriodContent() {
               disabled={publishing || !period}
               className="w-full bg-purple-600 hover:bg-purple-700"
             >
-              {publishing ? '공개 중...' : '전체 공개하기'}
+              {publishing ? '공개 중...' : '개인평가결과 공개'}
             </Button>
           )}
         </div>
