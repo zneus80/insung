@@ -23,6 +23,7 @@ import {
 import { getPmIds } from '@/lib/innovation';
 import { roleRank } from '@/lib/user-sort';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEscToClose } from '@/hooks/useEscToClose';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import MemberInfoModal from '@/components/members/MemberInfoModal';
 import type { User, Organization, Mileage, Award } from '@/types';
@@ -52,6 +53,7 @@ interface RowData {
 }
 
 export default function OrgStatusModal({ onClose }: { onClose: () => void }) {
+  useEscToClose(true, onClose);
   const { userProfile } = useAuth();
   const { activeYear } = useActiveYear();
   // 3개년 인사평가 등급 — 팀장·임원·CEO·HR마스터에게만 노출 (HR관리자는 제외).

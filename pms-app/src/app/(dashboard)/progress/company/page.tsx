@@ -20,6 +20,7 @@ import {
 } from '@/lib/firestore';
 import { useActiveYear } from '@/contexts/ActiveYearContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEscToClose } from '@/hooks/useEscToClose';
 import Header from '@/components/layout/Header';
 import AuthGuard from '@/components/layout/AuthGuard';
 import { cn } from '@/lib/utils';
@@ -63,6 +64,7 @@ function Content({ embedded = false }: { embedded?: boolean }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   // 부문 카드에서 완료/추진중 클릭 시 뜨는 팝업(화면 스크롤 이동 없이 오버레이로 표시).
   const [popup, setPopup] = useState<{ label: string; cat: 'done' | 'ongoing'; goals: Goal[] } | null>(null);
+  useEscToClose(!!popup, () => setPopup(null));
 
   useEffect(() => {
     setLoading(true);

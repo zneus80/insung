@@ -7,6 +7,7 @@ import { getTier } from '@/lib/mileage-tier';
 import { getPmIds, getPerformerIds } from '@/lib/innovation';
 import { computePromotion, computeSmartProjectCounts } from '@/lib/promotion';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEscToClose } from '@/hooks/useEscToClose';
 import type { User, Mileage, Organization, Award, InnovationActivity } from '@/types';
 
 interface Props {
@@ -54,6 +55,7 @@ export default function MemberInfoModal({ userId, userName, targetRole, renderTr
   };
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<LoadedData | null>(null);
+  useEscToClose(open, () => setOpen(false));
 
   async function handleOpen() {
     setOpen(true);

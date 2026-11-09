@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { MentoringForm } from '@/types';
 import MentoringPerfBody from './MentoringPerfBody';
+import { useEscToClose } from '@/hooks/useEscToClose';
 
 interface Props {
   form: MentoringForm;
@@ -15,6 +16,7 @@ interface Props {
 
 export default function MentoringFormModal({ form, memberName, leadOpinion, execOpinion, trigger }: Props) {
   const [open, setOpen] = useState(false);
+  useEscToClose(open, () => setOpen(false));
 
   return (
     <>

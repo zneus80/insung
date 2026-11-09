@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEscToClose } from '@/hooks/useEscToClose';
 import {
   getAnnouncements,
   createAnnouncement,
@@ -32,6 +33,7 @@ export default function AnnouncementsPage() {
   const [formIsPinned, setFormIsPinned] = useState(false);
   const [formExpiresAt, setFormExpiresAt] = useState(''); // yyyy-MM-dd, 빈 값이면 무기한
   const [saving, setSaving] = useState(false);
+  useEscToClose(modalOpen, () => setModalOpen(false));
 
   async function loadAnnouncements() {
     try {

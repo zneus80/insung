@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Trophy } from 'lucide-react';
 import { getAllMileages, getAllUsers, getOrganizations } from '@/lib/firestore';
+import { useEscToClose } from '@/hooks/useEscToClose';
 import type { User, Organization } from '@/types';
 
 interface Row { userId: string; name: string; org: string; points: number; }
@@ -17,6 +18,7 @@ const MEDAL = ['bg-amber-100 text-amber-700 ring-amber-300', 'bg-gray-100 text-g
 const MEDAL_EMOJI = ['🥇', '🥈', '🥉'];
 
 export default function MileageTop10Modal({ onClose }: { onClose: () => void }) {
+  useEscToClose(true, onClose);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
 

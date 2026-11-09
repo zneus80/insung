@@ -9,12 +9,14 @@ import { useState } from 'react';
 import { Info, X, Award, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MILEAGE_TIERS } from '@/lib/mileage-tier';
+import { useEscToClose } from '@/hooks/useEscToClose';
 
 // 보상제도 표에 표시할 등급 — 누적 점수 구간별 라벨/아이콘 (mileage-tier.ts 단일 출처)
 const tierByMin = (min: number) => MILEAGE_TIERS.find(t => t.min === min);
 
 export default function PolicyGuideButton() {
   const [open, setOpen] = useState(false);
+  useEscToClose(open, () => setOpen(false));
 
   return (
     <>
